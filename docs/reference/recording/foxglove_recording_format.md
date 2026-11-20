@@ -1076,3 +1076,7 @@ The ROS 1 wire format is little-endian. A header is `uint32 seq`, `uint32 stamp_
 ## Viz relay attach check
 
 `VizSink` treats the relay as attached only after the relay has read some of what the connection sent. A frozen relay's listen backlog still completes `connect()` and buffers the first sends, so a connection alone proves nothing.
+
+## Workarounds
+
+- **`_decoder_from_fresh_factory`.** `mcap_io` builds a new protobuf `DecoderFactory` per schema and caches the decoder by schema name. A shared factory caches decoders by the file-local schema id, which collides across files: id 1 is `CompressedImage` in one recording and `RawImage` in another.

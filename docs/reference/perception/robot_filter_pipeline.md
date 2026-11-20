@@ -267,3 +267,7 @@ The sensing file's `dropout.enabled` is true by default. False delivers every ca
 ## Robot descriptions cache view
 
 The resolved robot set is a non-owning view. `robots` references either the `current` argument passed to `resolve()` or the cache's internal `previous_` snapshot. It stays valid until the next `resolve()` or `reset()`, and for the `current` branch also for the lifetime of the caller's argument.
+
+## Workarounds
+
+- **`fit_sensing_model.py` repeated measurements.** `drop_repeated_measurements` keeps a row only when its stamp is more than 10 ms after the previous one. The same measurement can be logged on two consecutive diagnostics messages.

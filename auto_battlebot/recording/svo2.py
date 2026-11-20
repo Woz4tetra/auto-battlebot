@@ -25,6 +25,7 @@ _READ_CHUNK = 1 << 20
 _DEFAULT_FPS = 30.0
 _FPS_SAMPLE_FRAMES = 240
 _STDERR_TAIL_LINES = 20
+FFMPEG_VSYNC_PASSTHROUGH = ("-vsync", "passthrough")
 
 
 def find_side_by_side_topic(path: Path | str) -> tuple[str, int]:
@@ -120,10 +121,7 @@ def iter_left_jpegs(
         "mjpeg",
         "-q:v",
         str(quality),
-        # `-vsync passthrough` rather than `-fps_mode`: the distro ffmpeg on 22.04 is 4.4,
-        # which predates `-fps_mode`, and newer builds still accept the old spelling.
-        "-vsync",
-        "passthrough",
+        *FFMPEG_VSYNC_PASSTHROUGH,
         "pipe:1",
     ]
     proc = subprocess.Popen(

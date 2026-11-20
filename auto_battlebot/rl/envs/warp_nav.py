@@ -53,6 +53,7 @@ from auto_battlebot.rl.envs.replay_tracks import ReplayTracks
 from auto_battlebot.rl.torch_plant import saturate
 
 REPO = Path(__file__).resolve().parents[3]
+MJ_MINMU = 1e-5
 DEFAULT_FIT = "playground/calibration/out/mujoco_sysid/fit_2026-10-15_yolo_brake/fit.json"
 PROVISIONAL_RL_SENSING = "simulation/sensing_models/provisional_rl.toml"
 MK3_SENSING = "simulation/sensing_models/provisional_rl_mrs_buff_mk3.toml"
@@ -278,12 +279,10 @@ def build_model(
     model_name: str = "mr_stabs_mk2",
 ) -> mujoco.MjModel:
     spec = mujoco.MjSpec.from_string(build_mjcf(mp, params, collision, timestep, model_name))
-    # MJ_MINMU, not zero: MuJoCo Warp warns that a zero coefficient can produce NaN, and contacts
-    # take the larger of the pair's values, so the robot's own friction still governs.
     common = {
         "contype": FLOOR_CONTYPE,
         "conaffinity": ROBOT_CONTYPE,
-        "friction": [1e-5, 1e-5, 1e-5],
+        "friction": [MJ_MINMU, MJ_MINMU, MJ_MINMU],
     }
     for i in range(WALL_MOCAPS):
         body = spec.worldbody.add_body(
@@ -377,19 +376,13 @@ class WarpNavEnv:
         if self.profile.weapon == Weapon.DISK_SWEEP_CYLINDER and self.mp.weapon is None:
             raise ValueError(f"{cfg.robot} scores a disk weapon but has no [weapon] sweep")
         self.fit = load_fit_params(REPO / resolved_fit_file(cfg))
-        # The fit's rolling friction (7.9e-6) is under MJ_MINMU, which MuJoCo Warp warns can give
-        # NaN with condim 6. The difference is far below anything the fit resolved.
-        self.fit = self.fit.replace(wheel_mu_roll=max(self.fit.wheel_mu_roll, 1e-5))
+        self.fit = self.fit.replace(wheel_mu_roll=max(self.fit.wheel_mu_roll, MJ_MINMU))
         self.motor = MotorConstants(gear_ratio=self.mp.gear_ratio, kt_nm_per_a=self.mp.motor_kt)
         self.mjm = build_model(self.mp, self.fit, self.collision, cfg.timestep_s, cfg.robot)
         mjd = mujoco.MjData(self.mjm)
         mujoco.mj_forward(self.mjm, mjd)
         self.index = ModelIndex.of(self.mjm)
         self.height = rest_height(self.mp, self.collision, cfg.timestep_s)
-        # geom_rbound and geom_aabb are the broadphase bounds. Compiled once from the MJCF's
-        # placeholder sizes, they would cull contacts with the outer part of any wall block or
-        # opponent this environment sizes larger, so they are batched and kept in step with
-        # geom_size (`_sync_bounds`).
         batched = {
             f: w
             for f in (
@@ -906,8 +899,7 @@ class WarpNavEnv:
         for g in (*self.wheel_geoms, *self.skid_geoms):
             fr[:, g, 0] = fr[:, g, 0] * mu
             fr[:, g, 1] = fr[:, g, 1] * mu
-        # The fit's rolling friction (7.9e-6) sits under MJ_MINMU; floor it there.
-        fr = fr.clamp(min=1e-5)
+        fr = fr.clamp(min=MJ_MINMU)
         self.geom_friction[:] = torch.where(mask[:, None, None], fr, self.geom_friction)
 
         track = self._uniform(*_scaled((0.9, 1.1), s))
@@ -1091,7 +1083,6 @@ class WarpNavEnv:
         oyaw = torch.atan2(
             2 * (oq[:, 0] * oq[:, 3] + oq[:, 1] * oq[:, 2]), 1 - 2 * (oq[:, 2] ** 2 + oq[:, 3] ** 2)
         )
-        # Clones: the qpos and mocap tensors are live views the next physics launch overwrites.
         return {
             "xy": q[:, :2].clone(),
             "yaw": yaw,
@@ -1114,6 +1105,9 @@ class WarpNavEnv:
             normal, tr["yaw"], ours.expand(self.num_worlds, 2)
         )
         return tr
+
+    def _compile_kernels_before_capture(self) -> None:
+        self._substeps()
 
     def _substeps(self) -> None:
         wp, mjw, kern = self._wp, self._mjw, self._k
@@ -1178,7 +1172,7 @@ class WarpNavEnv:
     def _physics(self) -> None:
         wp = self._wp
         if self._graph is None:
-            self._substeps()  # compile outside the capture
+            self._compile_kernels_before_capture()
             with wp.ScopedCapture() as capture:
                 self._substeps()
             self._graph = capture.graph

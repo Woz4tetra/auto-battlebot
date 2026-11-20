@@ -73,12 +73,14 @@ def topic_of(data: bytes) -> str:
 _PROTO_DECODERS: dict[str, Callable[[bytes], Any]] = {}
 
 
+def _decoder_from_fresh_factory(schema: Schema) -> Callable[[bytes], Any] | None:
+    return _ProtobufDecoderFactory().decoder_for("protobuf", schema)
+
+
 def _register_proto_schema(schema: Schema | None) -> None:
     if schema is None or schema.encoding != "protobuf" or schema.name in _PROTO_DECODERS:
         return
-    # One factory per schema: the factory caches decoders by the file-local schema id, which
-    # collides across files (id 1 is CompressedImage in one recording and RawImage in another).
-    decoder = _ProtobufDecoderFactory().decoder_for("protobuf", schema)
+    decoder = _decoder_from_fresh_factory(schema)
     if decoder is not None:
         _PROTO_DECODERS[schema.name] = decoder
 

@@ -100,13 +100,15 @@ class EpisodeScore:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+LEGACY_SCENARIO_EPISODE_S = 20.0
+
+
 class LockstepWorld:
     def __init__(
         self, scenario: dict[str, Any], cfg: WarpNavConfig | None = None, timestep: float = 1e-3
     ) -> None:
-        # Scenarios record the episode length they were exported with; older ones ran 20 s.
         self.cfg = cfg or WarpNavConfig(
-            episode_s=float(scenario.get("episode_s", 20.0)),
+            episode_s=float(scenario.get("episode_s", LEGACY_SCENARIO_EPISODE_S)),
             robot=str(scenario.get("robot", "mr_stabs_mk2")),
         )
         self.sc = scenario
@@ -442,7 +444,7 @@ class LockstepWorld:
         a_percent = -100.0 * sent
         b_percent = -100.0 * float(np.clip(angular, -1.0, 1.0))
         sub = self.timestep
-        wheel = 0.0  # mean wheel command the firmware wrote on the tick's last substep
+        wheel = 0.0
         for _ in range(max(1, round(dt / sub))):
             self.transport.append((a_percent, b_percent))
             a, b = self.transport.popleft()
@@ -469,7 +471,6 @@ class LockstepWorld:
                 upside_down=self.upside,
                 yaw_rate_dps=gyro_from_yaw_rate(self.yaw_rate),
             )
-            # After the mixer, as the firmware applies it.
             left *= self.guard_scale
             right *= self.guard_scale
             wheel = 0.5 * (left + right)

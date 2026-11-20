@@ -1,22 +1,4 @@
-"""Warp kernels for the RL navigation environment: the robot's command chain and contact flags.
-
-One physics substep is, in order: `command_path` (transport delay, firmware mixer and yaw loop,
-drivetrain delay, command shaping to wheel volts), `move_mocap` (the kinematic opponent and house
-bot), `mjw.step`, `classify_contacts`, `advance`. The environment captures a run of substeps as
-one CUDA graph.
-
-The firmware is `auto_battlebot/mujoco_sim/firmware.py`'s current-firmware path (`legacy=False`,
-auto steer on) ported line for line; `firmware_test` runs it alone so a test can compare it with
-the scalar `FirmwareMixer`. That is Mr Stabs Mk2's chain. Mrs Buff Mk3 has no onboard controller:
-the radio mixes linear and angular straight to her ESCs (`direct`), which run open loop with no
-eRPM feedback.
-
-Strikes: Mr Stabs Mk2's land on her wedge, a box at the nose. Mrs Buff Mk3's land on her weapon
-disk's sweep, the cylinder the disk fills when it spins; `weapon_sweep_hit` tests it against the
-opponent's box at sample points over the cylinder.
-
-No `from __future__ import annotations`: warp reads the annotations as live types.
-"""
+"""Warp kernels for the RL navigation environment: the robot's command chain and contact flags."""
 
 import warp as wp
 
@@ -215,8 +197,7 @@ def firmware_test(
 
 
 @wp.func
-def quat_yaw(q: wp.quat) -> float:
-    # MuJoCo quats are (w, x, y, z); warp's are (x, y, z, w).
+def yaw_of_warp_quat(q: wp.quat) -> float:
     return wp.atan2(2.0 * (q[3] * q[2] + q[0] * q[1]), 1.0 - 2.0 * (q[1] * q[1] + q[2] * q[2]))
 
 
@@ -257,7 +238,7 @@ def command_path(
     b_percent = -100.0 * wp.clamp(angular, -1.0, 1.0)
 
     q = mj_quat(qpos, w)
-    yaw = quat_yaw(q)
+    yaw = yaw_of_warp_quat(q)
     heading = 0.0 - yaw * 180.0 / PI
     heading = heading - 360.0 * wp.floor(heading / 360.0)
     omega_world = wp.quat_rotate(q, wp.vec3(qvel[w, 3], qvel[w, 4], qvel[w, 5]))

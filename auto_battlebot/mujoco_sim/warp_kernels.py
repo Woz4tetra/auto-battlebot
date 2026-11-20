@@ -1,9 +1,4 @@
-"""Warp kernels for the batched rollout: tape to ctrl, pose recording, the step counter.
-
-Kept in their own module, imported only when a rollout runs, so the rest of mujoco_sim loads
-without warp. No `from __future__ import annotations` here: warp reads the kernel annotations
-as live types.
-"""
+"""Warp kernels for the batched rollout: tape to ctrl, pose recording, the step counter."""
 
 import warp as wp
 

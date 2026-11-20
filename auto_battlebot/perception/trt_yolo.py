@@ -1,23 +1,4 @@
-"""TensorRT YOLO inference matching the C++ perception pipeline.
-
-Shared by training/yolo/test_tensorrt_video.py (video visualization) and
-auto_battlebot/eval (detector scoring). Mirrors the C++ YoloKeypointModel and
-YoloBboxRobotBlobModel pipeline: same letterbox preprocessing (114 padding, configurable
-sub-pixel padding nudge), same output decode, and same per-class NMS.
-
-Supports both head types:
-
-- raw pre-NMS: output [1, features, anchors] with features = 4 bbox + num_classes scores
-  + 3 * num_keypoints keypoint values, optionally followed by extra columns that are
-  ignored (YOLO-seg mask coefficients)
-- end2end post-NMS: output [1, max_det, features] with per-row
-  [x1, y1, x2, y2, conf, class_id, kp...]
-
-Detections are (xyxy, confidence, class_id, keypoints (K, 3)) tuples in original frame
-pixel coordinates.
-
-Requires: tensorrt, pycuda, opencv-python, numpy.
-"""
+"""TensorRT YOLO inference matching the C++ perception pipeline."""
 
 from __future__ import annotations
 
@@ -361,6 +342,13 @@ def resolve_num_classes(explicit: int, class_names: list[str] | None) -> int:
     return len(class_names) if class_names else 0
 
 
+def _allow_engine_host_code(runtime: Any) -> None:
+    if hasattr(runtime, "engine_host_code_allowed"):
+        runtime.engine_host_code_allowed = True
+    elif hasattr(runtime, "set_engine_host_code_allowed"):
+        runtime.set_engine_host_code_allowed(True)
+
+
 def load_engine(engine_path: str) -> tuple[Any, Any]:
     """Load TensorRT engine and create execution context."""
     import tensorrt as trt
@@ -369,12 +357,7 @@ def load_engine(engine_path: str) -> tuple[Any, Any]:
     with open(engine_path, "rb") as f:
         engine_data = f.read()
     runtime = trt.Runtime(logger)
-    # Allow engine host code (required for engines built with lean / host code,
-    # match C++ TrtEngine::load)
-    if hasattr(runtime, "engine_host_code_allowed"):
-        runtime.engine_host_code_allowed = True
-    elif hasattr(runtime, "set_engine_host_code_allowed"):
-        runtime.set_engine_host_code_allowed(True)
+    _allow_engine_host_code(runtime)
     engine = runtime.deserialize_cuda_engine(engine_data)
     if engine is None:
         raise RuntimeError("Failed to deserialize engine")

@@ -1,13 +1,4 @@
-"""Onshape URDF export of Mr Stabs Mk2: kinematics, lumped mass properties, tag frames.
-
-The export's root frame is the Onshape assembly frame: the axle runs along X_asm and the
-robot faces -Y_asm. The body frame used everywhere else (C++ filter, MJCF, smoother) is FLU
-at the axle midpoint, so x = -Y_asm, y = +X_asm, z = +Z_asm.
-
-The export carries no mass for the motors, ESCs, flight controller, batteries or switch (Onshape
-mass overrides do not survive it), so only the wheels are lumped from it. The chassis is the
-Onshape whole-assembly total minus the wheels; see `chassis_from_assembly`.
-"""
+"""Onshape URDF export of Mr Stabs Mk2: kinematics, lumped mass properties, tag frames."""
 
 from __future__ import annotations
 

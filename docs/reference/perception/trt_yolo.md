@@ -26,3 +26,7 @@ Auto-inferring `num_classes` (0) only works for single-class engines. A 4-class 
 ## Rectangular input size
 
 A 16:9 source letterboxed into a square 640x640 tensor wastes 44% of it on grey padding. `training/yolo/convert_to_onnx.py --imgsz 384 640` cuts that to 6% at the same detection scale. Both sides must be multiples of 32. The C++ model reads the shape from the engine, so a rectangular engine is a drop-in swap.
+
+## Workarounds
+
+- **`_allow_engine_host_code`.** `load_engine` sets `engine_host_code_allowed` (or calls `set_engine_host_code_allowed` on older bindings) on the runtime. Engines built with lean runtime or host code need it, and C++ `TrtEngine::load` does the same.
