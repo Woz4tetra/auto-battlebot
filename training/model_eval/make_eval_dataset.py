@@ -13,18 +13,17 @@ import yaml
 from mcap.reader import make_reader
 from tqdm import tqdm
 
-from auto_battlebot.compat import tomllib
 from auto_battlebot.recording.mcap_io import (
     CAMERA_IMAGE_TOPIC,
     decode_compressed_image,
     iter_messages,
 )
+from auto_battlebot.recording.svo_start_frames import DEFAULT_START_FRAMES, load_start_frames
 
 _HERE = Path(__file__).parent
 _REPO = _HERE.parent.parent
 DEFAULT_OUTPUT_DIR = _HERE.parent / "data" / "nhrl_keypoints_eval_test"
 DEFAULT_CLASS_SOURCE = _HERE.parent / "data" / "our_robot_keypoints" / "data.yml"
-DEFAULT_START_FRAMES = _REPO / "config" / "playback" / "svo_start_frames.toml"
 SIDE_BY_SIDE_MIN_ASPECT = (16 / 9 + 32 / 9) / 2
 EXTRA_COLORS = ["#22c55e", "#f59e0b", "#a855f7", "#14b8a6", "#f43f5e"]
 
@@ -66,14 +65,6 @@ def image_frame_count(mcap_path: Path) -> int:
     if channel_id is None:
         return 0
     return summary.statistics.channel_message_counts.get(channel_id, 0)
-
-
-def load_start_frames(path: Path) -> dict[str, int]:
-    """Map SVO basename (no dir, no .svo2) -> svo_start_frame; recordings not listed start at 0."""
-    if not path.exists():
-        print(f"Warning: start frame table {path} not found; using start frame 0 for all")
-        return {}
-    return {str(k): int(v) for k, v in tomllib.loads(path.read_text())["start_frames"].items()}
 
 
 def svo_key(mcap_path: Path) -> str:
