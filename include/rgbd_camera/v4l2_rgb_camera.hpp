@@ -49,9 +49,6 @@ class V4l2RgbCamera : public RgbdCameraInterface {
     void close_device();
     void capture_thread_loop();
     bool capture_frame();
-    /** Dequeue every queued buffer and keep the newest. More buffers means the pipeline reads
-     *  staler frames when it falls behind, so the queue is drained rather than consumed in order.
-     */
     int dequeue_newest(uint64_t &capture_time_ns);
 
     V4l2RgbCameraConfiguration config_;

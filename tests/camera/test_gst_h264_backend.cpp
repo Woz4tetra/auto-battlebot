@@ -63,7 +63,6 @@ TEST_P(GstH264BackendTest, EncodesEveryFrameWithItsPtsOnlyFirstAndForcedAsIdrWit
     constexpr int kForced = 40;
     for (int i = 0; i < kFrames; ++i) {
         cv::Mat frame(options.height, options.width, type, cv::Scalar::all((i * 4) % 255));
-        // Paced like a camera, so the drop-when-queued guard never fires.
         while (!backend->encode(frame.clone(), i, i == kForced)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }

@@ -54,9 +54,6 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     std::atomic<bool> stop_capture_thread_;
     std::atomic<bool> last_grab_ok_;
 
-    // Frame handoff between capture thread and get(). Counters guarded by data_mutex_.
-    // Every captured frame carries depth, so get() never has to request one and wait: it takes
-    // whatever the capture thread last published, same as it does for RGB.
     std::atomic<uint64_t> frame_counter_;
     mutable uint64_t last_returned_frame_counter_;
 
@@ -65,7 +62,6 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     std::unique_ptr<SvoRecorder> svo_recorder_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
-    // Capture timing statistics (protected by data_mutex_)
     mutable uint64_t captures_since_last_report_;
     mutable double capture_time_sum_ms_;
     mutable double capture_time_min_ms_;

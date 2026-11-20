@@ -281,8 +281,6 @@ bool V4l2RgbCamera::initialize() {
         mcap_recorder_->write_metadata(kCameraCalibrationMetadataKey,
                                        camera_calibration_to_toml(calibration_));
     }
-    // Fatal: a session recorded without its video cannot be replayed, and nobody finds out until
-    // the morning after. Turning recording off in the config is the explicit way past it.
     if (mcap_recorder_ && recording_desired_.load() && !start_encoder()) {
         throw std::runtime_error(
             "[V4l2RgbCamera] video_recording is on but no H.264 encoder opened (tried " +
@@ -314,9 +312,6 @@ int V4l2RgbCamera::dequeue_newest(uint64_t &capture_time_ns) {
             requeue_buffer(fd_, static_cast<uint32_t>(newest));
         }
         newest = static_cast<int>(buffer.index);
-        // V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC: the kernel's capture instant on CLOCK_MONOTONIC.
-        // Not the wall clock, because the replay path depends on the frame stamp being the moment
-        // the sensor was read.
         capture_time_ns = static_cast<uint64_t>(buffer.timestamp.tv_sec) * 1000000000ULL +
                           static_cast<uint64_t>(buffer.timestamp.tv_usec) * 1000ULL;
     }
@@ -355,8 +350,6 @@ bool V4l2RgbCamera::capture_frame() {
 
     const int64_t video_frame_index = encoder_.submit(uyvy, mcap_log_time_ns());
 
-    // Pinned, so the keypoint model's GPU preprocess reads the frame in place. Both Mats take the
-    // allocator because an uncalibrated rectifier hands `bgr` through unchanged.
     cv::Mat bgr;
     bgr.allocator = PinnedMatAllocator::instance();
     cv::cvtColor(uyvy, bgr, cv::COLOR_YUV2BGR_UYVY);
@@ -369,7 +362,6 @@ bool V4l2RgbCamera::capture_frame() {
         latest_data_.rgb.image = require_rgb_layout(rectified);
         latest_data_.rgb.header.stamp = static_cast<double>(capture_time_ns) * 1e-9;
         latest_data_.rgb.header.frame_id = FrameId::CAMERA;
-        // Foxglove image panels reject a calibration whose frame differs from the image's.
         latest_data_.camera_info.header = latest_data_.rgb.header;
         latest_data_.depth.image = cv::Mat();
         latest_data_.pose_tracking_ready = true;
@@ -444,7 +436,6 @@ bool V4l2RgbCamera::start_encoder() {
     if (!encoder_.start(
             encoder_options, [this](const std::byte *data, size_t len, uint64_t log_time_ns, bool) {
                 foxglove::schemas::CompressedVideo message;
-                // Foxglove's decoder rejects a frame whose timestamp is not after the previous one.
                 message.timestamp =
                     foxglove_adapters::to_timestamp(static_cast<double>(log_time_ns) * 1e-9);
                 message.frame_id = "camera";

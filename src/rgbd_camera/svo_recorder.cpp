@@ -111,8 +111,6 @@ SvoRecorder::FrameRef SvoRecorder::on_frame_grabbed() {
         std::lock_guard<std::mutex> lock(mutex_);
         active_path = current_path_;
         if (desired_.load() && !active_path.empty()) {
-            // The SDK wrote this frame to the file that is open right now. Claim its index
-            // before the size check below can roll the file over.
             frame.path = active_path.string();
             frame.index = ++frame_index_;
         }
@@ -129,7 +127,6 @@ SvoRecorder::FrameRef SvoRecorder::on_frame_grabbed() {
 
     std::unique_lock<std::mutex> lifecycle(lifecycle_mutex_, std::try_to_lock);
     if (!lifecycle.owns_lock()) return frame;
-    // Turned off, or already cut, since the size check: rolling over would restart it.
     if (!desired_.load() || current_path() != active_path.string()) return frame;
     stop_locked(lifecycle);
     start_locked(lifecycle);

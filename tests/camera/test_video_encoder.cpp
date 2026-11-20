@@ -19,7 +19,6 @@ class OneBytePerFrameBackendRefusingPts : public H264Backend {
     OneBytePerFrameBackendRefusingPts(VideoEncoder::BackendSink sink, int64_t refuse_pts)
         : sink_(std::move(sink)), refuse_pts_(refuse_pts) {}
     bool encode(cv::Mat, int64_t pts, bool) override {
-        // Slow enough that frames queue up behind the refused one.
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
         if (pts == refuse_pts_) return false;
         const std::byte byte{0};
@@ -189,9 +188,6 @@ TEST(VideoEncoderTest, RequestKeyframeMakesTheNextFrameAKeyframe) {
         if (keyframe_by_log_time[t]) requested_keyframes.push_back(t);
     }
     ASSERT_EQ(requested_keyframes.size(), 1u) << encoder.codec_name();
-    // nvv4l2h264enc's force-IDR applies to the next frame the hardware encodes. When the hardware
-    // is a frame behind, that is the one before the requested frame. One frame early still lets a
-    // new preview viewer start decoding at once, which is all request_keyframe() is for.
     if (encoder.codec_name() == "nvv4l2h264enc") {
         EXPECT_GE(requested_keyframes[0], 7u);
         EXPECT_LE(requested_keyframes[0], 8u);

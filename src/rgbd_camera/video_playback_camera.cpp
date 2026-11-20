@@ -315,10 +315,6 @@ void VideoPlaybackCamera::pace(double stamp_seconds) {
         return;
     }
 
-    // Sleep until the instant this frame is due, not for the interval since the last one. The
-    // pipeline's work on a frame has to come out of that interval; sleeping a full interval on top
-    // of it made the wall-clock period `interval + pipeline_work`, which on 59.94 fps cage footage
-    // played back at 40 fps.
     const std::chrono::duration<double> offset(stamp_seconds - pace_anchor_stamp_s_);
     const auto target =
         pace_anchor_ + std::chrono::duration_cast<std::chrono::steady_clock::duration>(offset);

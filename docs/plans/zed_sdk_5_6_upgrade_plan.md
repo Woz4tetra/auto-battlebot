@@ -30,11 +30,11 @@ From the 5.5 and 5.6.0 release notes as read on 2026-11-20. Recheck each against
 
 | Workaround | Where | Release note | Expected after the upgrade |
 | --- | --- | --- | --- |
-| Exposure and gain read back -1; `read_settings` substitutes the last applied value | `zed_one_rgb_camera.cpp` `get_or` (around line 339) | 5.6.0: `getCameraSettings()` no longer returns -1 for EXPOSURE/GAIN in auto mode | Reads return real values in auto and manual |
-| A repeated value is skipped, so each write is preceded by a neighbouring value | `zed_one_rgb_camera.cpp` `set` lambda, `nudge` (around line 393) | 5.6.0: writes that were not applied now return an error, and setting a previous value is applied, but the notes name USB cameras only | Unknown for GMSL. Test it |
-| `AE_ANTIBANDING` behind `AB_ZED_HAS_ANTIBANDING` | `zed_one_rgb_camera.cpp` lines 37, 353, 376, 423 | Added in 5.3.0. On ZED X cameras it read back -1 until 5.6.0 | Guard can go once every box with ZED code builds on SDK 5.3 or newer |
-| Rectified BGRA retrieved, then `cvtColor` to BGR every frame | `zed_one_rgb_camera.cpp` around line 213 | No `LEFT_BGR` view in any release through 5.6.0 | Stays, unless 5.6.1 adds the view |
-| Destructor `_Exit`s on a `grab()` that will not return | `zed_one_rgb_camera.cpp` around line 66 | 5.6.0: GMSL `close()` could hang and `CameraOne::close()` crashed while streaming; both fixed | Retest. Keep the guard if a hang is seen once |
+| Exposure and gain read back -1; `read_settings` substitutes the last applied value | `zed_one_rgb_camera.cpp` `get_or` in `read_settings` | 5.6.0: `getCameraSettings()` no longer returns -1 for EXPOSURE/GAIN in auto mode | Reads return real values in auto and manual |
+| A repeated value is skipped, so each write is preceded by a neighbouring value | `zed_one_rgb_camera.cpp` `set` lambda in `apply_settings`, `nudge` | 5.6.0: writes that were not applied now return an error, and setting a previous value is applied, but the notes name USB cameras only | Unknown for GMSL. Test it |
+| `AE_ANTIBANDING` behind `AB_ZED_HAS_ANTIBANDING` | `zed_one_rgb_camera.cpp` `AB_ZED_HAS_ANTIBANDING` | Added in 5.3.0. On ZED X cameras it read back -1 until 5.6.0 | Guard can go once every box with ZED code builds on SDK 5.3 or newer |
+| Rectified BGRA retrieved, then `cvtColor` to BGR every frame | `zed_one_rgb_camera.cpp` `capture_frame` `cvtColor` after `retrieveImage` | No `LEFT_BGR` view in any release through 5.6.0 | Stays, unless 5.6.1 adds the view |
+| Destructor `_Exit`s on a `grab()` that will not return | `zed_one_rgb_camera.cpp` `~ZedOneRgbCamera` | 5.6.0: GMSL `close()` could hang and `CameraOne::close()` crashed while streaming; both fixed | Retest. Keep the guard if a hang is seen once |
 | A stuck `open()` is leaked after 30 s so shutdown cannot hang | `src/rgbd_camera/zed_device.cpp` `kOpenHardTimeout`, `g_leaked_open_futures` | 5.6.0: Argus daemon restarts no longer leave cameras stuck | Keep. It guards a hardware failure, not only an SDK bug |
 
 ## Before the upgrade

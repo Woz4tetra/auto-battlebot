@@ -70,11 +70,6 @@ class ZedDevice {
     void set_params(const sl::InitParameters &params) { params_ = params; }
     sl::InitParameters &params() { return params_; }
 
-    /**
-     * Opens on a background thread so `cancel` can be polled while the SDK call blocks. Returns
-     * Leaked when a cancelled open had to be abandoned, in which case the handle must not be
-     * touched again.
-     */
     OpenResult open(const std::atomic<bool> &cancel);
 
     bool await_or_leak_open(const char *context, const char *validation_label);

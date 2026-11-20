@@ -22,18 +22,6 @@
 #include "rgbd_camera/video_encoder.hpp"
 
 namespace auto_battlebot {
-/**
- * @brief Monocular ZED X One (the ZED X One S on the ZED Box Mini) through `sl::CameraOne`.
- *
- * The RGB-only counterpart of ZedRgbdCamera, shaped like V4l2RgbCamera: `CameraData::depth` is
- * empty, so the height gate abstains and the field filter must be one of the RGB ones, and
- * `tf_visodom_from_camera` is identity because a clamped camera does not move.
- *
- * Frames come back rectified by the SDK against the factory calibration. That lens model is
- * rational with thin-prism terms, which `CameraCalibration` cannot represent, so the rectified
- * stream is what gets published and recorded. The recording embeds the rectified intrinsics with
- * zero distortion in its MCAP metadata, which is all VideoPlaybackCamera needs to replay it.
- */
 class ZedOneRgbCamera : public RgbdCameraInterface {
    public:
     ZedOneRgbCamera(const ZedOneRgbCameraConfiguration &config,
@@ -53,7 +41,6 @@ class ZedOneRgbCamera : public RgbdCameraInterface {
 
    private:
     bool open_camera();
-    /** Current value of every control. Fields the SDK reports as -1 keep their `known` value. */
     CameraSettings read_settings(const CameraSettings &known);
     CameraSettingLimits read_limits();
     void apply_settings(const CameraSettings &settings);
@@ -80,7 +67,6 @@ class ZedOneRgbCamera : public RgbdCameraInterface {
     std::atomic<bool> is_initialized_{false};
     std::atomic<bool> should_close_{false};
     std::atomic<bool> stop_thread_{false};
-    /** Set by the capture thread as it exits, so the destructor can bound its wait. */
     std::atomic<bool> capture_thread_done_{false};
     std::atomic<uint64_t> frame_counter_{0};
     mutable uint64_t last_returned_frame_counter_ = 0;

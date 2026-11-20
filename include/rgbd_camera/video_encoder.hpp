@@ -80,7 +80,6 @@ class VideoEncoder {
     std::unique_ptr<H264Backend> backend_;
 
     int64_t next_pts_ = 0;
-    /** Guarded by mutex_. Equals next_pts_ once the queue drains. */
     int64_t next_submit_index_ = 0;
     std::unordered_map<int64_t, uint64_t> log_time_by_frame_ordinal_;
     std::mutex pts_mutex_;

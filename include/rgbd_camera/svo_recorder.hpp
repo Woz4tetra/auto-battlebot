@@ -33,13 +33,6 @@ class SvoRecorder {
         int64_t index = -1;
     };
 
-    /**
-     * @brief Called once per successful grab; rolls the file over past the size cap.
-     *
-     * Returns where the frame that was just grabbed landed. The return value is captured
-     * before any rollover, so it names the file the frame actually went into rather than
-     * the fresh one the next frame will use.
-     */
     FrameRef on_frame_grabbed();
 
    private:

@@ -46,7 +46,6 @@ ZedSvoPlaybackCamera::ZedSvoPlaybackCamera(ZedSvoPlaybackCameraConfiguration &co
 ZedSvoPlaybackCamera::~ZedSvoPlaybackCamera() {
     cancel_open_ = true;
     if (device_.has_pending_open()) {
-        // A leaked open leaves the handle in use by a background SDK call; closing it would race.
         if (!device_.await_or_leak_open("ZedSvoPlaybackCamera destructor",
                                         "pending_open_wait_destructor")) {
             return;
@@ -107,7 +106,6 @@ bool ZedSvoPlaybackCamera::get(CameraData &data) {
     }
     if (status == ZedDevice::GrabStatus::TransientError) return false;
     if (status != ZedDevice::GrabStatus::Ok) {
-        // A file does not disconnect, so a real grab error here is not recoverable by retrying.
         should_close_ = true;
         return false;
     }

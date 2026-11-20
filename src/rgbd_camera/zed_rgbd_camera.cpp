@@ -18,8 +18,6 @@ constexpr uint64_t kBytesPerGb = 1024ULL * 1024ULL * 1024ULL;
 constexpr auto kGrabErrorWindow = std::chrono::seconds(10);
 constexpr double kGrabErrorExitThreshold = 0.70;
 constexpr auto kGetWaitTimeout = std::chrono::milliseconds(100);
-// get() gives up past this with no frame, so the runner gets its tick back to read quit and
-// reboot commands and to reinitialize the camera. A healthy ZED never goes this long.
 constexpr auto kGetDeadline = std::chrono::seconds(2);
 constexpr auto kTransientErrorBackoff = std::chrono::milliseconds(5);
 constexpr double kOpenWaitWarnMs = 2000.0;
@@ -89,9 +87,6 @@ ZedRgbdCamera::ZedRgbdCamera(ZedRgbdCameraConfiguration &config)
 ZedRgbdCamera::~ZedRgbdCamera() {
     cancel_open_ = true;
     if (device_.has_pending_open()) {
-        // capture_running_ is false (only set after a successful open returns), so on a leaked
-        // open the capture-thread / zed_.close() block below is correctly skipped. Returning
-        // also avoids racing zed_.close() against the still-running zed_.open() call.
         if (!device_.await_or_leak_open("ZedRgbdCamera destructor",
                                         "pending_open_wait_destructor")) {
             return;
@@ -106,9 +101,6 @@ ZedRgbdCamera::~ZedRgbdCamera() {
                                                   "ZedRgbdCamera destructor");
             warn_if_slow(join_start, "capture_thread_join_destructor", kJoinWaitWarnMs);
             if (!joined) {
-                // Detached capture thread is potentially still inside zed_.grab(); calling
-                // svo_recorder_->stop() / zed_.close() concurrently against the same handle
-                // would race the SDK. Skip them and let the OS reap on process exit.
                 return;
             }
         }
@@ -130,9 +122,6 @@ bool ZedRgbdCamera::initialize() {
             join_with_timeout(capture_thread_, capture_thread_done_, "ZedRgbdCamera::initialize");
         warn_if_slow(join_start, "capture_thread_join_initialize", kJoinWaitWarnMs);
         if (!joined) {
-            // Old capture thread is detached and may still be inside zed_.grab(). Re-opening
-            // the same SDK handle while another thread is using it would race; signal a soft
-            // shutdown so the runner exits cleanly via Restart=on-failure rather than racing.
             shutdown_requested_ = true;
             return false;
         }
@@ -247,12 +236,7 @@ bool ZedRgbdCamera::capture_frame() {
         return false;
     }
 
-    // Record which camera frame this is, independent of the stamp. TIME_REFERENCE::IMAGE runs
-    // about half a frame ahead of what the SVO recorder writes for the same grab, so a
-    // timestamp alone cannot join recorded output back to SVO frames after the fact.
     latest_data_.frame_identity.video_frame_index = svo_frame.index;
-    // Publish the frame while holding data_mutex_: bump frame_counter_ so waiting get() calls
-    // observe a fully populated frame.
     frame_counter_++;
 
     auto capture_end = std::chrono::steady_clock::now();

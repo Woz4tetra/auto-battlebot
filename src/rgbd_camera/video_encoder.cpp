@@ -77,7 +77,6 @@ bool VideoEncoder::start(const VideoEncoderOptions &options, PacketSink sink,
         backend_ = open_ffmpeg_h264(kFfmpegSoftware, options_, deliver_packet);
     }
 #ifdef AUTO_BATTLEBOT_HAVE_GSTREAMER
-    // NVIDIA's FFmpeg on JetPack 7 has no libx264; GStreamer's x264enc stands in.
     if (!backend_ && !factory && software_allowed(options_)) {
         backend_ = open_gst_x264(options_, deliver_packet);
     }
@@ -118,9 +117,6 @@ bool VideoEncoder::software_encoder_available() {
 void VideoEncoder::stop() {
     if (running_.load()) {
         {
-            // Under the lock, so submit() sees it before the encode thread can drain and exit.
-            // Set outside it, a frame submitted in between sat in the queue and opened the next
-            // recording as its first packet, two seconds stale, with every index after it shifted.
             std::lock_guard<std::mutex> lock(mutex_);
             stopping_.store(true);
         }

@@ -27,9 +27,6 @@ void warn_if_slow(const std::chrono::steady_clock::time_point &start, const char
     }
 }
 
-// Deliberate static leak: a std::future whose underlying task wedged inside the ZED SDK cannot be
-// safely destroyed, because its destructor blocks on that task. On hard timeout the stuck future
-// is moved here so it outlives the rest of the program and shutdown can proceed.
 std::vector<std::future<sl::ERROR_CODE>> *g_leaked_open_futures =
     new std::vector<std::future<sl::ERROR_CODE>>;
 std::mutex *g_leaked_open_futures_mutex = new std::mutex;
@@ -71,8 +68,6 @@ ZedDevice::OpenResult ZedDevice::open(const std::atomic<bool> &cancel) {
 
     while (pending_open_.wait_for(std::chrono::milliseconds(50)) != std::future_status::ready) {
         if (cancel) {
-            // zed_.open() cannot be interrupted, so wait for it to return before leaving: the
-            // handle must never be used concurrently or destroyed mid-open.
             if (!await_or_leak_open("ZedDevice::open cancel", "pending_open_wait_cancel")) {
                 return OpenResult::Leaked;
             }
@@ -197,8 +192,6 @@ bool ZedDevice::retrieve(CameraData &out) {
         return false;
     }
 
-    // TIME_REFERENCE::IMAGE is the capture instant live, and the original recording time in
-    // replay, which lets a ManualClock drive the pipeline off the frame stamp.
     const sl::Timestamp timestamp = zed_.getTimestamp(sl::TIME_REFERENCE::IMAGE);
     const double stamp = static_cast<double>(timestamp.getNanoseconds()) / 1e9;
     out.frame_identity.image_stamp_ns = timestamp.getNanoseconds();
@@ -228,16 +221,6 @@ bool ZedDevice::retrieve(CameraData &out) {
         out.pose_tracking_ready = true;
     }
 
-    // Convert into a fresh Mat rather than reusing out.rgb.image. Consumers are handed a shallow
-    // cv::Mat that shares this buffer, and cv::Mat::create() reuses an existing allocation whenever
-    // size and type match without consulting the reference count, so converting straight into the
-    // destination would overwrite pixels a consumer is still reading one frame behind. A per-frame
-    // buffer lets that reference keep its allocation alive. One allocation per frame and no extra
-    // copy: the conversion writes the full image either way.
-    //
-    // Both Mats take the SDK's own step. The default AUTO_STEP assumes width*elem_size, which
-    // the SDK does not promise; on a padded allocation that reads each row further into the
-    // previous one and shears the image down the frame.
     log_buffer_geometry(zed_rgb_, "rgb", 4, rgb_geometry_);
     cv::Mat zed_rgb_mat(zed_rgb_.getHeight(), zed_rgb_.getWidth(), CV_8UC4,
                         zed_rgb_.getPtr<sl::uchar1>(), zed_rgb_.getStepBytes(sl::MEM::CPU));

@@ -52,8 +52,6 @@ class FfmpegH264Backend : public H264Backend {
             av_opt_set(context_->priv_data, "tune", "zerolatency", 0);
             if (options_.software_preview) context_->thread_count = 1;
         }
-        // A forced keyframe is an IDR, not just an I-frame, so a new viewer can decode from it.
-        // Encoders without the option ignore it.
         av_opt_set(context_->priv_data, "forced-idr", "1", 0);
         if (avcodec_open2(context_, codec, nullptr) < 0) {
             return false;

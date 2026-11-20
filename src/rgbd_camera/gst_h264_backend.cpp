@@ -44,8 +44,6 @@ GstElement *make_element(const char *factory, const char *name) {
     return element;
 }
 
-/** The appsrc format. For nvvidconv, BGR is converted to BGRA in encode(): it has no 3-channel
- *  input. videoconvert takes BGR as is. */
 const char *gst_format_name(VideoInputFormat format, bool hardware) {
     switch (format) {
         case VideoInputFormat::UYVY:
@@ -101,10 +99,6 @@ class GstH264Backend : public H264Backend {
         appsrc_ = GST_APP_SRC(source);
         gst_bin_add_many(GST_BIN(pipeline_), source, convert, encoder, parse, sink, nullptr);
         encoder_ = encoder;
-        // The keyframe request fires from a probe on the encoder's input as the requested frame
-        // arrives, so it lands on that frame however many frames appsrc held ahead of it.
-        // nvv4l2h264enc ignores the force-key-unit event and takes its force-IDR action instead;
-        // x264enc takes the event.
         GstPad *encoder_input = gst_element_get_static_pad(encoder, "sink");
         gst_pad_add_probe(encoder_input, GST_PAD_PROBE_TYPE_BUFFER,
                           &GstH264Backend::on_encoder_input, this, nullptr);
@@ -115,8 +109,6 @@ class GstH264Backend : public H264Backend {
             gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, format, "width", G_TYPE_INT,
                                 options_.width, "height", G_TYPE_INT, options_.height, "framerate",
                                 GST_TYPE_FRACTION, options_.fps, 1, nullptr);
-        // Not blocking: encode() runs on VideoEncoder's thread, and a push that waits on a stalled
-        // pipeline would hang stop(). encode() drops instead, and VideoEncoder counts it.
         g_object_set(source, "caps", raw, "is-live", TRUE, "format", GST_FORMAT_TIME, "block",
                      FALSE, "do-timestamp", FALSE, nullptr);
         gst_caps_unref(raw);
@@ -158,15 +150,10 @@ class GstH264Backend : public H264Backend {
             return false;
         }
 
-        // Messages are only read in finish(). Anything else would pile up on the bus for hours.
         GstBus *bus = gst_element_get_bus(pipeline_);
         gst_bus_set_sync_handler(bus, &GstH264Backend::on_bus_message, nullptr, nullptr);
         gst_object_unref(bus);
 
-        // nvv4l2h264enc opens /dev/v4l2-nvenc on the way to READY, so a box without the encoder
-        // block fails here, before the first frame. Never wait on get_state: a live appsrc with
-        // no frames yet does not preroll, so the wait always ran to its timeout, and that blocked
-        // the runner (recording toggle) or the publisher (preview subscribe) for 2 s each time.
         if (gst_element_set_state(pipeline_, GST_STATE_READY) == GST_STATE_CHANGE_FAILURE ||
             gst_element_set_state(pipeline_, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
             spdlog::warn("[VideoEncoder] The {} pipeline did not start", name_);
@@ -247,8 +234,6 @@ class GstH264Backend : public H264Backend {
         if (force && self->hardware_) {
             g_signal_emit_by_name(self->encoder_, "force-IDR");
         } else if (force) {
-            // gst_video_event_new_downstream_force_key_unit() without linking gstreamer-video:
-            // the structure is the event. No running time means the next frame, which is this one.
             GstStructure *request = gst_structure_new(
                 "GstForceKeyUnit", "timestamp", G_TYPE_UINT64, GST_CLOCK_TIME_NONE, "stream-time",
                 G_TYPE_UINT64, GST_CLOCK_TIME_NONE, "running-time", G_TYPE_UINT64,
@@ -268,10 +253,6 @@ class GstH264Backend : public H264Backend {
         GstBuffer *buffer = gst_sample_get_buffer(sample);
         GstMapInfo map;
         if (buffer != nullptr && gst_buffer_map(buffer, &map, GST_MAP_READ)) {
-            // Running time, not the raw PTS: x264enc (a GstVideoEncoder) shifts its output PTS
-            // and segment by 1000 hours to keep DTS positive, and VideoEncoder drops a packet
-            // whose ordinal matches no frame it queued. nvv4l2h264enc does not shift, and there
-            // the two are equal.
             const GstClockTime running_time = gst_segment_to_running_time(
                 gst_sample_get_segment(sample), GST_FORMAT_TIME, GST_BUFFER_PTS(buffer));
             const auto pts = static_cast<int64_t>(gst_util_uint64_scale_round(

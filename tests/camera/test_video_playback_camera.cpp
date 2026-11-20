@@ -262,7 +262,6 @@ TEST_F(VideoPlaybackCameraTest, ReachesTheEndOfTheRecording) {
         ++frames;
     }
     EXPECT_TRUE(camera.should_close());
-    // The decoder primes on the first packets, so a frame or two may not come out.
     EXPECT_GE(frames, kFrames - 2);
     EXPECT_LE(frames, kFrames);
     EXPECT_EQ(camera.recorded_calibration_id(), kCalibrationId);

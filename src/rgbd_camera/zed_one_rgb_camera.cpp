@@ -32,8 +32,6 @@ constexpr auto kCaptureThreadJoinTimeout = std::chrono::seconds(3);
 constexpr const char *kVideoTopic = "/camera/video";
 }  // namespace
 
-// AE_ANTIBANDING is in SDK 5.5 (dev machines) but not 5.2 (the ZED Box). Without it the control
-// reports unsupported and the dashboard hides it; a profile's anti_banding is kept but not sent.
 #define AB_ZED_HAS_ANTIBANDING \
     (ZED_SDK_MAJOR_VERSION > 5 || (ZED_SDK_MAJOR_VERSION == 5 && ZED_SDK_MINOR_VERSION >= 5))
 
@@ -55,9 +53,6 @@ ZedOneRgbCamera::~ZedOneRgbCamera() {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         if (!capture_thread_done_.load()) {
-            // Joining would hang until systemd kills the process 90 s later. Detaching would
-            // leave the thread inside grab() on a camera this destructor is about to free.
-            // Runner::run() closed the recordings before any destructor ran, so exit now.
             spdlog::critical(
                 "[ZedOneRgbCamera] Capture thread stuck in grab() for {} s at "
                 "shutdown; exiting",
@@ -69,7 +64,6 @@ ZedOneRgbCamera::~ZedOneRgbCamera() {
     }
     encoder_.stop();
     if (pending_open_.valid()) {
-        // open() cannot be interrupted, and the handle must not be closed while it runs.
         pending_open_.wait();
     }
     zed_.close();
@@ -116,8 +110,6 @@ void ZedOneRgbCamera::read_calibration() {
     info.distortion = cv::Mat::zeros(1, 5, CV_64F);
     latest_data_.camera_info = info;
 
-    // Rectified intrinsics with zero distortion describe the recorded video exactly. Resolution
-    // is in the id because the cropped 1920x1080 mode shifts cy.
     calibration_.calibration_id = "zed_x_one_" + std::to_string(information.serial_number) + "_" +
                                   std::to_string(width_) + "x" + std::to_string(height_);
     calibration_.width = width_;
@@ -145,7 +137,6 @@ bool ZedOneRgbCamera::start_encoder() {
     if (!encoder_.start(
             encoder_options, [this](const std::byte *data, size_t len, uint64_t log_time_ns, bool) {
                 foxglove::schemas::CompressedVideo message;
-                // Foxglove's decoder rejects a frame whose timestamp is not after the previous one.
                 message.timestamp =
                     foxglove_adapters::to_timestamp(static_cast<double>(log_time_ns) * 1e-9);
                 message.frame_id = "camera";
@@ -176,8 +167,6 @@ bool ZedOneRgbCamera::initialize() {
         mcap_recorder_->write_metadata(kCameraCalibrationMetadataKey,
                                        camera_calibration_to_toml(calibration_));
     }
-    // Fatal: a session recorded without its video cannot be replayed, and nobody finds out until
-    // the morning after. Turning recording off in the config is the explicit way past it.
     if (mcap_recorder_ && recording_desired_.load() && !start_encoder()) {
         throw std::runtime_error(
             "[ZedOneRgbCamera] video_recording is on but no H.264 encoder opened (tried " +
@@ -210,16 +199,12 @@ bool ZedOneRgbCamera::capture_frame() {
     }
     const uint64_t capture_time_ns = zed_.getTimestamp(sl::TIME_REFERENCE::IMAGE).getNanoseconds();
 
-    // VIEW::LEFT is rectified BGRA. LEFT_BGR would skip the conversion, but it is newer than the
-    // SDK 5.2 on the ZED Box Mini.
     if (zed_.retrieveImage(zed_bgra_, sl::VIEW::LEFT, sl::MEM::CPU) != sl::ERROR_CODE::SUCCESS) {
         return false;
     }
     const cv::Mat bgra(static_cast<int>(zed_bgra_.getHeight()),
                        static_cast<int>(zed_bgra_.getWidth()), CV_8UC4,
                        zed_bgra_.getPtr<sl::uchar1>(sl::MEM::CPU), zed_bgra_.getStepBytes());
-    // A fresh Mat every frame: the pipeline holds the previous one by reference. Pinned, so the
-    // keypoint model's GPU preprocess reads it in place instead of uploading it.
     cv::Mat bgr;
     bgr.allocator = PinnedMatAllocator::instance();
     cv::cvtColor(bgra, bgr, cv::COLOR_BGRA2BGR);
@@ -231,7 +216,6 @@ bool ZedOneRgbCamera::capture_frame() {
         latest_data_.rgb.image = require_rgb_layout(bgr);
         latest_data_.rgb.header.stamp = static_cast<double>(capture_time_ns) * 1e-9;
         latest_data_.rgb.header.frame_id = FrameId::CAMERA;
-        // Foxglove image panels reject a calibration whose frame differs from the image's.
         latest_data_.camera_info.header = latest_data_.rgb.header;
         latest_data_.depth.image = cv::Mat();
         latest_data_.pose_tracking_ready = true;
@@ -332,10 +316,6 @@ CameraSettings ZedOneRgbCamera::read_settings(const CameraSettings &known) {
         }
         return value;
     };
-    // SDK 5.2 on the ZED X One reports exposure and both gains as -1 in auto and in manual alike,
-    // though a manual value does take effect (1 ms vs 12 ms measured 8.7 vs 50.6 mean green on
-    // the ZED Box). Keep `known`, the last value applied, rather than show or resend -1, which
-    // clamps to a 28 us exposure and a black frame.
     auto get_or = [&](sl::VIDEO_SETTINGS setting, int when_unknown) {
         const int value = get(setting, -1);
         return value < 0 ? when_unknown : value;
@@ -385,10 +365,6 @@ void ZedOneRgbCamera::apply_settings(const CameraSettings &settings) {
         std::lock_guard<std::mutex> lock(settings_mutex_);
         limits = settings_state_->limits;
     }
-    // SDK 5.2 skips a value equal to the last one set, even after auto exposure or auto white
-    // balance moved the sensor, so reapplying a profile after DEFAULT left the auto exposure
-    // running. Setting a neighbouring value first makes every apply a change (measured on the
-    // ZED Box: a repeated 1 ms stayed at auto brightness 86, a nudged one dropped to 8).
     auto set = [this](sl::VIDEO_SETTINGS setting, int value, const CameraSettingRange &range,
                       bool nudge = true) {
         if (!range.supported) return;
@@ -432,7 +408,6 @@ void ZedOneRgbCamera::service_settings(const CameraSettings &opened_settings) {
         std::lock_guard<std::mutex> lock(settings_mutex_);
         request.swap(pending_settings_);
     }
-    // settings_state_ is written only on this thread after open, so reading it unlocked is safe.
     CameraSettings known = settings_state_->settings;
     if (request) {
         const CameraSettings *requested = std::get_if<CameraSettings>(&*request);
