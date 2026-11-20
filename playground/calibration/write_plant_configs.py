@@ -18,10 +18,10 @@ MR_STABS_PLANT_CONFIG = REPO_ROOT / "config" / "robots" / "mr_stabs_mk2.toml"
 
 SIM_FIELDS = {
     "command_ms": "delay_ms",
-    "max_linear_speed": "k_fwd",  # symmetric fallback, unused once _fwd/_rev are set
+    "max_linear_speed": "k_fwd",
     "max_angular_speed": "k_ang",
-    "tau_linear": "tau_lin_a",  # fallback
-    "tau_angular": "tau_ang_a",  # fallback
+    "tau_linear": "tau_lin_a",
+    "tau_angular": "tau_ang_a",
     "max_linear_speed_fwd": "k_fwd",
     "max_linear_speed_rev": "k_rev",
     "tau_linear_accel": "tau_lin_a",
