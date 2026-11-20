@@ -7,7 +7,6 @@ HERE = Path(__file__).parent
 VENDOR = HERE / "vendor"
 ZED_MOUNT = HERE.parent / "zed_box_mini_mount"
 ZED_STEP = ZED_MOUNT / "out" / "step" / "zed_box_mini.step"
-ZED_STEP_BASE_SHEET_Z = 12.0
 OPENUPS_STEP = VENDOR / "openups.step"
 
 CUP_D = 101.5
@@ -87,11 +86,11 @@ INSERT_DEPTH = INSERT_LEN + INSERT_BOTTOM_CLEARANCE
 
 ZED_XC = 0.0
 ZED_YC = -50.0
-ZED_DZ = PANEL_Z1 + BOSS_H - ZED_STEP_BASE_SHEET_Z
+ZED_DZ = PANEL_Z1 + BOSS_H
 ZED_EAR_HOLES = [(ZED_XC + sx * 24.0, ZED_YC + sy * 47.3) for sx in (-1, 1) for sy in (-1, 1)]
 ZED_Y0, ZED_Y1 = ZED_YC - 51.8, ZED_YC + 51.98
 ZED_BODY_X0, ZED_BODY_X1 = ZED_XC - 71.9, ZED_XC + 71.5
-ZED_TOP = 65.6 + ZED_DZ
+ZED_TOP = 53.6 + ZED_DZ
 
 
 def zed(x: float, y: float, z: float) -> tuple[float, float, float]:
@@ -99,11 +98,11 @@ def zed(x: float, y: float, z: float) -> tuple[float, float, float]:
     return (ZED_XC + x, ZED_YC + y, z + ZED_DZ)
 
 
-ZED_RJ45_MOUTH = zed(-71.5, 14.01, 28.22)
-ZED_POWER_MOUTH = zed(-71.9, -23.96, 25.11)
-ZED_USB_A = zed(71.5, -11.60, 24.53)
-ZED_FAKRA_A_TIP = zed(81.25, 6.85, 24.37)
-ZED_WIFI_SMA_JACKS = [zed(x, 51.98, 30.0) for x in (-49.5, -29.5)]
+ZED_RJ45_MOUTH = zed(-71.5, 14.01, 16.22)
+ZED_POWER_MOUTH = zed(-71.9, -23.96, 13.11)
+ZED_USB_A = zed(71.5, -11.60, 12.53)
+ZED_FAKRA_A_TIP = zed(81.25, 6.85, 12.37)
+ZED_WIFI_SMA_JACKS = [zed(x, 51.98, 18.0) for x in (-49.5, -29.5)]
 
 PORT_Z = 88.0
 SERVICE_PORTS_YZ = {

@@ -10,7 +10,6 @@ from build123d import Align, Cylinder, Location, Pos, Rot
 
 INCH = 25.4
 PLATE_T = innorel_cp10.Params().thickness
-STEP_EXPORT_ADAPTER_T = 12.0
 
 OPTIONS = {
     "top_end": (
@@ -67,7 +66,7 @@ def components():
         "zed_box_mini": {
             "step": "out/step/zed_box_mini.step",
             "min_volume": 200,
-            "at": Pos(0, 0, adapter.Params().thickness - STEP_EXPORT_ADAPTER_T),
+            "at": Pos(0, 0, adapter.Params().thickness),
             "color": "#3a3f47",
             "description": "Stereolabs ZED Box Mini",
         },

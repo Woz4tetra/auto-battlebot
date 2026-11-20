@@ -3,6 +3,7 @@ set -euo pipefail
 S=/home/ben/.claude/plugins/cache/pcba-skill/pcba-design/0.1.0/skills/pcba-design
 "$S/scripts/kicad" python3 silk.py mk2_routed.kicad_pcb
 "$S/scripts/check.sh" mk2_routed.kicad_pcb
+"$S/scripts/kicad" python3 check_vbatt_neck.py mk2_routed.kicad_pcb placement.json
 "$S/scripts/fab.sh" mk2_routed.kicad_pcb mk2.net fab
 python3 - <<'PY'
 import csv

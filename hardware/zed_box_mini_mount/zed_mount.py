@@ -34,7 +34,7 @@ def components():
         "zed": {
             "step": "out/step/zed_box_mini.step",
             "min_volume": 200,
-            "at": Pos(0, 0, T - 12.0),
+            "at": Pos(0, 0, T),
             "title": "ZED BOX MINI",
             "mate_to": "adapter",
             "description": "Stereolabs ZED Box Mini",

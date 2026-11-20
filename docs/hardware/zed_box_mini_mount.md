@@ -318,7 +318,7 @@ Coordinates: the adapter frame, the same as assembly_page.py. Origin at the cent
 cheese plate's top face, X along its 200 mm length, +Z up toward the ZED Box Mini.
 
 The ZED Box Mini comes from out/step/zed_box_mini.step, which assembly_page.py writes in
-this frame from Stereolabs' 85 MB STEP (kept out of git). The adapter's own screws and
+this frame with its base sheet at z = 0, from Stereolabs' 85 MB STEP (kept out of git). The adapter's own screws and
 inserts are checked on that page and left out here.
 
 Ball head poses come from solving pan and spin numerically so the camera points where the
@@ -453,5 +453,3 @@ Open questions
 - `zed_box_mini_mount/assembly_page.py:write_mesh`: each mesh is one JSON file, base64 int16
   positions in units of `MESH_MM_PER_STEP` mm (Z up) and uint32 triangle indices. Artifacts serve
   JSON but not GLB, and the viewer computes the normals.
-- `zed_box_mini_mount/zed_x_one_s_assembly.py:STEP_EXPORT_ADAPTER_T`: the ZED Box Mini STEP was
-  exported on a 12 mm adapter, so it is dropped by 12 mm onto the current adapter thickness.

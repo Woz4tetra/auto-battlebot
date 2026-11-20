@@ -254,7 +254,7 @@ def main() -> None:
     for name, shape in {
         "zed_cheese_plate_adapter": part,
         "innorel_cp10": plate,
-        "zed_box_mini": zed,
+        "zed_box_mini": zed.moved(Pos(0, 0, -p.thickness)),
     }.items():
         export_step(shape, str(step_dir / f"{name}.step"))
         print(f"{name}.step {(step_dir / f'{name}.step').stat().st_size / 1e6:.2f} MB")

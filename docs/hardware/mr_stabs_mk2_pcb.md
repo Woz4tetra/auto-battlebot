@@ -707,19 +707,3 @@ Routed board to JLCPCB upload files. Run from this directory after SKILL/scripts
 4. Drop BOM rows with no LCSC number: wire pads and the via field are copper, not parts.
 5. schematic.py (connectivity checked against mk2.net) and render_3d.py, then the review page.
 ```
-
-## Workarounds
-
-All unverified: SKiDL and the routing flow were not run for this purge.
-
-- `mr_stabs_mk2_pcb/pcba/design.py:GND_STITCH`: two GND stitching vias in the stem's sides. The
-  tracks to the stem's USB-C and bulk cap box the bottom GND pour into fragments the flow's
-  stitching found no via spot in.
-- `mr_stabs_mk2_pcb/pcba/gen_placement.py` B.Cu keep-out at (16.6..19.4, -8.8..-5.6): keeps signals
-  out of the B VBATT pour's neck, shunt VBATT end to ESC_L+. Two routing tries cut the neck with
-  tracks and left the 20 A ESC current on a track. It clears the INA238's +3V3 pins (vias go
-  through B) and R3's SENSE_N pad, whose track leaves downward.
-- `mr_stabs_mk2_pcb/pcba/gen_placement.py` B.Cu keep-out at (18.75..19.6, -11.05..-10.4): keeps
-  signals out of the strip between R3's VBATT pad and ESC_L+, so the pour always joins the Kelvin
-  tap. SENSE_N and SENSE_P tracks had boxed that pad in. With R3 turned to face the pad, it no
-  longer fit between the shunt and ESC_L+.

@@ -103,8 +103,6 @@ LAP_PAD_Y = -17.3
 fixed = {
     MCU: (*MCU_XY, 0),
     **{h: (x, y, 0) for h, (x, y) in zip(holes, HOLE_XY)},
-    find("GND_STITCH", nth=0): (11.6, -2.6, 0),
-    find("GND_STITCH", nth=1): (-11.6, -2.6, 0),
     find("PACK_A-"): (-14.9, LAP_PAD_Y, 0),
     find("PACK_A+"): (-19.5, LAP_PAD_Y, 0),
     find("PACK_B-"): (-24.1, LAP_PAD_Y, 0),
@@ -113,7 +111,6 @@ fixed = {
     find("PACK_B+"): (24.1, LAP_PAD_Y, 0),
 }
 THROUGH_BOARD_VALUES = {
-    "GND_STITCH",
     "MountingHole_L",
     "MountingHole_R",
     "SW_BACK",
@@ -344,17 +341,11 @@ spec = {
             ],
         },
         {
+            "name": "VBATT neck keepout",
             "keepout": ["tracks", "vias"],
             "layers": ["B.Cu"],
             "outline": [
                 k(x, y) for x, y in [(16.6, -5.6), (19.4, -5.6), (19.4, -8.8), (16.6, -8.8)]
-            ],
-        },
-        {
-            "keepout": ["tracks", "vias"],
-            "layers": ["B.Cu"],
-            "outline": [
-                k(x, y) for x, y in [(18.75, -10.4), (19.6, -10.4), (19.6, -11.05), (18.75, -11.05)]
             ],
         },
         {

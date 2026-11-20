@@ -105,3 +105,35 @@ def test_mcu_inside_roof_keepout_fails_generation(info):
     result = _gen(info)
     (info / "gen_placement.py").write_text(source)
     assert "AssertionError" in result.stderr
+
+
+INTRUDER_SEGMENT = (
+    '\t(segment (start 117.5 106.3) (end 118.5 106.3) (width 0.2) (layer "B.Cu") (net 2)'
+    ' (uuid "00000000-0000-4000-8000-000000000001"))\n'
+)
+
+
+def test_gen_placement_keeps_signals_out_of_vbatt_neck(info):
+    _gen(info)
+    zones = json.loads((info / "placement.json").read_text())["zones"]
+    necks = [z for z in zones if z.get("name") == "VBATT neck keepout"]
+    assert len(necks) == 1
+    assert necks[0]["keepout"] == ["tracks", "vias"]
+    assert necks[0]["layers"] == ["B.Cu"]
+
+
+def test_vbatt_neck_gate_passes_the_routed_board(workdir):
+    gate = _kicad(
+        workdir, "python3", "check_vbatt_neck.py", "mk2_routed.kicad_pcb", "placement.json"
+    )
+    assert gate.returncode == 0, gate.stdout[-2000:]
+
+
+def test_vbatt_neck_gate_fails_on_a_signal_track_through_the_neck(workdir):
+    board = (workdir / "mk2_routed.kicad_pcb").read_text()
+    assert '(net 2 "+5V")' in board
+    body, closing = board.rstrip().rsplit(")", 1)
+    (workdir / "cut.kicad_pcb").write_text(body + INTRUDER_SEGMENT + ")\n")
+    gate = _kicad(workdir, "python3", "check_vbatt_neck.py", "cut.kicad_pcb", "placement.json")
+    assert gate.returncode == 1
+    assert "+5V" in gate.stdout

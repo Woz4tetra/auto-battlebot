@@ -255,9 +255,6 @@ for side, io in (("l", "IO8"), ("r", "IO9")):
     sig += pad(f"DSHOT_{side.upper()}", PAD_SIG, f"p_dshot_{side}")[1]
     gnd += pad(f"SIG_GND_{side.upper()}", PAD_SIG, f"p_sig_gnd_{side}")[1]
 
-for i in range(2):
-    gnd += pad("GND_STITCH", "mk2:StitchVia_0.6mm", f"v_stitch{i}")[1]
-
 for i, side in enumerate("LLRR"):
     h = Part(
         "Mechanical",
