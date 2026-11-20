@@ -7,7 +7,7 @@ import pytest
 
 @pytest.fixture(scope="module")
 def remap(load_training):
-    return load_training("training/yolo/remap_labels_by_name.py", siblings=("seg_to_bbox",))
+    return load_training("training/yolo/remap_labels_by_name.py")
 
 
 def _ring(class_id: int, x0: float, y0: float, x1: float, y1: float) -> str:

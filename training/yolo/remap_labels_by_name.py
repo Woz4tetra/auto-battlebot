@@ -9,9 +9,9 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 import yaml
-from seg_to_bbox import top_contours_bbox
 
 from auto_battlebot.compat import tomllib
+from auto_battlebot.datasets.seg_to_bbox import top_contours_bbox
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp")
 DROP = "__drop__"

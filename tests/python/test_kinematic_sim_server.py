@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import math
 import re
-import sys
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "simulation"))
 
-import kinematic_sim_server  # noqa: E402
+from auto_battlebot.kinematic_sim import kinematic_sim_server
 
 
 def test_default_opponent_radius() -> None:
@@ -24,7 +22,7 @@ def test_default_opponent_radius() -> None:
 
 
 def _server():
-    from config.kinematic import KinematicSimConfig, OpponentConfig
+    from auto_battlebot.kinematic_sim.config.kinematic import KinematicSimConfig, OpponentConfig
 
     cfg = KinematicSimConfig()
     cfg.opponents = [OpponentConfig(behavior="static", start_pos=[0.5, 0.5])]
@@ -35,7 +33,8 @@ def _server():
 
 def test_opponent_spawned_in_hazard_is_pushed_out() -> None:
     import numpy as np
-    from config.kinematic import ObstacleConfig, OpponentConfig
+
+    from auto_battlebot.kinematic_sim.config.kinematic import ObstacleConfig, OpponentConfig
 
     hole = ObstacleConfig(kind="hole", center=[0.5, 0.5], radius=0.25)
     opponent = kinematic_sim_server.Opponent(
@@ -68,7 +67,7 @@ def test_render_camera_keeps_buffer_identity() -> None:
 
 
 def test_plant_moving_blocks_follow_runtime_opponent_order() -> None:
-    from config.kinematic import KinematicSimConfig, OpponentConfig
+    from auto_battlebot.kinematic_sim.config.kinematic import KinematicSimConfig, OpponentConfig
 
     cfg = KinematicSimConfig()
     cfg.opponents = [

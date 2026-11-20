@@ -1,6 +1,6 @@
 # Kinematic sim config
 
-`simulation/config/kinematic.py` holds the typed config for the headless kinematic sim (`kinematic_sim_server.py`). `config.loader.load_config` loads and validates it with dacite in strict mode. Each section below is one dataclass. Keep `[arena]` in sync with `config/simulation/kinematic_sim.toml` on the C++ side.
+`auto_battlebot/kinematic_sim/config/kinematic.py` holds the typed config for the headless kinematic sim (`kinematic_sim_server.py`). `auto_battlebot.kinematic_sim.config.loader.load_config` loads and validates it with dacite in strict mode. Each section below is one dataclass. Keep `[arena]` in sync with `config/simulation/kinematic_sim.toml` on the C++ side.
 
 ## `KinematicSimConfig`
 
@@ -94,7 +94,7 @@ The deadzone applies to the command the plant receives. `SimTransmitter` hands t
 | `collision_box` | The MuJoCo plant's contact shape for this obstacle: a box of `[length, width, height]` in m, length along the opponent's heading, turned with its yaw. Empty is a cylinder of `hazard_radius`. Read only when `hazard_radius > 0`, and only by `plant = "mujoco"`. The kinematic plant and the clearance score always use the `hazard_radius` disc. |
 | `trained_behaviour` | `behavior = "trained"` only: the RL training opponents (`rl.envs.trained_opponent`). One of `auto_battlebot.rl.envs.opponents.BEHAVIOURS`, or `any` to draw one per reset as stage D does. Parameters are drawn as in training. |
 | `trained_holdout` | `behavior = "trained"` only: draw the evaluation's held-out pursuit corner and replay tracks instead of the training ones. |
-| `policy_bundle` | `behavior = "policy"` only: an exported RL bundle, repo-relative, that drives this opponent on its own Mr Stabs Mk2 MuJoCo plant (`simulation/policy_opponent.py`). |
+| `policy_bundle` | `behavior = "policy"` only: an exported RL bundle, repo-relative, that drives this opponent on its own Mr Stabs Mk2 MuJoCo plant (`auto_battlebot/kinematic_sim/policy_opponent.py`). |
 
 ## `ObstacleConfig`
 
@@ -115,4 +115,4 @@ Rendering costs wall-clock time but cannot corrupt a run. The sim owns logical t
 | --- | --- |
 | `render_every` | Tick decimation. |
 | `realtime` | Pace `sim.dt` to a human. `false` free-runs. |
-| `mujoco` | Also open MuJoCo's 3D viewer on the plant's contact geometry (`simulation/mujoco_window.py`). Needs `enable = true` and `[our_robot] plant = "mujoco"`. Ignored otherwise. |
+| `mujoco` | Also open MuJoCo's 3D viewer on the plant's contact geometry (`auto_battlebot/kinematic_sim/mujoco_window.py`). Needs `enable = true` and `[our_robot] plant = "mujoco"`. Ignored otherwise. |

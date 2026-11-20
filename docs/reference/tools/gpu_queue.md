@@ -1,6 +1,6 @@
 # GPU queue
 
-Design facts behind `training/gpu_queue.py`. Usage is in `CLAUDE.md` ("GPU training queue").
+Design facts behind `auto_battlebot/gpu_queue.py`. Usage is in `CLAUDE.md` ("GPU training queue").
 
 ## Estimates
 

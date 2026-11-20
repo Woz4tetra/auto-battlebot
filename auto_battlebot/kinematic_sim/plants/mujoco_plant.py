@@ -8,8 +8,13 @@ from pathlib import Path
 import cv2
 import mujoco
 import numpy as np
-from config.kinematic import ObstacleConfig, OpponentConfig, PlantConfig
 
+from auto_battlebot.kinematic_sim.config.kinematic import (
+    ObstacleConfig,
+    OpponentConfig,
+    PlantConfig,
+)
+from auto_battlebot.kinematic_sim.plants.base import HazardMonitor, Pose, footprint_center
 from auto_battlebot.mujoco_sim import mass_properties
 from auto_battlebot.mujoco_sim.actuator import PlantParams
 from auto_battlebot.mujoco_sim.closed_loop import (
@@ -22,9 +27,8 @@ from auto_battlebot.mujoco_sim.closed_loop import (
     load_fit_params,
 )
 from auto_battlebot.mujoco_sim.mjcf import CollisionSet
-from plants.base import HazardMonitor, Pose, footprint_center
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 FOOTPRINT_SEGMENTS = 32
 

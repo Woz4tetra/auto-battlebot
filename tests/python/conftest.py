@@ -13,7 +13,7 @@ if importlib.util.find_spec("mujoco") is None:
 
 @pytest.fixture(scope="session")
 def load_training():
-    """Load a `training/` script by repo-relative path, preloading bare-name sibling imports."""
+    """Load a `training/` script by repo-relative path."""
     repo_root = pathlib.Path(__file__).resolve().parents[2]
 
     def load_file(path: pathlib.Path, name: str):
@@ -24,11 +24,8 @@ def load_training():
         spec.loader.exec_module(module)
         return module
 
-    def load(relative: str, siblings: tuple[str, ...] = ()):
+    def load(relative: str):
         path = repo_root / relative
-        for sibling in siblings:
-            if sibling not in sys.modules:
-                load_file(path.parent / f"{sibling}.py", sibling)
         return load_file(path, f"training_{path.stem}")
 
     return load

@@ -1,21 +1,15 @@
-"""Key frames of logo/gen_splash_animation.py land on the events they are named for."""
+"""Key frames of splash_animation land on the events they are named for."""
 
-import importlib.util
-from pathlib import Path
 from types import ModuleType
 
 import pytest
 
-LOGO_SCRIPT = Path(__file__).resolve().parents[2] / "logo" / "gen_splash_animation.py"
+from auto_battlebot.branding import splash_animation
 
 
 @pytest.fixture(scope="module")
 def splash() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("gen_splash_animation", LOGO_SCRIPT)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return splash_animation
 
 
 def test_halves_meet_at_centre_before_spin(splash: ModuleType) -> None:

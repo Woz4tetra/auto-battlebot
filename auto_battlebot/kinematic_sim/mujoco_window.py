@@ -8,9 +8,9 @@ from typing import Any
 
 import mujoco
 import mujoco.viewer
-from plants import PlantInterface
-from plants.mujoco_plant import MujocoPlant
 
+from auto_battlebot.kinematic_sim.plants import PlantInterface
+from auto_battlebot.kinematic_sim.plants.mujoco_plant import MujocoPlant
 from auto_battlebot.mujoco_sim.closed_loop import BLOCK_PREFIX, MOVING_BLOCK_PREFIX
 from auto_battlebot.mujoco_sim.mjcf import HULL_GEOM_GROUP
 

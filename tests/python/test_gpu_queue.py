@@ -1,25 +1,16 @@
-"""Estimator tests for training/gpu_queue.py.
-
-`training/` is deliberately not a package, so the module is loaded by path rather than
-imported. That is not a sys.path write: nothing else in the tree gains an import route.
-"""
+"""Estimator tests for auto_battlebot/gpu_queue.py."""
 
 from __future__ import annotations
 
 import argparse
 import contextlib
-import importlib.util
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location("gpu_queue", REPO_ROOT / "training" / "gpu_queue.py")
-assert SPEC and SPEC.loader
-queue = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(queue)
+from auto_battlebot import gpu_queue as queue
 
 
 def make_job(

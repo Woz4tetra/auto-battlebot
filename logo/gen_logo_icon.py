@@ -7,9 +7,10 @@ import argparse
 import sys
 from pathlib import Path
 
-import gen_splash_animation as splash
 import numpy as np
 from PIL import Image
+
+from auto_battlebot.branding import splash_animation as splash
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SUPERSAMPLE = 4

@@ -1,6 +1,6 @@
 # Kinematic sim viewer
 
-`simulation/viewer.py` is the in-loop OpenCV viewer for the kinematic sim. It is off by default (`[viewer] enable = false`) so sweeps stay headless.
+`auto_battlebot/kinematic_sim/viewer.py` is the in-loop OpenCV viewer for the kinematic sim. It is off by default (`[viewer] enable = false`) so sweeps stay headless.
 
 ## Logical time
 

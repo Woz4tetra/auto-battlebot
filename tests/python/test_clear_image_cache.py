@@ -1,16 +1,19 @@
-"""training/yolo/clear_image_cache.py: in-use detection errs toward busy but ignores its shell."""
+"""auto_battlebot/datasets/clear_image_cache.py: in-use detection errs busy, ignores its shell."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
+from auto_battlebot.datasets import clear_image_cache
+
 
 @pytest.fixture(scope="module")
-def cache(load_training):
-    return load_training("training/yolo/clear_image_cache.py")
+def cache() -> ModuleType:
+    return clear_image_cache
 
 
 def test_own_process_chain_excluded(cache) -> None:

@@ -186,24 +186,6 @@ JETSON_ACTIVATE_EOF
         pip install -e "$PROJECT_ROOT"
     fi
 
-    # Sibling-import source directories. Several standalone scripts import their
-    # siblings by top-level module name (e.g. logo/gen_logo_icon.py imports
-    # gen_splash_animation). Rather than mutating sys.path inside each script, add
-    # these directories to the venv's import path via a .pth file so the imports
-    # resolve for anything run in this environment (scripts and pytest). Blender-run
-    # scripts under training/synthetic/ use their own Python, not this venv, and rely
-    # on PYTHONPATH at `blenderproc run` time instead.
-    #
-    # playground/ is not listed: it is a real package installed by `pip install -e`
-    # above, so its modules import as playground.<subpackage>.<module>.
-    echo "Writing auto_battlebot.pth (sibling-import source dirs) into the venv..."
-    local SITE_PACKAGES
-    SITE_PACKAGES="$("$VENV_DIR/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
-    cat >"$SITE_PACKAGES/auto_battlebot.pth" <<EOF
-$PROJECT_ROOT/logo
-$PROJECT_ROOT/training/synthetic
-EOF
-
     echo ""
     echo "=========================================="
     echo "Virtual environment setup complete!"

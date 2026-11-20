@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import math
-import sys
 from pathlib import Path
 
 from auto_battlebot.compat import tomllib
 from auto_battlebot.rl.envs.warp_nav import WarpNavConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "simulation"))
 
-import policy_opponent  # noqa: E402
+from auto_battlebot.kinematic_sim import policy_opponent
 
 
 def test_policy_period_matches_env() -> None:

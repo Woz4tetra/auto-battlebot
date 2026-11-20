@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
@@ -10,7 +9,6 @@ import pytest
 
 @pytest.fixture(scope="module")
 def train(load_training):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "training" / "yolo"))
     return load_training("training/yolo/train.py")
 
 

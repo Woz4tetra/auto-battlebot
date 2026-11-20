@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -11,10 +10,9 @@ from auto_battlebot.compat import tomllib
 from auto_battlebot.control.plant import PlantParams, simulate
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "simulation"))
 
-from config.kinematic import PlantConfig  # noqa: E402
-from plants.kinematic import KinematicPlant  # noqa: E402
+from auto_battlebot.kinematic_sim.config.kinematic import PlantConfig
+from auto_battlebot.kinematic_sim.plants.kinematic import KinematicPlant
 
 DT = 0.02
 ARENA_M = 100.0
@@ -83,7 +81,7 @@ def test_kinematic_plant_trajectory_matches_control_plant() -> None:
 
 def test_mujoco_footprint_offset_matches_config() -> None:
     pytest.importorskip("mujoco")
-    from plants.mujoco_plant import MujocoPlant
+    from auto_battlebot.kinematic_sim.plants.mujoco_plant import MujocoPlant
 
     plant = MujocoPlant(PlantConfig(), 2.35, 2.35)
     expected = _common_footprint_offset("MR_STABS_MK2")

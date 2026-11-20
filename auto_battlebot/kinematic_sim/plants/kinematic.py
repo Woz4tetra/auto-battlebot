@@ -5,9 +5,9 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from config.kinematic import ObstacleConfig, PlantConfig
 
-from plants.base import HazardMonitor, Pose, disc_outline
+from auto_battlebot.kinematic_sim.config.kinematic import ObstacleConfig, PlantConfig
+from auto_battlebot.kinematic_sim.plants.base import HazardMonitor, Pose, disc_outline
 
 SUBSTEP_S = 0.002
 STRAIGHT_W = 1e-6

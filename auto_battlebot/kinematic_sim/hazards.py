@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from config.kinematic import ObstacleConfig
-
 from auto_battlebot.compat import tomllib
+from auto_battlebot.kinematic_sim.config.kinematic import ObstacleConfig
 
 VALID_KINDS = ("hole", "wall_block")
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def load_hazards(path: Path | str) -> list[ObstacleConfig]:

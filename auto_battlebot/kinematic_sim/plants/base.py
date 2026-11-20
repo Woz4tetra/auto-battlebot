@@ -6,7 +6,8 @@ import math
 from typing import NamedTuple, Protocol
 
 import numpy as np
-from config.kinematic import ObstacleConfig
+
+from auto_battlebot.kinematic_sim.config.kinematic import ObstacleConfig
 
 
 class Pose(NamedTuple):

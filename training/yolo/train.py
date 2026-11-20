@@ -6,8 +6,9 @@ from pathlib import Path
 os.environ["MPLBACKEND"] = "Agg"
 
 import yaml
-from clear_image_cache import sweep
 from ultralytics import YOLO
+
+from auto_battlebot.datasets.clear_image_cache import sweep
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_ROOT = Path(BASE_DIR).resolve().parents[0] / "data"

@@ -7,15 +7,20 @@ from collections import deque
 from pathlib import Path
 
 import torch
-from config.kinematic import ObstacleConfig, OpponentConfig, PlantConfig, PlantType
-from plants.base import Pose, footprint_center
-from plants.mujoco_plant import MujocoPlant
 
+from auto_battlebot.kinematic_sim.config.kinematic import (
+    ObstacleConfig,
+    OpponentConfig,
+    PlantConfig,
+    PlantType,
+)
+from auto_battlebot.kinematic_sim.plants.base import Pose, footprint_center
+from auto_battlebot.kinematic_sim.plants.mujoco_plant import MujocoPlant
 from auto_battlebot.rl.export.bundle_policy import BundlePolicy, Hazard, HazardKind, PolicyView
 from auto_battlebot.rl.export.bundle_policy import Pose as ViewPose
 from auto_battlebot.rl.torch_plant import saturate
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 POLICY_PERIOD_S = 0.02
 

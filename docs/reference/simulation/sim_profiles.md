@@ -1,6 +1,6 @@
 # Sim profiles
 
-`simulation/kinematic_sim_server.py` reads these TOML files. Field meanings are in `kinematic_sim_config.md`. This page holds why each profile sets what it sets.
+`auto_battlebot/kinematic_sim/kinematic_sim_server.py` reads these TOML files. Field meanings are in `kinematic_sim_config.md`. This page holds why each profile sets what it sets.
 
 Run either profile with the C++ side:
 
@@ -47,7 +47,7 @@ Read only when `plant = "kinematic"`. They are the calibrated Mr Stabs Mk2 plant
 
 ## `simulation/sim_mr_stabs_mk2_mirror.toml`
 
-Mr Stabs Mk2 against Mr Stabs Mk2, both robots running the same RL policy. It is `sim_mr_stabs_mk2.toml` with the opponent swapped for `[[opponents]] behavior = "policy"` (`simulation/policy_opponent.py`). `dt`, `command_ms`, camera, kinematic keys and `[perception]` carry the same values and reasons as above.
+Mr Stabs Mk2 against Mr Stabs Mk2, both robots running the same RL policy. It is `sim_mr_stabs_mk2.toml` with the opponent swapped for `[[opponents]] behavior = "policy"` (`auto_battlebot/kinematic_sim/policy_opponent.py`). `dt`, `command_ms`, camera, kinematic keys and `[perception]` carry the same values and reasons as above.
 
 | Key | Meaning |
 | --- | --- |

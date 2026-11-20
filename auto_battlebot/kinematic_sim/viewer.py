@@ -9,9 +9,10 @@ from typing import Any
 
 import cv2
 import numpy as np
-from plants.base import Pose, footprint_center
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+from auto_battlebot.kinematic_sim.plants.base import Pose, footprint_center
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 HOLE_BGR = (40, 40, 45)
 HOLE_RIM_BGR = (90, 90, 100)

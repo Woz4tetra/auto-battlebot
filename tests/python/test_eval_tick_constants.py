@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _server_tick_s() -> float:
-    source = (REPO_ROOT / "simulation" / "rl_eval_server.py").read_text()
+    source = (REPO_ROOT / "auto_battlebot" / "kinematic_sim" / "rl_eval_server.py").read_text()
     return float(re.search(r"^TICK_S = ([\d.]+)", source, re.M).group(1))
 
 

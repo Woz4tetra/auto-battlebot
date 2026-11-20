@@ -2,17 +2,11 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import cv2
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "simulation"))
-
-from config.kinematic import KinematicSimConfig  # noqa: E402
-from viewer import Viewer  # noqa: E402
+from auto_battlebot.kinematic_sim.config.kinematic import KinematicSimConfig
+from auto_battlebot.kinematic_sim.viewer import Viewer
 
 
 def test_construct_and_compose_open_no_window(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -26,7 +20,7 @@ def test_construct_and_compose_open_no_window(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_render_does_not_touch_sim_state(monkeypatch: pytest.MonkeyPatch) -> None:
-    import kinematic_sim_server
+    from auto_battlebot.kinematic_sim import kinematic_sim_server
 
     monkeypatch.setattr(cv2, "namedWindow", lambda *_a, **_k: None)
     monkeypatch.setattr(cv2, "setMouseCallback", lambda *_a, **_k: None)
