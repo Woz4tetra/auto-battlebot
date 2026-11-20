@@ -110,8 +110,7 @@ Each entry names the function that carries the workaround. Entries marked unveri
 
 ### Blender and BlenderProc
 
-- `add_house_bot_model` (`synthgen/cage.py`): the GLB ships lying on its side. A roll about its x axis (the LED-face normal) stands it up, and the footprint is measured on the standing box. `size[0] <= 0` keeps the model's own dimensions. Unverified: asset not inspected.
-- `_wire_maps_from_texture_directory` (`prepare_robot_model.py`): a loaded CC material can still be effectively flat in some Blender and asset combinations. The maps are then wired directly from the texture directory onto the slot material.
+- `add_house_bot_model` (`synthgen/cage.py`): the GLB ships lying on its side. A roll about its x axis (the LED-face normal) stands it up, and the footprint is measured on the standing box. `size[0] <= 0` keeps the model's own dimensions.
 
 ### Render state and denoising
 

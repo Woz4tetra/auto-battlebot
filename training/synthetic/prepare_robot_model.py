@@ -432,24 +432,9 @@ def _apply_cc_material_to_slot(
         print(f"  {bpy_mat.name} -> CC texture '{cc_name}'")
         return
 
-    _wire_maps_from_texture_directory(bpy_mat, cc_name, cc_textures_dir)
-
-
-def _wire_maps_from_texture_directory(
-    bpy_mat: bpy.types.Material, cc_name: str, cc_textures_dir: str | None
-) -> None:
-    cc_dir = resolve_path(Path(cc_textures_dir)) / cc_name if cc_textures_dir else None
-    if cc_dir and cc_dir.is_dir():
-        _apply_pbr_textures(bpy_mat, cc_dir)
-        print(
-            f"  {bpy_mat.name} -> CC fallback maps from '{cc_dir.name}/' "
-            "(assigned CC material had no image nodes)"
-        )
-    else:
-        print(
-            f"  Warning: CC material '{cc_name}' on {bpy_mat.name} "
-            "has no image texture nodes and no fallback directory was found."
-        )
+    raise ValueError(
+        f"CC material '{cc_name}' for {bpy_mat.name} loaded without image texture nodes"
+    )
 
 
 def _apply_material_to_slot(
