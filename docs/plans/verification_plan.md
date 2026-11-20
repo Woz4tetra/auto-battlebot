@@ -237,7 +237,7 @@ git remote set-url --add --push origin ssh://git@<genericservername-tailnet-ip>:
 The existing GitHub runner in `~/actions-runner` on genericservername (GenericWebsiteName) is
 unrelated and left alone.
 
-**Runner.** The spare e-CAM25 Orin NX:
+**Runner.** The spare Orin NX:
 
 - Reflashed to JetPack 6.2.3 / L4T R36.5 with the ZED SDK, matching the ZED Box Mini
 - No cameras attached; the ZED SDK decodes SVOs without one
@@ -318,7 +318,7 @@ The script never sends autonomous drive commands; the user drives. HIL runs on d
 | Q16 | Stop hook runs a ~90 s fast tier |
 | Q18 | `verify_mcap` grades any recording |
 | Q19 | HIL is a guided session the user drives |
-| Q23, Q30 | CI runner on the spare e-CAM25 Jetson, reflashed to JetPack 6.2.3 |
+| Q23, Q30 | CI runner on the spare Orin NX Jetson, reflashed to JetPack 6.2.3 |
 | Q24 | Verifier verdict enforced by a Stop hook |
 | Q26 | `crsf` and `health` tests first |
 | Q27 | This plan plus a nav plan 1.4 amendment |

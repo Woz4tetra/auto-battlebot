@@ -158,7 +158,6 @@ Rows a batch could not settle. Each needs the action in the last column first.
 | `include/mask_model/fixed_mask_model.hpp:8` | Replace `FixedMaskModel` with `FieldFilterInterface::requires_mask()` (false for `FixedFieldFilter`), gate the Runner on it, switch the three sim TOMLs to `NoopMaskModel`. Needs `docs/reference/simulation/kinematic_sim_config.md`, which has uncommitted edits |
 | `include/rl_policy/policy_interface.hpp:14` | Decide whether navigation outputs a `NormalizedCommand` type; it changes every navigation implementation |
 | `include/robot_descriptions_cache.hpp:9` (`Resolved` lifetime) | Decide between `[[clang::lifetimebound]]` (needs a Clang build) and returning `Resolved` by value with caller rework |
-| `include/rgbd_camera/v4l2_rgb_camera.hpp` (`dequeue_newest`) | The e-CAM25 is defunct, so `V4l2RgbCamera` has no camera to check against. Decide whether to delete the V4L2 camera path |
 | `tests/python/test_tag_pose_smoother.py:578` | Rejected fixes sit at t=2.987, 5.587 and 7.387 s; only 5.587 is at the blackout edge. Fixing it changes smoother gating or the IMU sigma, a runtime behaviour change: decide whether to retune |
 | `firmware/mr_stabs_mk2/include/wifi_manager.h:103` | Thread ownership in `wifi_manager.h` needs Clang thread-safety annotations, and the ESP32 toolchain is GCC. Decide whether to keep it as a documented invariant |
 | `training/model_eval/score_size_ladder.sh:97-98` | Needs the `cage_high_x50_conf044/d40000` eval set (not in the main checkout), or confirmation that `nhrl_cage_high_eval` replaces it; that set has `reviewed: []` |
@@ -167,12 +166,6 @@ Rows a batch could not settle. Each needs the action in the last column first.
 | `src/navigation/rl_policy_navigation.cpp:189` | Zero-command path is tested; the coasted spin and motion-blur claim needs a recording. Decide between decaying coasted yaw rate in the robot filter and training the policy on observation age |
 | `hardware/cage_pack/bom_data.py:263` | Needs a change in `~/build123d-skill`: a spec key (e.g. `mcmaster_bom`) that sets part_number and vendor without loading the STEP (skill `assembly.py:304-307`) |
 | `hardware/zed_box_mini_mount/assembly_page.py:62` | Needs a test of GLB handling on the artifact host, which means an upload; decide whether to allow one |
-| `src/rgbd_camera/v4l2_rgb_camera.cpp` (5 rows: encoder fatal, monotonic stamps, pinned allocator, camera_info header, strictly increasing stamps) | Pending the decision on deleting `V4l2RgbCamera` (the e-CAM25 was its only camera) |
-| `src/rgbd_camera/v4l2_rgb_camera.cpp:281` | Pending the decision on deleting `V4l2RgbCamera` (the e-CAM25 was its only camera) |
-| `src/rgbd_camera/v4l2_rgb_camera.cpp:319` | Pending the decision on deleting `V4l2RgbCamera` (the e-CAM25 was its only camera) |
-| `src/rgbd_camera/v4l2_rgb_camera.cpp:364` | Pending the decision on deleting `V4l2RgbCamera` (the e-CAM25 was its only camera) |
-| `src/rgbd_camera/v4l2_rgb_camera.cpp:378` | Pending the decision on deleting `V4l2RgbCamera` (the e-CAM25 was its only camera) |
-| `src/rgbd_camera/v4l2_rgb_camera.cpp:457` | Pending the decision on deleting `V4l2RgbCamera` (the e-CAM25 was its only camera) |
 | `src/runner.cpp:68` | Async-signal safety of every `cancel_initialize` override is an interface contract no test can check; the concrete overrides are one atomic store, guarded by a lock-free `static_assert`. Decide whether to accept it as documented |
 | `tests/test_kalman_motion_estimator.cpp` (`make_our_pose_measurement`, `make_opponent_pose_measurement`) | Needs a `heading_measured` field on `RobotDescription` (today inferred from `keypoints.empty()` in `kalman_motion_estimator.cpp`), touching the tracker, estimator and scene adapter. A perception behaviour change: decide whether to make it |
 | `include/mcap_recorder/mcap_recorder.hpp` (start_file_locked, mutex_) | Clang `-Wthread-safety` rejects `std::mutex` under libstdc++ as a non-capability type. Decide whether to add an annotated Mutex wrapper and lock guard to these classes |
