@@ -190,3 +190,35 @@ Only `exact` and `interpolated` transforms are usable. `unavailable` has no pose
 4. Grad-CAM: gradient saliency at the P3 neck layer for the opponent score at each GT box, which corroborates RISE with the inside-box mass fraction.
 
 All probes define the target as the max opponent class score (channels object and robot) among head anchors whose center falls inside the target box.
+
+## Paired scoring scripts
+
+`training/model_eval/score_size_ladder.sh` scores the yolo26 pose size ladder (`pose_model_size_ladder_plan_2026-09-24.md`) on the cage-high eval set in one paired bootstrap per run. Every size goes into one `score.py` call, so the bootstrap pairs them all against the baseline. `score_domain_mix.sh` cannot do that: it takes one model key and many arms, and the ladder script takes one arm and many model keys.
+
+```bash
+bash training/model_eval/score_size_ladder.sh 2026-09-24 n s m l x
+```
+
+- Engines are `data/models/yolo26<size>-pose_<arm>_<date>_last_<shape>_x86_64_<sm>.engine`, the name `run_domain_mix_arm.sh` gives them. `<shape>` is the rectangular export (`SHAPE=rect384x640`, the default) or absent for the square one (`SHAPE=square`).
+- `EXTRA` adds candidates as `name=engine` pairs, which is how the grid's square anchors join the square run:
+
+```bash
+SHAPE=square RUNS=opponent,heading OUT=.../anchors \
+EXTRA="swap_half=data/models/yolo26s-pose_swap_half_2026-09-13_last_x86_64_sm86.engine" \
+    bash training/model_eval/score_size_ladder.sh 2026-09-24 s x
+```
+
+- The eval set is `training/data/cage_high_x50_conf044`: 636 hand-corrected broadcast frames over six NHRL Brettzone and three MassD recordings (`cage_high_eval_scoring_2026-09-18.md`). The domain renders were built to look like this footage, so it is the ladder's target domain. The `_cagehigh` arms trained on these exact frames and cannot be scored here. `d50000` shares none.
+- The recordings sit two levels down, so `EVAL` points at the `d40000/` subdirectory.
+
+Output goes under `OUT` (default `cage_high_x50_conf044/scores_size_ladder`, with a conf suffix when conf is not 0.5):
+
+| Directory | Contents |
+| --- | --- |
+| `opponent/` | all 636 frames, `taxonomy_opponent.yaml`: recall for Q1 to Q3 |
+| `heading/` | all 636 frames, `taxonomy_keypoint_ours.yaml`: heading error for Q2 to Q4 |
+| `venue_nhrl/` | the 516 NHRL Brettzone frames, opponents only |
+| `venue_massd/` | the 120 MassD frames, opponents only |
+| `rec_<name>/` | one recording, which is one opponent, opponents only |
+
+Environment: `ARM` (default `d50000`), `BASELINE` (default `s`), `SHAPE`, `SM` (default `sm86`, megamind, where the set lives), `CONF` (default 0.5), `EVAL` (a split root for the threshold read), `VENUES`, `OUT`, `RUNS` (default all: opponent, heading, venues, recordings), `EXTRA`.

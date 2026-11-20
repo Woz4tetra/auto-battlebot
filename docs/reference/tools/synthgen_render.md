@@ -75,3 +75,16 @@ Design facts for `training/synthetic/synthgen/` (`pipeline.py`, `robots.py`, `pr
 - `make_textured_material` gates the house bot texture on HSV saturation above `LED_SATURATION_THRESHOLD` (0.35) before scaling emission. The body texel is a slightly bluish grey (saturation about 0.1) and the LEDs are 0.6 and up.
 - Faces a boolean cut opens take the cutter's material (`CUT_INTERIOR_MATERIAL_NAME`, material_mode TRANSFER). With no material they took slot 0 of the target through the primitive's own UVs and rendered near white. Dark, rough and slightly metallic reads as exposed internals at 34 to 70 px.
 - `add_sky_lighting` and the sprite margin are covered in `synthgen_scene_contracts.md`.
+
+## Cage scene construction (`synthgen/cage.py`)
+
+- `solve_exposure()` compares a render to a target over the pixels both consider cage mat. A render without a mat category id (the sample renderer) falls back to the hull.
+- `set_world()` sets a flat background colour, or the spec's panorama when `world.hdri` names one. Both go through the one `Background` node, and `set_world_background` unlinks any texture feeding it, so switching from a panorama venue back to a flat one needs nothing extra. A colour gain sits between the panorama and the `Background` node, so auto exposure tints the panorama the way it tints a flat background.
+- `_add_backdrop()` drops the cap faces of the backdrop mesh so the tubes above still light the scene.
+- `set_one_way_glass()` keyframes each pane out of the frames whose camera stands outside it.
+- `add_house_bot_model()` places the textured house bot GLB on the mat, with its footprint scaled to the spec size. Every mesh of the model carries `category_id` so the segmentation pass boxes it as one object. The annotation itself is built in the pipeline.
+- `make_textured_material()` pushes the LED colour further from grey with a hue/saturation node so it survives the exposure gain.
+
+### House bot keypoints
+
+`house_bot_keypoints()` returns the front and back keypoints of the placed house bot in its parent's local frame, in metres, or `None` when the model has no geometry. The convention matches every other robot in the set, the one `nhrl_common.keypoints_along_axis` applies to the CAD distractors: both points sit on the model's centerline at ground height, at the front and back extremes of its footprint. The axis is known, not fitted. The house bot's LED face is its own +x, so +x is the front, the way `HouseBotBoxSpec.roll_deg` and `yaw_deg` already treat it.
