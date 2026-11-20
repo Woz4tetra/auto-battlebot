@@ -8,6 +8,17 @@
 - The allowed dongle list is read by `on_recv` on the WiFi task. Only `loop()` rewrites it, and only while disarmed.
 - `allowed_count` drops to 0 before a rewrite and rises after it, so a frame racing a change is at worst refused once.
 
+## Opening the USB port
+
+`auto_battlebot/robot_link/esp32_serial.py` `open_esp32_serial()` opens the dongle and robot USB ports for `espnow_ota.py`, `espnow_diag.py` and `usb_dashboard.py`.
+
+- The ESP32-S3 USB-Serial/JTAG unit resets the chip when DTR goes low while RTS is high. Two resets within about 500 ms drop an Adafruit board into its TinyUF2 bootloader.
+- Linux raises DTR and RTS together when the device node opens. pyserial 3.5 (`serialposix.Serial.open`) then applies its stored DTR state and RTS state with one ioctl each, DTR first. Both default to high.
+- The helper sets `dtr = True` and `rts = True` before `open()`, so the lines never leave the kernel's high/high state. Setting either low before `open()` makes pyserial clear it after the kernel raised both.
+- `usb_dashboard.py` used to set `rts = False` before the open. That left DTR high and RTS low, which does not pass through DTR low with RTS high, so it was not needed to avoid the reset. Its comment blamed pyserial dropping DTR first, which `Serial.open` does not do. It now uses the same high/high state. Not tested on hardware.
+- `reset_dongle()` in `espnow_diag.py` is the one deliberate reset: DTR low, then RTS low, then both high again.
+- The scripts import `auto_battlebot`, so they need the repo venv.
+
 ## OTA
 
 - `ota_begin()` stamps `last_ota_frame_ms_` with the loop's `now_ms`, not `millis()`.

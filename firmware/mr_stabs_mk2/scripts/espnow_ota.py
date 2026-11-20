@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import serial
+from auto_battlebot.robot_link.esp32_serial import open_esp32_serial
 
 SERIAL_MAGIC = b"\x7b\xb0"
 MSG_OTA_BEGIN = 0x10
@@ -244,14 +245,7 @@ def main() -> int:
             print(f"stopping {SERVICE}")
             systemctl("stop")
             stopped = True
-        # DTR and RTS stay high, as Linux raises them on open. Setting them low one at a time
-        # passes through DTR low with RTS high, which resets an ESP32-S3 USB-Serial/JTAG port,
-        # and two resets within ~500 ms drop an Adafruit board into its TinyUF2 bootloader.
-        port = serial.Serial(timeout=0.01, exclusive=True)
-        port.port = args.port
-        port.baudrate = 921600
-        port.dtr = True
-        port.rts = True
+        port = open_esp32_serial(args.port, 921600, timeout=0.01)
         with port:
             flash(port, image)
     except OtaError as error:

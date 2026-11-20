@@ -14,7 +14,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import BinaryIO
 
-import serial
+from auto_battlebot.robot_link.esp32_serial import open_esp32_serial
 
 FRAME_START = b"\x1e"
 RESPONSE_TIMEOUT_S = 15.0
@@ -40,14 +40,7 @@ Item = bytes | DamagedFrameError | StreamEnd
 
 class Bridge:
     def __init__(self, port: str, log: BinaryIO | None) -> None:
-        # The kernel raises DTR and RTS on open. pyserial then drops DTR before RTS, and DTR low
-        # with RTS high resets the chip through the USB-Serial/JTAG unit, so leave DTR up.
-        self._serial = serial.Serial()
-        self._serial.port = port
-        self._serial.baudrate = 115200
-        self._serial.rts = False
-        self._serial.timeout = 0.05
-        self._serial.open()
+        self._serial = open_esp32_serial(port, 115200, timeout=0.05, exclusive=False)
         self._log = log
         self._write_lock = threading.Lock()
         self._streams: dict[int, queue.Queue[Item]] = {}

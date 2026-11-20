@@ -20,6 +20,7 @@ from typing import Any, NamedTuple
 from flask import Flask, Response, abort, jsonify, request, send_from_directory
 
 import serial
+from auto_battlebot.robot_link.esp32_serial import open_esp32_serial
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 WEB_DIR = SCRIPT_DIR / "espnow_diag_web"
@@ -907,15 +908,7 @@ class Diagnostics:
 
 
 def open_port(path: str) -> serial.Serial:
-    # DTR and RTS go high before the open, as in espnow_ota.py: setting them low one at a time
-    # passes through DTR low RTS high, which resets an ESP32-S3 on its USB-Serial/JTAG port.
-    port = serial.Serial(timeout=0.002, exclusive=True)
-    port.port = path
-    port.baudrate = BAUD
-    port.dtr = True
-    port.rts = True
-    port.open()
-    return port
+    return open_esp32_serial(path, BAUD, timeout=0.002)
 
 
 def reset_dongle(port: serial.Serial) -> None:
