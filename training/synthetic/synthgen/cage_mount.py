@@ -61,13 +61,7 @@ class CageMountRanges:
     walls: tuple[str, ...] = WALLS
     along_m: tuple[float, float] = (-0.45, 0.45)
     height_m: tuple[float, float] = (1.00, 1.45)
-    # Distance inside the wall plane. Negative puts the mount outside the cage, which is
-    # allowed: a pane the camera looks through from outside is hidden for that frame, so it
-    # costs no labels (see `panels_outside_camera`).
     inset_m: tuple[float, float] = (0.02, 0.25)
-    # "fixed" samples `tilt_deg` directly. "centre" derives tilt so the optical axis meets the
-    # field centre and samples `tilt_offset_deg` on top, which keeps tilt tied to how far out
-    # and how high the mount landed instead of drawing the three independently.
     aim: MountAim = MountAim.FIXED
     tilt_deg: tuple[float, float] = (26.0, 42.0)
     tilt_offset_deg: tuple[float, float] = (0.0, 0.0)

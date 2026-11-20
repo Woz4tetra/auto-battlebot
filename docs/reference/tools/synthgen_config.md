@@ -82,7 +82,8 @@ Where a camera can be clamped on the cage and where it then looks. Each draw pic
 | --- | --- |
 | `along_m` | Metres along the wall from its centre. |
 | `height_m` | Metres above the mat surface. Not capped by the polycarbonate top, since the mount is outside it. |
-| `inset_m` | Metres inside the wall plane. Negative is outside the cage. Keep it strictly negative so the hiding of the pane the camera looks through always applies. The near end is a render-cost limit, not a framing choice. |
+| `aim` | `"fixed"` samples `tilt_deg` directly. `"centre"` derives tilt so the optical axis meets the field centre and samples `tilt_offset_deg` on top, which ties tilt to how far out and how high the mount landed instead of drawing the three independently. |
+| `inset_m` | Metres inside the wall plane. Negative is outside the cage, which is allowed: a pane the camera looks through from outside is hidden for that frame (`panels_outside_camera`), so it costs no labels. Keep it strictly negative so the hiding of the pane the camera looks through always applies. The near end is a render-cost limit, not a framing choice. |
 | `tilt_offset_deg` | Degrees added to the aim-at-centre tilt. Tilt is measured off straight down, so negative is steeper, aimed nearer the camera and short of the centre. |
 | `yaw_deg` | Heading off square-to-the-wall. |
 | `roll_deg` | Camera roll about the optical axis. |

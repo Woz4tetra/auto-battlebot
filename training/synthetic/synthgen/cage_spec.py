@@ -34,9 +34,6 @@ class MatSpec:
     size: float = 2.35
     thickness: float = 0.012
     albedo: str = ""
-    # The albedo image is a photo of the lit mat, brighter than the paint's real reflectance.
-    # This linear multiplier darkens it so the lights, fitted by auto exposure to the mat, carry
-    # the brightness and every true-albedo object (the robots) is lit to match.
     albedo_gain: float = 1.0
     roughness: float = 0.7
     specular: float = 0.3
@@ -47,11 +44,7 @@ class CageSpec:
     interior: float = 2.4384
     wall_height: float = 1.22
     post_size: float = 0.05
-    # Extra vertical posts along each side, as fractions of the side length from its centre
-    # (0.0 is a mid-side post). Corner posts are always present.
     side_posts: tuple[float, ...] = ()
-    # The four corner posts. Off for an open box with no walls, where nothing stands at the
-    # corners above the rail.
     corner_posts: bool = True
 
 
@@ -61,9 +54,6 @@ class FrameSpec:
     bolt_pitch: float = 0.20
     bolt_head_diameter: float = 0.019
     bolt_head_height: float = 0.008
-    # "top" stands the bolt heads on the rail's upper face, which is what a low steel rail
-    # shows. "inner" drives them horizontally through the face looking at the mat, which is
-    # what a tall wooden kick rail shows; `bolt_height_above_mat` then says how far up.
     bolt_face: str = "top"
     bolt_height_above_mat: float = 0.05
     cc_texture: str = "Metal030"
@@ -77,20 +67,12 @@ class PanelSpec:
     ior: float = 1.586
     roughness: float = 0.03
     tint: Vec3 = (0.97, 0.97, 0.97)
-    # Which walls to glaze. BlenderProc's segmentation stops at glass, so a wall that sits
-    # between the camera and the mat costs every label behind it: leave it out when the
-    # camera is outside the cage looking in.
     walls: tuple[str, ...] = ("near", "far", "left", "right")
 
 
 @dataclass(frozen=True)
 class PitSpec:
-    """A rectangular hole through the mat: the mat is cut around it, walls and floor below.
-
-    `center` and `size` are the rim in the W frame, the opening measured at mat level.
-    The four walls sit just outside the rim so their inner faces land on the cut edge, and
-    the floor closes the box off at `depth` so nothing under the arena shows through.
-    """
+    """A rectangular hole through the mat, cut around, with walls and floor below."""
 
     center: tuple[float, float] = (0.0, 0.0)
     size: tuple[float, float] = (0.43, 0.43)
@@ -105,13 +87,7 @@ class PitSpec:
 
 @dataclass(frozen=True)
 class WallSpec:
-    """A photo-textured vertical wall of the venue, standing on the venue floor.
-
-    Runs from `start` to `end` in W at every height from `z_bottom` to `z_top`. The albedo
-    image is laid out the way `wall_quads` maps it: image columns from `start` to `end`,
-    image rows from `z_top` down to `z_bottom`. Built for the basement, whose stone walls
-    stand a few centimetres behind the box, too close for a panorama at infinity to stand in.
-    """
+    """A photo-textured vertical wall of the venue, standing on the venue floor."""
 
     name: str = "wall"
     start: tuple[float, float] = (0.0, 0.0)
@@ -120,7 +96,6 @@ class WallSpec:
     z_top: float = 2.0
     albedo: str = ""
     albedo_gain: float = 1.0
-    # Used when `albedo` is empty.
     color: Vec3 = (0.5, 0.5, 0.5)
     roughness: float = 0.9
     specular: float = 0.2
@@ -154,31 +129,20 @@ class VenueSpec:
     floor_cc_texture: str = "Concrete035"
     floor_color: Vec3 = (0.25, 0.24, 0.26)
     floor_roughness: float = 0.8
-    # The solid block from the mat down to the venue floor. Off for a box standing on
-    # sawhorses, where the space under it is open.
     riser: bool = True
 
 
 @dataclass(frozen=True)
 class HouseBotBoxSpec:
     enabled: bool = True
-    # The GLB is scaled so its footprint's longer side equals size[0] (0 keeps its own size);
-    # size[2] is unused then.
     size: Vec3 = (0.45, 0.45, 0.30)
     position: tuple[float, float] = (-0.95, -0.95)
     yaw_deg: float = 30.0
-    # Rotation about the model's own x axis (the LED-face normal) applied before yaw. The GLB
-    # lies on its side: -90 stands it up with the eyes side by side and the mouth below.
     roll_deg: float = -90.0
-    # A narrow spot on the camera side aimed at the box, so its vertical LED face is lit the
-    # way the venue lights light the real one; 0 disables it.
     front_fill: float = 40.0
-    # Textured model, repo-relative. Empty string falls back to a flat-coloured box.
     model: str = "training/data/environments/nhrl_3lb_cage/house_bot/HOUSE BOT.glb"
     texture_dir: str = "training/data/environments/nhrl_3lb_cage/house_bot"
-    # Linear scale on the texture's grey body; 1.0 matches the mat brightness, as the real box does.
     albedo_gain: float = 1.0
-    # The LED eyes and mouth in the texture glow: saturated texels emit at this strength.
     led_emission: float = 1.3
     color: Vec3 = (0.30, 0.55, 0.20)
     roughness: float = 0.6
@@ -188,8 +152,6 @@ class HouseBotBoxSpec:
 class WorldSpec:
     background_color: Vec3 = (0.01, 0.008, 0.015)
     ambient_strength: float = 1.0
-    # Repo-relative equirectangular panorama. When set it replaces `background_color` as the
-    # world, at `ambient_strength`, turned `hdri_rotation_deg` about z.
     hdri: str = ""
     hdri_rotation_deg: float = 0.0
 
@@ -206,11 +168,7 @@ class TubeLight:
 
 @dataclass(frozen=True)
 class TubeGrid:
-    """A rows x cols array of identical LED tubes, the ceiling rig as one knob.
-
-    Shadow softness follows the rig's extent and tube size: more, longer, thicker tubes
-    spread further apart give softer shadow edges. rows run along y, cols along x.
-    """
+    """A rows x cols array of identical LED tubes, the ceiling rig as one knob."""
 
     enabled: bool = True
     rows: int = 3
@@ -236,7 +194,6 @@ class WashLight:
 
 @dataclass(frozen=True)
 class BackdropSpec:
-    # The cylinder and its light strip. Off when the world panorama is the backdrop.
     enabled: bool = True
     radius: float = 6.0
     height: float = 4.0
@@ -264,7 +221,7 @@ class RenderSpec:
 @dataclass(frozen=True)
 class LightsSpec:
     grid: TubeGrid = field(default_factory=TubeGrid)
-    tubes: tuple[TubeLight, ...] = ()  # extra tubes beside the grid
+    tubes: tuple[TubeLight, ...] = ()
     wash: tuple[WashLight, ...] = ()
 
 

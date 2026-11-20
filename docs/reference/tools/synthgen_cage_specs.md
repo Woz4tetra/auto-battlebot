@@ -24,3 +24,88 @@ The geometry was measured from ZED depth of 2026-04-19T17-01-18 frame 4560: the 
 | `[world] ambient_strength` | 0.4 from the light sweep. At 0.6 the stone reads 13 L brighter than the target, at 0.3 the floor loses its fill. |
 | `[lights.grid]` | Fluorescent ceiling fixtures between the joists. `height` 1.6 m above the plywood (2.4 m above the concrete) comes from the light sweep. 1.3 m left a hot spot on the floor the target does not have. 1.9 m fits the floor slightly better but is above this basement's ceiling. |
 | `[exposure]` | Solved by `render_cage_view.py --auto-exposure` against the target (floor-region means). It is the whole exposure, not a base. |
+
+## `MatSpec`
+
+`albedo_gain` and `WallSpec.albedo_gain` share the reasoning below.
+
+| Field | Meaning |
+| --- | --- |
+| `albedo_gain` | Linear multiplier on the mat albedo image. The image is a photo of the lit mat, brighter than the paint's real reflectance. Darkening it lets the lights, fitted by auto exposure to the mat, carry the brightness, so every true-albedo object (the robots) is lit to match. |
+
+## `CageSpec`
+
+| Field | Meaning |
+| --- | --- |
+| `side_posts` | Extra vertical posts along each side, as fractions of the side length from its centre. 0.0 is a mid-side post. Corner posts are always present. |
+| `corner_posts` | The four corner posts. Off for an open box with no walls, where nothing stands at the corners above the rail. |
+
+## `FrameSpec`
+
+| Field | Meaning |
+| --- | --- |
+| `bolt_face` | `"top"` stands the bolt heads on the rail's upper face, which is what a low steel rail shows. `"inner"` drives them horizontally through the face looking at the mat, which is what a tall wooden kick rail shows. `bolt_height_above_mat` then says how far up. |
+
+## `PanelSpec`
+
+| Field | Meaning |
+| --- | --- |
+| `walls` | Which walls to glaze. BlenderProc's segmentation stops at glass, so a wall between the camera and the mat costs every label behind it. Leave it out when the camera is outside the cage looking in. `panels_outside_camera` does this per frame for mounts outside the wall plane. |
+
+## `PitSpec`
+
+A rectangular hole through the mat. The mat is cut around it, with walls and a floor below.
+
+| Field | Meaning |
+| --- | --- |
+| `center`, `size` | The rim in the W frame, the opening measured at mat level. |
+| `wall_thickness` | The four walls sit just outside the rim, so their inner faces land on the cut edge. |
+| `depth` | The floor closes the box off at this depth so nothing under the arena shows through. |
+
+## `WallSpec`
+
+A photo-textured vertical wall of the venue, standing on the venue floor. It runs from `start` to `end` in W at every height from `z_bottom` to `z_top`. It exists for the basement, whose stone walls stand a few centimetres behind the box, too close for a panorama at infinity to stand in.
+
+| Field | Meaning |
+| --- | --- |
+| `albedo` | Image laid out the way `wall_quads` maps it: columns from `start` to `end`, rows from `z_top` down to `z_bottom`. |
+| `color` | Used when `albedo` is empty. |
+
+## `VenueSpec`
+
+| Field | Meaning |
+| --- | --- |
+| `riser` | The solid block from the mat down to the venue floor. Off for a box standing on sawhorses, where the space under it is open. |
+
+## `HouseBotBoxSpec`
+
+| Field | Meaning |
+| --- | --- |
+| `size` | The GLB is scaled so its footprint's longer side equals `size[0]`. 0 keeps the model's own size. `size[2]` is unused when scaling. |
+| `roll_deg` | Rotation about the model's own x axis (the LED-face normal), applied before yaw. The GLB lies on its side, so -90 stands it up with the eyes side by side and the mouth below. |
+| `front_fill` | Strength of a narrow spot on the camera side aimed at the box, so its vertical LED face is lit the way the venue lights light the real one. 0 disables it. |
+| `model` | Textured model, repo-relative. An empty string falls back to a flat-coloured box. |
+| `albedo_gain` | Linear scale on the texture's grey body. 1.0 matches the mat brightness, as the real box does. |
+| `led_emission` | The LED eyes and mouth in the texture glow: saturated texels emit at this strength. |
+
+## `WorldSpec`
+
+| Field | Meaning |
+| --- | --- |
+| `hdri` | Repo-relative equirectangular panorama. When set, it replaces `background_color` as the world, at `ambient_strength`, turned `hdri_rotation_deg` about z. |
+
+## `TubeGrid`
+
+A rows x cols array of identical LED tubes, the ceiling rig as one knob. Shadow softness follows the rig's extent and tube size: more, longer, thicker tubes spread further apart give softer shadow edges. Rows run along y, columns along x.
+
+## `LightsSpec`
+
+| Field | Meaning |
+| --- | --- |
+| `tubes` | Extra tubes beside the grid. |
+
+## `BackdropSpec`
+
+| Field | Meaning |
+| --- | --- |
+| `enabled` | The cylinder and its light strip. Off when the world panorama is the backdrop. |
