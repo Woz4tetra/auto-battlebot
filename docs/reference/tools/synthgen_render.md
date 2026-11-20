@@ -110,7 +110,6 @@ Each entry names the function that carries the workaround. Entries marked unveri
 
 ### Blender and BlenderProc
 
-- Launch directory: BlenderProc changes the working directory to a temp directory and re-executes the script from there. `prepare_robot_model.py` and `render_sprites.py` read `BLENDERPROC_CWD` (falling back to `os.getcwd()`) at import and resolve relative CLI paths against it. Unverified: BlenderProc internals not read.
 - `add_house_bot_model` (`synthgen/cage.py`): the GLB ships lying on its side. A roll about its x axis (the LED-face normal) stands it up, and the footprint is measured on the standing box. `size[0] <= 0` keeps the model's own dimensions. Unverified: asset not inspected.
 - `_wire_maps_from_texture_directory` (`prepare_robot_model.py`): a loaded CC material can still be effectively flat in some Blender and asset combinations. The maps are then wired directly from the texture directory onto the slot material.
 

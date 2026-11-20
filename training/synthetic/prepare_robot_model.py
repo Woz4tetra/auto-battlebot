@@ -13,7 +13,7 @@ import cv2
 import mathutils
 import numpy as np
 
-_LAUNCH_CWD = Path(os.environ.get("BLENDERPROC_CWD", os.getcwd()))
+_LAUNCH_CWD = Path(os.getcwd())
 
 
 def resolve_path(path: Path) -> Path:
@@ -367,19 +367,7 @@ def _load_cc_materials(
     missing = sorted(name for name in needed if bpy.data.materials.get(name) is None)
     loaded = bproc.loader.load_ccmaterials(str(cc_path), used_assets=missing) if missing else []
     cc_materials = {mat.get_name(): mat for mat in loaded}
-    add_materials_already_in_blend_file(cc_materials, needed)
     return cc_materials
-
-
-def add_materials_already_in_blend_file(
-    cc_materials: dict[str, bproc.types.Material], needed: set[str]
-) -> None:
-    for name in needed:
-        if name in cc_materials:
-            continue
-        existing = bpy.data.materials.get(name)
-        if existing is not None:
-            cc_materials[name] = bproc.types.Material(existing)
 
 
 def _find_cc_material(

@@ -53,7 +53,7 @@ from synthgen.geometry import model_to_blender_local
 from synthgen.materials import apply_pbr_materials, load_cc_materials
 from synthgen.robots import import_gltf_as_robot
 
-LAUNCH_CWD = Path(os.environ.get("BLENDERPROC_CWD", os.getcwd()))
+LAUNCH_CWD = Path(os.getcwd())
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 SPRITE_MARGIN = 1.08

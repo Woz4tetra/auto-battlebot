@@ -894,7 +894,7 @@ def load_render_config(
 ) -> RenderConfig:
     """Load and validate config.toml into typed dataclasses."""
     if launch_cwd is None:
-        launch_cwd = Path(os.environ.get("BLENDERPROC_CWD", os.getcwd()))
+        launch_cwd = Path(os.getcwd())
     if project_root is None:
         project_root = _PROJECT_ROOT
 
