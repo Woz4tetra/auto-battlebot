@@ -166,6 +166,28 @@ def replace_dropped_tables(text: str, base: dict[str, object]) -> str:
     return out
 
 
+def append_ekf_error(
+    text: str, source: str, sigma: dict[str, list[float]], tau: dict[str, float]
+) -> str:
+    """Add the `[robots.ours.ekf_error]` table; its full-path header is valid after any table."""
+
+    def fmt(values: list[float]) -> str:
+        return "[" + ", ".join(f"{v:.5g}" for v in values) + "]"
+
+    keys = ("along", "cross", "theta", "v", "omega")
+    if not text.endswith("\n"):
+        text += "\n"
+    return (
+        text
+        + "\n# Provisional, from playground/rl/fit_provisional_ekf_error.py:\n"
+        + source
+        + "# Replace with the sensing plan step 5 fit.\n"
+        "[robots.ours.ekf_error]\n"
+        "sigma = { " + ", ".join(f"{k} = {fmt(sigma[k])}" for k in keys) + " }\n"
+        "tau_s = { " + ", ".join(f"{k} = {tau[k]:.4g}" for k in keys) + " }\n"
+    )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument(
@@ -224,9 +246,6 @@ def main() -> None:
     report["sigma"] = sigma
     report["tau_s"] = tau
 
-    def fmt(values: list[float]) -> str:
-        return "[" + ", ".join(f"{v:.5g}" for v in values) + "]"
-
     if args.lockstep is not None:
         source = (
             f"# from the C++ filter in {len(frames)} lockstep episodes ({args.lockstep.name}),\n"
@@ -238,19 +257,7 @@ def main() -> None:
             "# keypoints) against tag truth; along and cross copy the measurement sigmas above\n"
             "# (assumed).\n"
         )
-    text = replace_dropped_tables(args.base.read_text(), base)
-    text += (
-        "\n# Provisional, from playground/rl/fit_provisional_ekf_error.py:\n"
-        + source
-        + "# Replace with the sensing plan step 5 fit.\n"
-        "[robots.ours.ekf_error]\n"
-        "sigma = { "
-        + ", ".join(f"{k} = {fmt(sigma[k])}" for k in ("along", "cross", "theta", "v", "omega"))
-        + " }\n"
-        "tau_s = { "
-        + ", ".join(f"{k} = {tau[k]:.4g}" for k in ("along", "cross", "theta", "v", "omega"))
-        + " }\n"
-    )
+    text = append_ekf_error(replace_dropped_tables(args.base.read_text(), base), source, sigma, tau)
     args.out.write_text(text)
     print(json.dumps(report, indent=2))
     print(f"wrote {args.out}")

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+
 import numpy as np
 
 from playground.opponent_prediction import evaluate_opponent_prediction as ev
@@ -18,3 +22,19 @@ def test_gap_phase_matches_periodic_gaps() -> None:
     after_phase = rel > 0.0
     assert not keep[in_gap & after_phase].any()
     assert keep[~in_gap | ~after_phase].all()
+
+
+def test_importing_the_plot_module_selects_the_agg_backend() -> None:
+    code = (
+        "import matplotlib.pyplot as plt\n"
+        "from playground.opponent_prediction import plot_dropout_samples\n"
+        "print(plt.get_backend().lower())\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code],
+        env={**os.environ, "MPLBACKEND": "svg"},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert out.stdout.strip() == "agg"

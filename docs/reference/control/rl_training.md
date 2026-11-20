@@ -52,10 +52,3 @@ source scripts/activate_python.sh
 python training/rl/pretrain_sidestep.py runs/rl_nav/<run>/checkpoint.pt \
     --out runs/rl_nav/sidestep_bc/checkpoint.pt --expert '{"flank_m": 0.4}'
 ```
-
-## Workarounds
-
-- **`lockstep_eval.py` thread caps.** Each server process runs with `OMP_NUM_THREADS`, `MKL_NUM_THREADS` and `OPENBLAS_NUM_THREADS` set to 1. Torch and BLAS pools otherwise spin about 7 cores per episode. Unverified: not benchmarked.
-- **`fit_provisional_ekf_error.py` TOML append order.** The script appends the `ekf_error` keys to the source TOML text. Tables after `[randomization]` would swallow them, but `[randomization]` is the last table there and `ekf_error` is a fresh table header, so ordering is safe.
-- **`roboflow_coco_to_yolo_keypoints.py` split names.** YOLO expects a `val` key in `data.yaml`, so the script maps Roboflow's `valid` split to it.
-

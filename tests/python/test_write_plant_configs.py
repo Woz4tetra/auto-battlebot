@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from playground.calibration import write_plant_configs as writer
@@ -15,14 +17,21 @@ def test_format_always_keeps_a_decimal_point(value: float, text: str) -> None:
     assert writer._format(value) == text
 
 
-def test_every_sim_field_appears_exactly_once_in_the_sim_config() -> None:
-    text = writer.SIM_CONFIG.read_text()
-    plant = {fit_name: 1.0 for fit_name in writer.SIM_FIELDS.values()}
-
-    _, changes = writer._rewrite(
-        text, writer.TOML_FIELD, writer.SIM_FIELDS, plant, writer.SIM_CONFIG
-    )
-
+@pytest.mark.parametrize(
+    ("path", "fields"),
+    [
+        (writer.SIM_CONFIG, writer.SIM_FIELDS),
+        (writer.PLANT_CONFIG, writer.PLANT_FIELDS),
+        (writer.MR_STABS_PLANT_CONFIG, writer.PLANT_FIELDS),
+    ],
+    ids=["sim", "mrs_buff_mk3", "mr_stabs_mk2"],
+)
+def test_every_mapped_field_appears_exactly_once_in_its_target_config(
+    path: Path, fields: dict[str, str]
+) -> None:
+    text = path.read_text()
+    plant = {fit_name: 1.0 for fit_name in fields.values()}
+    _, changes = writer._rewrite(text, writer.TOML_FIELD, fields, plant, path)
     assert len({change.field for change in changes}) == len(changes)
 
 

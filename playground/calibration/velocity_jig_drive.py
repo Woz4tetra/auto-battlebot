@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, NamedTuple, Sequence
+from typing import Any, Callable, NamedTuple, Sequence
 
 import numpy as np
 
@@ -474,6 +474,68 @@ def wait_for_unplug(link: jl.JigLink, timeout: float = 300.0) -> None:
     raise TimeoutError("timed out waiting for the USB cable to be unplugged")
 
 
+def stop_recording(
+    link: jl.JigLink, cable_out: bool, announce: Callable[[str], None]
+) -> tuple[jl.JigLink, int, int]:
+    """Stop the jig log. With the cable out, B is pressed first and the counts are given up."""
+    if cable_out:
+        announce("Press B on the jig to stop recording, with the cable still out")
+        prompt("Press B now, then press Enter:")
+        announce("Plug the USB cable back in")
+        link = reopen_after_replug(link)
+        say(f"      reconnected on {link.port}")
+        say("      stop counts are not available over a replug; the log timestamps carry them")
+        return link, 0, 0
+    announce("Press B on the jig to stop recording")
+    samples, dropped = confirm_stopped(link)
+    if samples:
+        say(f"      stopped: n={samples} dropped={dropped}")
+    return link, samples, dropped
+
+
+def run_table(
+    *,
+    dest: Path,
+    command_file: str | None,
+    program: ex.Program,
+    rep: int,
+    pauses: Sequence[Any],
+    verdict: str,
+    gate_note: str,
+    warnings: Sequence[str],
+    contamination: float,
+    notes: str,
+    encoder: str,
+    trim: float,
+    now: datetime,
+) -> dict[str, Any]:
+    """The [run] table of a run sidecar; log_file is the name on disk, not the jig's name."""
+    stamp = f"{now:%Y-%m-%dT%H:%M:%SZ}"
+    return {
+        "id": f"{stamp}-{program.name}-{rep}",
+        "log_file": dest.name,
+        "command_file": command_file,
+        "rep": rep,
+        "started_utc": stamp,
+        "duration_s": program.duration_s + sum(p.held_s for p in pauses),
+        "verdict": verdict,
+        "gates": gate_note,
+        "warnings": "; ".join(warnings),
+        "contamination": round(contamination, 4),
+        "notes": notes,
+        "encoder": encoder,
+        "trim": trim,
+    }
+
+
+def planned_steps(decl: ex.WaveformDecl, program: ex.Program) -> int:
+    """How many numbered ceremony steps run_one prints for this waveform."""
+    total = STEPS_AT_REST + (STEPS_UNPLUG_B_PRESS_REPLUG if decl.motion else 0)
+    if decl.motion and not ends_at_rest(program):
+        total += 1
+    return total
+
+
 def run_one(
     args: argparse.Namespace,
     decl: ex.WaveformDecl,
@@ -485,9 +547,7 @@ def run_one(
     session_meta: dict[str, Any],
     provenance: dict[str, Any],
 ) -> tuple[jl.JigLink, RunOutcome]:
-    total = STEPS_AT_REST + (STEPS_UNPLUG_B_PRESS_REPLUG if decl.motion else 0)
-    if decl.motion and not ends_at_rest(program):
-        total += 1
+    total = planned_steps(decl, program)
     n = 0
     say(f"\n{'=' * 70}")
     say(f"RUN  {program.name}#{rep}  ({program.kind}/{program.channel}, {program.role})")
@@ -580,23 +640,14 @@ def run_one(
     step(n, total, f"Hold still {args.hold_s:.0f} s (bias drift bound)")
     hold_post = countdown(args.hold_s, "hold still")
 
-    samples, dropped = 0, 0
-    if decl.motion:
-        n += 1
-        step(n, total, "Press B on the jig to stop recording, with the cable still out")
-        prompt("Press B now, then press Enter:")
+    counter = [n]
 
-        n += 1
-        step(n, total, "Plug the USB cable back in")
-        link = reopen_after_replug(link)
-        say(f"      reconnected on {link.port}")
-        say("      stop counts are not available over a replug; the log timestamps carry them")
-    else:
-        n += 1
-        step(n, total, "Press B on the jig to stop recording")
-        samples, dropped = confirm_stopped(link)
-        if samples:
-            say(f"      stopped: n={samples} dropped={dropped}")
+    def announce(msg: str) -> None:
+        counter[0] += 1
+        step(counter[0], total, msg)
+
+    link, samples, dropped = stop_recording(link, decl.motion, announce)
+    n = counter[0]
 
     n += 1
     step(n, total, "Clock probe, post")
@@ -645,21 +696,21 @@ def run_one(
 
     write_run_toml(
         out_dir / f"{stem}.toml",
-        run={
-            "id": f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}-{program.name}-{rep}",
-            "log_file": dest.name,
-            "command_file": cmd_name if commands else None,
-            "rep": rep,
-            "started_utc": f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}",
-            "duration_s": program.duration_s + sum(p.held_s for p in pauses),
-            "verdict": verdict,
-            "gates": gate_note,
-            "warnings": "; ".join(warnings),
-            "contamination": round(contamination, 4),
-            "notes": notes,
-            "encoder": args.encoder,
-            "trim": args.trim,
-        },
+        run=run_table(
+            dest=dest,
+            command_file=cmd_name if commands else None,
+            program=program,
+            rep=rep,
+            pauses=pauses,
+            verdict=verdict,
+            gate_note=gate_note,
+            warnings=warnings,
+            contamination=contamination,
+            notes=notes,
+            encoder=args.encoder,
+            trim=args.trim,
+            now=datetime.now(timezone.utc),
+        ),
         spec={
             "name": program.name,
             "kind": program.kind,

@@ -9,6 +9,7 @@ import os
 import subprocess
 import tempfile
 import time
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -128,6 +129,14 @@ def work_dir(index: int, record: Path | None) -> contextlib.AbstractContextManag
     return contextlib.nullcontext(str(work))
 
 
+THREAD_CAP_VARS = ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS")
+
+
+def server_env(base: Mapping[str, str]) -> dict[str, str]:
+    """The eval server's environment: unbuffered, one BLAS and OpenMP thread per server."""
+    return {**base, "PYTHONUNBUFFERED": "1", **{k: "1" for k in THREAD_CAP_VARS}}
+
+
 def run_one(args: Job) -> str:
     scenarios, index, nav, bundle, results, port, record, extra, barrier = args
     scenario = json.loads(scenarios.read_text())[index]
@@ -138,8 +147,7 @@ def run_one(args: Job) -> str:
             cfg.write_text(cfg.read_text() + RECORD)
         if extra:
             cfg.write_text(cfg.read_text() + "\n" + extra)
-        threads = {k: "1" for k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS")}
-        env = {**os.environ, "PYTHONUNBUFFERED": "1", **threads}
+        env = server_env(os.environ)
         server = subprocess.Popen(
             [
                 str(REPO / "venv/bin/python"),
