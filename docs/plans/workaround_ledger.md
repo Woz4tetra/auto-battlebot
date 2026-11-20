@@ -172,7 +172,6 @@ Rows a batch could not settle. Each needs the action in the last column first.
 | `include/rgbd_camera/video_encoder.hpp`, `zed_rgbd_camera.hpp` (lock discipline) | Clang `-Wthread-safety` rejects `std::mutex` under libstdc++ as a non-capability type. Decide whether to add an annotated Mutex wrapper and lock guard to these classes |
 | `src/rgbd_camera/video_encoder.cpp:125` | `stopping_` is atomic, so TSan sees no race; the lock prevents a lost wakeup between the predicate check and the wait, which no test can hit deterministically. Decide whether to keep it as the standard condition-variable rule |
 | `tests/camera/test_video_encoder.cpp` | Real-encoder tests now skip under TSan, but a full TSan run still SEGVs in a `libnvcuvid.so.1` thread (TSan calloc interceptor). Needs the earlier test that starts NVDEC found, or NVDEC excluded from TSan runs |
-| `training/synthetic/prepare_robot_model.py:471` | The CC fallback never fired in 442 slot assignments; the assets that might need it (Foil002, Plastic007_blue, Plastic007_yellow) are configured but not on this machine. Needs those assets downloaded |
 
 ## Follow-up: purge the relocated comments from docs
 
