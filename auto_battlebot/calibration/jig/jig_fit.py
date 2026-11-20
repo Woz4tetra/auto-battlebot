@@ -30,11 +30,10 @@ from auto_battlebot.control.plant import (
     predict_windows,
 )
 
-# Per-sample motion floors. Below these the measurement is noise, whatever the command says.
-MOTION_EPS_LIN = 0.02  # m/s
-MOTION_EPS_ANG = 0.05  # rad/s
-ONSET_SIGMA = 5.0  # "moving" is 5 sigma above the stationary noise, per the plan
-MIN_HOLD_S = 0.4  # shortest command hold worth fitting a steady state to
+MOTION_EPS_LIN = 0.02
+MOTION_EPS_ANG = 0.05
+ONSET_SIGMA = 5.0
+MIN_HOLD_S = 0.4
 
 MIN_SAMPLES_FOR_TUKEY_FENCE = 8
 
@@ -613,9 +612,6 @@ def stage_a(loaded: Loaded, prior: PlantParams) -> StageA:
         dz_ang_r=_dz("dz_ang_r", prior.dz_ang_r),
     )
 
-    # Above the radio's readback quantization, below the smallest commanded step in any
-    # ladder (0.1 linear after the reverse cap, 0.244 angular), so this drops rest cells and
-    # nothing that was actually driven.
     step_floor = 0.01
     lin_segs: list[HeldSegment] = []
     for run in loaded.select(kinds=STEP_KINDS, channels=("linear",), roles=("fit",)):

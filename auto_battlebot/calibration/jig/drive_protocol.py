@@ -45,21 +45,12 @@ class MixConfig:
 
     mode: str = "tank"
     reverse_angular: bool = True
-    channel_scale: float = 1024.0  # full scale of the readback stream
-    # Slots into the radio's channel stream, which is 0-based: slot 0 is what the radio's own
-    # screen calls CH1. The named ones on this model are CH1/CH2 drive, CH3 weapon throttle,
-    # CH5 weapon arm. CH4 is unused and is not logged.
+    channel_scale: float = 1024.0
     read_linear: int = 0
     read_angular: int = 1
     read_weapon: int = 2
     read_arm: int = 4
-    # Per-channel sign on the READ path only. A radio with servo-reverse set on one drive
-    # channel reports it negated while the ESC on that side compensates, so the robot moves
-    # correctly and only the readback disagrees. Without these, a straight command un-mixes
-    # into a pure turn and the contamination gate fires on a perfectly good run. Find them
-    # with `velocity_jig_drive.py --check-radio`.
     read_invert_a: bool = False
-    # True for this radio, measured with --check-radio: channel B comes back negated.
     read_invert_b: bool = True
 
     def to_channels(self, linear: float, angular: float) -> tuple[int, int]:
@@ -272,9 +263,6 @@ class PlayResult:
     pauses: list[PauseWindow] = field(default_factory=list)
     manual: bool = False
 
-    # Ticks to ignore after the command changes. The radio reports its mixer output on its
-    # own schedule, so `measured` lags `commanded` by a tick or two. At a step edge that lag
-    # makes the two differ by the full step height, which has nothing to do with the driver.
     SETTLE_TICKS = 4
 
     @property

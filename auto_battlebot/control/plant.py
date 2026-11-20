@@ -32,7 +32,7 @@ class PlantParams:
     dz_lin_rev: float = 0.04
     dz_ang_l: float = 0.04
     dz_ang_r: float = 0.04
-    k_fwd: float = 5.60  # m/s at full command
+    k_fwd: float = 5.60
     k_rev: float = 4.84
     k_ang: float = 61.5
     tau_lin_a: float = 0.058
@@ -103,14 +103,11 @@ class ModelStructure:
     name: str = "M4"
     use_delay: bool = True
     use_lag: bool = True
-    asymmetric_tau: bool = True  # accel and decel constants differ
-    asymmetric_gain: bool = True  # forward and reverse max speeds differ
-    coupling: bool = True  # steer-brake and angular droop
-    drift_prop: bool = False  # yaw drift proportional to the linear command
-    drift_offset: bool = False  # yaw drift constant while moving
-    # Parameters the joint fit may not move, held at whatever stage A measured. A parameter
-    # with its own dedicated excitation and a tight spread is evidence; leaving it free lets
-    # an objective that cannot see it directly trade it away against something it can.
+    asymmetric_tau: bool = True
+    asymmetric_gain: bool = True
+    coupling: bool = True
+    drift_prop: bool = False
+    drift_offset: bool = False
     pinned: tuple[str, ...] = ()
 
     def apply(self, p: PlantParams) -> PlantParams:

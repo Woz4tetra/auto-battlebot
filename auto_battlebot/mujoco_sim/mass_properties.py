@@ -26,8 +26,8 @@ def asset_dir(robot: str) -> Path:
 @dataclass(frozen=True)
 class Body:
     mass: float
-    com: np.ndarray  # (3,) m
-    fullinertia: np.ndarray  # (6,) Ixx Iyy Izz Ixy Ixz Iyz about the COM, kg m^2
+    com: np.ndarray
+    fullinertia: np.ndarray
 
     @classmethod
     def from_table(cls, table: dict[str, Any]) -> Body:
@@ -41,9 +41,9 @@ class Body:
 @dataclass(frozen=True)
 class TagMount:
     tag_id: int
-    upside_down: bool  # faces the floor when the robot is upright
-    translation: np.ndarray  # (3,) tag center in the body frame
-    rotation: np.ndarray  # (3, 3) R_body_tag
+    upside_down: bool
+    translation: np.ndarray
+    rotation: np.ndarray
     size_m: float
 
     def body_from_tag(self) -> np.ndarray:
@@ -57,9 +57,9 @@ class TagMount:
 class Weapon:
     """A disk weapon's sweep: a cylinder about body y, the space the disk fills when it spins."""
 
-    center: np.ndarray  # (3,) spin axis point at the disk's mid-plane, body frame
-    radius: float  # largest disk radius about the axis
-    half_width: float  # half the disk thickness along the axis
+    center: np.ndarray
+    radius: float
+    half_width: float
 
 
 @dataclass(frozen=True)
@@ -74,8 +74,8 @@ class MassProperties:
     motor_kt: float
     rotor_inertia: float
     tags: dict[int, TagMount]
-    axle_x: float = 0.0  # driven wheels' axle, body x
-    follower_axle_x: float | None = None  # belt-coupled wheels' axle, or None for none
+    axle_x: float = 0.0
+    follower_axle_x: float | None = None
     weapon: Weapon | None = None
 
     @property

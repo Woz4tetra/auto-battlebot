@@ -20,7 +20,7 @@ from auto_battlebot.calibration.sysid.maneuvers import (
 )
 from auto_battlebot.control.plant import MODEL_LADDER
 
-MAX_FIT_WINDOWS = 300  # the fit thins to this many windows; the Fisher matrix uses them all
+MAX_FIT_WINDOWS = 300
 LADDER_EVERY = 3
 CONTACT_SIGMA = 4.0
 CONTACT_AFTER_REFITS = 3

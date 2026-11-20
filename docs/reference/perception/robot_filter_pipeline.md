@@ -322,3 +322,5 @@ The `frame_rate_hz` argument fixes the frame rate, overriding the sensing file's
 its randomization range. The lockstep sim and the kinematic sim server pass their tick rate,
 since they capture one frame per tick.
 
+The sensing file's `dropout.enabled` is true by default. False delivers every captured frame, so the robot never drops out.
+

@@ -17,8 +17,6 @@ from auto_battlebot.calibration.jig.velocity_jig import (
 from auto_battlebot.compat import tomllib
 
 MIN_HOLD_S = 0.5
-# Time to let the robot come to rest between cells, so each step's decay is measured from a
-# standstill rather than from whatever the previous cell left behind.
 MIN_COAST_S = 1.5
 
 DEFAULT_RATE_HZ = 50.0

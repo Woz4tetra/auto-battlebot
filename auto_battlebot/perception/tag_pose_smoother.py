@@ -588,13 +588,13 @@ def jerk_noise(dt: float) -> np.ndarray:
 
 @dataclass
 class FilterOptions:
-    angular: Sequence[bool]  # per axis: wrap the innovation to [-pi, pi)
-    prior_std: Sequence[Sequence[float]]  # per axis: (position, rate, acceleration) std
+    angular: Sequence[bool]
+    prior_std: Sequence[Sequence[float]]
     gate_probability: float = 0.9999
     gate: bool = True
-    reacquire_s: float = 0.3  # accept a gated position fix after this long without one
+    reacquire_s: float = 0.3
     max_consecutive_rejects: int = 5
-    branch_gap_s: float = 0.1  # see _ForwardState._innovation
+    branch_gap_s: float = 0.1
 
 
 def run_smoother(
@@ -971,8 +971,8 @@ class SmootherOptions:
     q_tilt: np.ndarray = field(default_factory=lambda: np.logspace(0.0, 6.0, 13))
     fuse_imu: bool = True
     imu_min_correlation: float = 0.7
-    still_yaw_rate: float = 0.15  # rad/s: "not turning" for the IMU rate noise
-    spin_rate: float = 3.0  # rad/s: "a spin" for the IMU agreement check
+    still_yaw_rate: float = 0.15
+    spin_rate: float = 3.0
 
 
 @dataclass

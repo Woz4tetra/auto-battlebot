@@ -35,7 +35,7 @@ WINDOW_COLUMNS = [
 class WindowOptions:
     window_s: float = 1.0
     coverage_min: float = 0.7
-    box_half_extent_m: float = 0.76  # the 1.52 m test box
+    box_half_extent_m: float = 0.76
     box_center_xy: tuple[float, float] = (0.0, 0.0)
     robot_length_m: float = 0.15
     rest_pitch_rad: float = 0.198

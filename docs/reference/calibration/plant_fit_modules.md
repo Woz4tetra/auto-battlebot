@@ -157,7 +157,19 @@ than becoming max speed divided by (1 - dz).
 `0` and `5` are integers in TOML, and a reader that asks for a double gets a type error on a
 parameter that happened to land on a round number. Every emitted value keeps a decimal point.
 
+#### `PlantParams`
+
+`k_fwd` is the forward top speed at full command, m/s. The field names are the keys in the plant TOML, so the unit stays in this doc instead of the name.
+
 #### `ModelStructure`
+
+| Flag | Meaning |
+| --- | --- |
+| `asymmetric_tau` | Accel and decel time constants differ |
+| `asymmetric_gain` | Forward and reverse max speeds differ |
+| `coupling` | Steer-brake and angular droop |
+| `drift_prop` | Yaw drift proportional to the linear command |
+| `drift_offset` | Yaw drift constant while moving |
 
 `pinned` lists parameters the joint fit may not move, held at whatever stage A measured. A
 parameter with its own dedicated excitation and a tight spread is evidence. Leaving it free lets

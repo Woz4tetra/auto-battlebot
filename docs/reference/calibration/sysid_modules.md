@@ -58,6 +58,22 @@ drives, and the radio reports what it sent. `linear` and `angular` stay zero bec
 nothing was asked for; the measured channels are the whole record of the run, which is
 why the weapon pair rides along with the drive pair here.
 
+#### `MixConfig`
+
+How a body command maps onto the two trainer channels, and how the readback is un-mixed.
+
+| Field | Meaning |
+| --- | --- |
+| `channel_scale` | Full scale of the readback stream |
+| `read_linear`, `read_angular`, `read_weapon`, `read_arm` | Slots into the radio's channel stream. The stream is 0-based, so slot 0 is what the radio's own screen calls CH1. On this model CH1 and CH2 are drive, CH3 is weapon throttle and CH5 is weapon arm. CH4 is unused and is not logged |
+| `read_invert_a`, `read_invert_b` | Per-channel sign on the read path only. A radio with servo-reverse set on one drive channel reports it negated while the ESC on that side compensates, so the robot moves correctly and only the readback disagrees. Without the inversion a straight command un-mixes into a pure turn and the contamination gate fires on a good run. Find the signs with `velocity_jig_drive.py --check-radio` |
+
+The defaults are `read_invert_a = False` and `read_invert_b = True`: `--check-radio` showed channel B coming back negated on this radio.
+
+#### `PlayResult.SETTLE_TICKS`
+
+`SETTLE_TICKS = 4`: ticks ignored after the command changes. The radio reports its mixer output on its own schedule, so `measured` lags `commanded` by a tick or two. At a step edge that lag makes the two differ by the full step height, which says nothing about the driver, so the contamination check skips those ticks.
+
 ### `calibration/jig/excitation.py`
 
 Excitation waveforms for velocity jig runs, declared in TOML.
@@ -88,6 +104,10 @@ A playable excitation.
 triangle, PRBS, manual), where there is no cell structure to slice by. `at(t)` is the
 authority either way: the player samples it, and segments exist so the fit can label
 samples by phase.
+
+#### `MIN_COAST_S`
+
+`MIN_COAST_S = 1.5` is the shortest coast between cells and the default `coast_s`. It lets the robot come to rest so each step's decay is measured from a standstill instead of from whatever the previous cell left behind.
 
 #### `_build_coast`
 
@@ -138,6 +158,19 @@ seed the drift parameter before any fit exists. Driven open loop here; the close
 correction lives in the CLI, which can see the jig's live stream.
 
 ### `calibration/jig/jig_fit.py`
+
+#### Motion floors
+
+Per-sample floors below which the measurement is noise, whatever the command says.
+
+| Constant | Value | Meaning |
+| --- | --- | --- |
+| `MOTION_EPS_LIN` | 0.02 m/s | Linear speed floor |
+| `MOTION_EPS_ANG` | 0.05 rad/s | Angular rate floor |
+| `ONSET_SIGMA` | 5.0 | "Moving" means this many sigma above the stationary noise, per the plan |
+| `MIN_HOLD_S` | 0.4 s | Shortest command hold worth fitting a steady state to |
+
+`stage_a` passes `step_floor = 0.01` as `min_level` to `held_segments`. It sits above the radio's readback quantization and below the smallest commanded step in any ladder (0.1 linear after the reverse cap, 0.244 angular), so it drops rest cells and nothing that was actually driven.
 
 #### `COAST_KINDS`
 
@@ -358,6 +391,20 @@ Bench calibration from runbook block 0, one set per hardware configuration.
 `r_enc_perp` (E5) is the encoder wheel's lever arm, removed from every speed measurement,
 which is what makes combined linear-plus-angular runs usable instead of discarded. `r_imu` is
 kept for the report and for E5's own sanity check against a tape measure.
+
+`from_toml` rejects a non-positive `meters_per_count`: zero would make every measured speed zero. Fit it with runbook E4 and `playground/calibration/fit_encoder_scale.py`.
+
+| Field | Meaning |
+| --- | --- |
+| `r_enc_perp` | Encoder wheel offset perpendicular to the forward axis, m |
+| `r_imu` | IMU offset from the yaw axis, m |
+| `encoder_rate_limit` | Rate above which the encoder wheel scrubs, rad/s (E5) |
+
+#### Command coverage
+
+`load_run` counts a grid sample as commanded when it falls between the first command and 2.0 s after the last one. The still holds that bracket every run sit outside the command log, and so does an operator-driven run whose sticks were never logged. The coast for a couple of seconds past the last command is real data, because the runner zeroes and disarms on exit, so that much grace is kept and the rest is dropped.
+
+`problems` rejects a run when the larger of the two hold gaps exceeds `max_hold_gap_s` (default 5.0 s, half of a ten second hold). Detection trims the edges of a still stretch, so a little uncovered time is normal; half of it missing is not.
 
 #### `ClockProbe`
 
@@ -711,6 +758,8 @@ Two engines run it. ``InlineEngine`` calls it on ``submit``, which keeps tests a
 deterministic. ``ProcessEngine`` runs it in a spawned process so a live session keeps labeling
 while a refit takes a few seconds.
 
+`MAX_FIT_WINDOWS = 300`: the fit thins to this many windows. The Fisher matrix still uses all of them.
+
 ### `control/firmware_mixer.py`
 
 #### Module conventions
@@ -888,6 +937,40 @@ The grey-box plant takes linear and angular commands. They come from the per-mot
 `plant.simulate`'s `traj[k]` is the state after step k, so `predict` prepends the start and sample
 k sits at `k * PLANT_DT`.
 
+### `mujoco_sim/mass_properties.py`
+
+Loads `simulation/assets/robots/mr_stabs_mk2/mass_properties.toml` into frozen dataclasses.
+
+#### `Body`
+
+| Field | Meaning |
+| --- | --- |
+| `com` | (3,) center of mass, m |
+| `fullinertia` | (6,) Ixx Iyy Izz Ixy Ixz Iyz about the COM, kg m^2 |
+
+#### `TagMount`
+
+| Field | Meaning |
+| --- | --- |
+| `upside_down` | The tag faces the floor when the robot is upright |
+| `translation` | (3,) tag center in the body frame |
+| `rotation` | (3, 3) `R_body_tag` |
+
+#### `Weapon`
+
+| Field | Meaning |
+| --- | --- |
+| `center` | (3,) point on the spin axis at the disk's mid-plane, body frame |
+| `radius` | Largest disk radius about the axis |
+| `half_width` | Half the disk thickness along the axis |
+
+#### `MassProperties`
+
+| Field | Meaning |
+| --- | --- |
+| `axle_x` | Axle of the driven wheels, body x |
+| `follower_axle_x` | Axle of the belt-coupled wheels, or `None` when there are none. `total_mass` counts each wheel twice when it is set |
+
 ### `mujoco_sim/mjcf.py`
 
 `GEAR_SOLREF` is the gear-coupling stiffness: a time constant of two timesteps, the minimum MuJoCo
@@ -918,6 +1001,20 @@ The CAD face is rasterized with the lightest faces painted first so the black pa
 of any overlapping plate.
 
 ### `mujoco_sim/rollout.py`
+
+#### `CollisionSet`
+
+Loaded from `collision.toml`.
+
+| Field | Meaning |
+| --- | --- |
+| `pieces` | Convex OBJ pieces in the body frame |
+| `skid_point` | Lowest nose point, body frame; `None` on four wheels |
+| `rest_pitch_rad` | Nose-down pitch with both wheels and the skid on the floor |
+
+#### `rotor_diaginertia`
+
+Only the axial inertia matters, so the radial ones are set to 0.6 of it. They sit clear of the triangle-inequality limit: a thin disc's J/2 lands exactly on it and fails to compile.
 
 #### `NCONMAX` and `nconmax_for`
 
@@ -1042,6 +1139,22 @@ The smoother internals and their tuning are in `docs/experiments/sysid/2026-10-2
 
 - `_fuse_yolo` sorts the fixes by stamp. The `KnotSource.EXTRA` knots come out of `_planar_knots` in stamp order, so the outcome at each of them lines up with the same row of the fixes table. `test_yolo_fix_outcomes_align_with_fix_rows` pins it.
 
+#### `FilterOptions`
+
+| Field | Meaning |
+| --- | --- |
+| `angular` | Per axis: wrap the innovation to [-pi, pi) |
+| `prior_std` | Per axis: (position, rate, acceleration) std |
+| `reacquire_s` | Accept a gated position fix after this long without one (default 0.3 s) |
+| `branch_gap_s` | Gap above which the innovation reference is the state carried forward at its rate instead of the current estimate (default 0.1 s; see `_ForwardState._innovation`). `_with_rate` sets it to infinity so yaw unwraps onto the prediction's branch always |
+
+#### `SmootherOptions`
+
+| Field | Meaning |
+| --- | --- |
+| `still_yaw_rate` | rad/s below which the tag counts as "not turning" for the IMU rate noise (default 0.15) |
+| `spin_rate` | rad/s above which the tag counts as "a spin" for the IMU agreement check (default 3.0) |
+
 ### `perception/sysid_windows.py`
 
 Fit windows for the drivetrain sysid: gating and initial state (plan "Data pipeline" 3 and 4).
@@ -1068,6 +1181,13 @@ spinning to roll the robot forward is positive, which is positive rotation about
 inverted robot body z points down, so the body-frame yaw rate is minus the field one: a
 counter-clockwise turn seen from above is clockwise about body z, and the left wheel reads
 positive while the right reads negative.
+
+#### `WindowOptions`
+
+| Field | Meaning |
+| --- | --- |
+| `box_half_extent_m` | Half the 1.52 m test box side (default 0.76 m) |
+
 
 ### `recording/esp32_clock.py`
 

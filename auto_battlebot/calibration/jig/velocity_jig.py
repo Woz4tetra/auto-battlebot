@@ -320,9 +320,9 @@ class JigCalibration:
 
     meters_per_count: float
     gyro_scale: float = 1.0
-    r_enc_perp: float = 0.0  # m, encoder wheel offset perpendicular to the forward axis
-    r_imu: float = 0.0  # m, IMU offset from the yaw axis
-    encoder_rate_limit: float = 8.0  # rad/s, above which the encoder wheel scrubs (E5)
+    r_enc_perp: float = 0.0
+    r_imu: float = 0.0
+    encoder_rate_limit: float = 8.0
     source: str = ""
 
     @classmethod
@@ -337,9 +337,8 @@ class JigCalibration:
             raise ValueError(f"{path}: [encoder] meters_per_count is required (E4)")
         if float(enc["meters_per_count"]) <= 0.0:
             raise ValueError(
-                f"{path}: [encoder] meters_per_count is {enc['meters_per_count']}, which "
-                "would make every measured speed zero. Measure it with runbook E4 and "
-                "playground/calibration/fit_encoder_scale.py."
+                f"{path}: [encoder] meters_per_count is {enc['meters_per_count']}, must be "
+                "positive; fit it with playground/calibration/fit_encoder_scale.py"
             )
         return cls(
             meters_per_count=float(enc["meters_per_count"]),
@@ -1056,8 +1055,6 @@ class RunQuality:
         max_saturation: float = 0.0,
         max_clock_residual_ms: float = 2.0,
         min_commanded_s: float = 1.0,
-        # Half a ten second hold. Detection trims the edges of a still stretch, so a little
-        # uncovered time is normal; half of it missing is not.
         max_hold_gap_s: float = 5.0,
     ) -> list[str]:
         """Reasons to exclude this run. Empty means usable."""
@@ -1247,10 +1244,6 @@ def load_run(
     cmd_ang = zoh(record.cmd_t_host_s, record.cmd_ang, grid)
     labels = _labels_for(record, grid)
 
-    # Where the command is actually known. The still holds that bracket every run sit outside the
-    # command log, and so does an operator-driven run whose sticks were never logged. Coasting
-    # for a couple of seconds past the last command is real data (the runner zeroes and disarms
-    # on exit), so that much grace is kept and the rest is dropped.
     if record.has_commands:
         commanded = (grid >= record.cmd_t_host_s[0]) & (grid <= record.cmd_t_host_s[-1] + 2.0)
         commanded &= ~pause_mask(grid, record.pauses)

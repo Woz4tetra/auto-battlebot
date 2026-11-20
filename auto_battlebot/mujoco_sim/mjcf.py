@@ -35,9 +35,9 @@ HULL_GEOM_GROUP = 3
 
 @dataclass(frozen=True)
 class CollisionSet:
-    pieces: tuple[Path, ...]  # convex OBJ pieces in the body frame
-    skid_point: np.ndarray | None  # lowest nose point, body frame; None on four wheels
-    rest_pitch_rad: float  # nose-down pitch with both wheels and the skid on the floor
+    pieces: tuple[Path, ...]
+    skid_point: np.ndarray | None
+    rest_pitch_rad: float
 
     @classmethod
     def load(cls, directory: Path = COLLISION_DIR) -> CollisionSet:
@@ -52,8 +52,7 @@ class CollisionSet:
 
 
 def rotor_diaginertia(axial: float) -> tuple[float, float, float]:
-    """Rotor principal inertias. Only the axial one matters; the radial ones sit clear of the
-    triangle-inequality limit (a thin disc's J/2 lands on it and fails to compile)."""
+    """Rotor principal inertias, radial ones at 0.6 of the axial."""
     return (0.6 * axial, axial, 0.6 * axial)
 
 

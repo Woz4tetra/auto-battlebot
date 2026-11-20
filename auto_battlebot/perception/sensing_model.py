@@ -109,7 +109,6 @@ class DropoutSpec:
     measured: DurationTable
     dropped: DurationTable
     borrowed: tuple[str, ...]
-    # False delivers every captured frame: the robot never drops out.
     enabled: bool = True
 
     @property
