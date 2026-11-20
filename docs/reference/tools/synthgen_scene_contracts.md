@@ -55,9 +55,7 @@ boolean applied to mesh data would compound across scenes. Instead:
   difference modifier to the target mesh.
 
 Both are recorded in a `DamageSession` and reverted after the scene's frames are written. The
-cutter pool is pre-built because objects created mid-run would miss the segmentation arming that
-`_enable_segmentation` does over the meshes that exist at call time. Pool cutters are created before
-it, never render, and carry the background category id, so both passes ignore them.
+cutter pool is pre-built once at startup. Pool cutters never render, and carry the background category id, so both passes ignore them.
 
 `apply_scene_damage` returns `SceneDamage`. Only robot-like distractors are damaged, since a cut-up
 traffic cone teaches the detector nothing about a battlebot. `per_instance` has one entry per

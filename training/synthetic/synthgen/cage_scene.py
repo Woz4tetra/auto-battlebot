@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import blenderproc as bproc
+
 import math
 import random
 from collections.abc import Sequence
@@ -9,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NamedTuple
 
-import blenderproc as bproc
 import bpy
 import mathutils
 import numpy as np
@@ -369,12 +370,7 @@ def build_cage_stage(
     project_root: Path,
     is_segmentation_mode: bool,
 ) -> CageStage:
-    """Build the cage into the current scene and return it hidden, ready to activate.
-
-    Call this after every other mesh exists but before BlenderProc's segmentation output is
-    armed, for the same reason the ground plane is built there: pass indices are assigned at
-    that call.
-    """
+    """Build the cage into the current scene and return it hidden, ready to activate."""
     spec = load_cage_spec(resolve(cage_cfg.spec))
     blocked = mounts_behind_walls(
         cage_cfg.mount,

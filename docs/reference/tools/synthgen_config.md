@@ -189,7 +189,7 @@ The manifest makes damage-on and damage-off arms two filters over one render, no
 | `max_part_volume_fraction` | A part holding more than this share of the summed part bounding volumes never goes, so one draw cannot remove most of the robot. |
 | `keypoint_clearance_m` | Keypoint anchors are protected with this clearance. `[robots.keypoints]` are model-frame offsets, so removing the part a keypoint sits on would leave the label pointing at thin air. |
 | `protected_name_patterns` | Blender object-name substrings that must survive, for anything the geometry test misses. Empty means the geometric protection is the only rule. |
-| `cutter_pool_size` | Cutters pre-built at startup, before the segmentation pass is armed. One scene needs at most one per robot-like instance: `[scene].max_robots_per_scene` plus the distractor pool's robot-like share. |
+| `cutter_pool_size` | Cutters pre-built at startup. One scene needs at most one per robot-like instance: `[scene].max_robots_per_scene` plus the distractor pool's robot-like share. |
 
 ## `training/synthetic/config_meshy_grade.toml`
 

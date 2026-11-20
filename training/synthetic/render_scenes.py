@@ -1,4 +1,4 @@
-import blenderproc as bproc  # noqa: F401  # isort: skip  # must be first import for blenderproc run
+import blenderproc as bproc  # noqa: F401
 
 """Render synthetic YOLO training scenes with BlenderProc.
 

@@ -1,5 +1,4 @@
-import blenderproc as bproc  # isort: skip  # must be first import for blenderproc run
-
+import blenderproc as bproc
 
 import argparse
 from datetime import datetime, timezone

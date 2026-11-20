@@ -1,9 +1,10 @@
 """Material inspection, mapping, and PBR application (requires Blender)."""
 
+import blenderproc as bproc
+
 import random
 from pathlib import Path
 
-import blenderproc as bproc
 import bpy
 
 from synthgen.asset_index import PathResolveFn

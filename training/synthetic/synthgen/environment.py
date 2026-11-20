@@ -1,9 +1,10 @@
 """World, ground plane, and lighting setup/randomization (requires Blender)."""
 
+import blenderproc as bproc
+
 import random
 from pathlib import Path
 
-import blenderproc as bproc
 import bpy
 
 from synthgen.asset_index import PathResolveFn
@@ -15,6 +16,7 @@ from synthgen.constants import (
     SEG_FLOOR_CLASS_ID,
 )
 from synthgen.logsetup import get_logger
+from synthgen.pass_index import assign_pass_index
 
 logger = get_logger(__name__)
 
@@ -43,6 +45,7 @@ def create_ground_plane(is_segmentation_mode: bool) -> bproc.types.MeshObject:
     ground.set_cp("category_id", ground_category_id)
     ground.set_cp("robot_instance_id", 0)
     ground.set_cp("is_distractor", 0)
+    assign_pass_index(ground)
     return ground
 
 

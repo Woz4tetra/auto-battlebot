@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import blenderproc as bproc  # noqa: F401  # isort: skip  (blenderproc must be imported first)
+import blenderproc as bproc  # noqa: F401
 
 DESCRIPTION = """
 Render the empty NHRL cage from fitted cage-high camera poses, for grading against footage.

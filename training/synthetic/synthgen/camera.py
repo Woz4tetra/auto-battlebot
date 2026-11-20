@@ -1,10 +1,11 @@
 """Camera pose sampling (requires Blender)."""
 
+import blenderproc as bproc
+
 import math
 import random
 from typing import NamedTuple
 
-import blenderproc as bproc
 import bpy
 import mathutils
 import numpy as np

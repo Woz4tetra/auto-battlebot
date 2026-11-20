@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import blenderproc as bproc  # noqa: F401  # isort: skip  (blenderproc must be imported first)
+import blenderproc as bproc  # noqa: F401
 
 DESCRIPTION = """Fly a camera around the built cage with WASD and a mouse, and save where it landed.
 

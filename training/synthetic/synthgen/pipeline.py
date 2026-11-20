@@ -6,18 +6,17 @@ Order-of-operations invariants (do not reorder casually):
    ``enable_depth_output`` before anything renders. Cycles keeps its persistent data
    across the frames of one pass (BlenderProc's init turns it on), so the scene syncs once
    per pass rather than once per frame.
-2. ``enable_segmentation_output`` only after all mesh objects exist, because it
-   assigns pass indices at call time; it is re-armed after every distractor
-   pool refresh for the same reason.
-3. Per scene: reset keyframes -> ground scale -> environment -> select/pose
+2. Per scene: reset keyframes -> ground scale -> environment -> select/pose
    robots -> pool refresh check -> place distractors -> lights -> material
    jitter -> cameras -> render.
-4. The clean (distractor-free) second render runs after the main render, only
+3. The clean (distractor-free) second render runs after the main render, only
    when obstructions are not ignored and distractors are active, and at one sample:
    only its segmap is read.
-5. ``frame_set(local_idx)`` before per-frame keypoint projection: Blender's
+4. ``frame_set(local_idx)`` before per-frame keypoint projection: Blender's
    ``world_to_camera_view`` reads the camera pose animated at that frame.
 """
+
+import blenderproc as bproc
 
 import argparse
 import gc
@@ -28,7 +27,6 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, NamedTuple
 
-import blenderproc as bproc
 import bpy
 import cv2
 import numpy as np
@@ -234,7 +232,7 @@ def build_annotation_scheme(cfg: RenderConfig) -> AnnotationScheme:
 
 
 def _enable_segmentation() -> None:
-    """(Re-)arm BlenderProc's segmentation output for all current meshes."""
+    """Enable BlenderProc's segmentation output."""
     bproc.renderer.enable_segmentation_output(
         map_by=["category_id", "robot_instance_id"],
         default_values={"category_id": BACKGROUND_CATEGORY_ID, "robot_instance_id": 0},
@@ -926,7 +924,6 @@ def run(args: argparse.Namespace) -> None:
         scheme.assigner,
         cfg.resolver.resolve,
         load_keypoints=scheme.nhrl_class_id is not None,
-        enable_segmentation=_enable_segmentation,
         vram_estimates=vram_estimates,
     )
     _refresh_pool(pool_mgr, scheme, layout)

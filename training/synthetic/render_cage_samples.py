@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import blenderproc as bproc  # noqa: F401  # isort: skip  (blenderproc must be imported first)
+import blenderproc as bproc  # noqa: F401
 
 DESCRIPTION = """
 Render labelled robot samples inside the NHRL cage from the fixed cage-high camera.
@@ -331,7 +331,6 @@ def main() -> None:
         scheme.assigner,
         cfg.resolver.resolve,
         load_keypoints=scheme.nhrl_class_id is not None,
-        enable_segmentation=_enable_segmentation,
         vram_estimates=vram_estimates,
     )
     _refresh_pool(pool_mgr, scheme, layout)

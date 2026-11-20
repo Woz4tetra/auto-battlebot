@@ -1,12 +1,12 @@
 """Distractor model loading, placement, and pool management (requires Blender)."""
 
+import blenderproc as bproc
+
 import math
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
-import blenderproc as bproc
 import bpy
 import mathutils
 import numpy as np
@@ -28,6 +28,7 @@ from synthgen.mesh_bytes import (
     estimate_geometry_bytes,
     estimate_mip_chain_bytes,
 )
+from synthgen.pass_index import assign_pass_index
 
 logger = get_logger(__name__)
 
@@ -149,6 +150,7 @@ def load_distractor(
             mesh.set_cp("category_id", category_id)
             mesh.set_cp("robot_instance_id", instance_id)
             mesh.set_cp("is_distractor", 1)
+            assign_pass_index(mesh)
             meshes.append(mesh)
 
         return DistractorInstance(
@@ -395,12 +397,7 @@ def clear_blocking_distractors(
 
 
 class DistractorPoolManager:
-    """Owns the loaded distractor pool, its VRAM budget, and the shuffle cycle.
-
-    ``refresh()`` re-arms BlenderProc's segmentation output because pass
-    indices are assigned to meshes at call time: newly loaded distractor meshes
-    would otherwise be missing from the segmentation maps.
-    """
+    """Owns the loaded distractor pool, its VRAM budget, and the shuffle cycle."""
 
     def __init__(
         self,
@@ -408,14 +405,12 @@ class DistractorPoolManager:
         assigner: DistractorClassIdAssigner,
         resolve: PathResolveFn,
         load_keypoints: bool,
-        enable_segmentation: Callable[[], None],
         vram_estimates: dict[Path, VramMb],
     ) -> None:
         self._cfg = dist_cfg
         self._assigner = assigner
         self._resolve = resolve
         self._load_keypoints = load_keypoints
-        self._enable_segmentation = enable_segmentation
         self._vram_estimates = vram_estimates
         self.pool: list[DistractorInstance] = []
         self.images_since_shuffle = 0
@@ -432,7 +427,7 @@ class DistractorPoolManager:
         self.images_since_shuffle += count
 
     def refresh(self) -> None:
-        """Unload the old pool, load a fresh random one, and re-arm segmentation."""
+        """Unload the old pool and load a fresh random one."""
         if self.pool:
             unload_distractor_pool(self.pool)
         logger.info("Loading distractor models...")
@@ -446,7 +441,6 @@ class DistractorPoolManager:
             )
         for distractor in self.pool:
             hide_distractor(distractor)
-        self._enable_segmentation()
         self.images_since_shuffle = 0
 
     def _try_load_file(

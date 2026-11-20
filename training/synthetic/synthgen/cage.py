@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import blenderproc as bproc
+
 import json
 import math
 from pathlib import Path
 from typing import Any, NamedTuple
 
-import blenderproc as bproc
 import bpy
 import cv2
 import mathutils
@@ -37,6 +38,7 @@ from synthgen.cage_spec import (
 )
 from synthgen.constants import HOUSE_BOT_CATEGORY_ID, MAT_CATEGORY_ID
 from synthgen.logsetup import get_logger
+from synthgen.pass_index import assign_pass_index
 
 logger = get_logger(__name__)
 
@@ -150,6 +152,7 @@ def add_box(
     obj.set_scale([s / 2.0 for s in box.size])
     obj.set_rotation_euler([0.0, 0.0, math.radians(box.yaw_deg)])
     obj.set_cp("category_id", category_id)
+    assign_pass_index(obj)
     obj.replace_materials(material)
     return obj
 
@@ -164,6 +167,7 @@ def add_cylinder(cyl: Cylinder, material: bproc.types.Material) -> bproc.types.M
     ]
     obj.set_rotation_euler(rotation)
     obj.set_cp("category_id", 0)
+    assign_pass_index(obj)
     obj.replace_materials(material)
     return obj
 
@@ -180,6 +184,7 @@ def add_quad(quad: Quad, material: bproc.types.Material) -> bproc.types.MeshObje
     bpy.context.scene.collection.objects.link(blender_obj)
     obj = bproc.types.MeshObject(blender_obj)
     obj.set_cp("category_id", 0)
+    assign_pass_index(obj)
     obj.replace_materials(material)
     return obj
 
@@ -354,6 +359,7 @@ def _add_backdrop(
     backdrop.set_location([0.0, 0.0, spec.backdrop.height / 2 - spec.venue.floor_drop])
     backdrop.set_scale([spec.backdrop.radius, spec.backdrop.radius, spec.backdrop.height / 2])
     backdrop.set_cp("category_id", 0)
+    assign_pass_index(backdrop)
     backdrop.replace_materials(backdrop_material)
     mesh = backdrop.blender_obj.data
     cap_polys = [p.index for p in mesh.polygons if abs(p.normal.z) > 0.9]
@@ -480,6 +486,7 @@ def add_house_bot_model(
     for obj in loaded:
         obj.blender_obj.parent = parent
         obj.set_cp("category_id", category_id)
+        assign_pass_index(obj)
 
     def world_corners() -> np.ndarray:
         bpy.context.view_layer.update()

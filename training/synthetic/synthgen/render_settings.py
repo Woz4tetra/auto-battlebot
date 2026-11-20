@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import blenderproc as bproc
+
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-import blenderproc as bproc
 import bpy
 
 from synthgen.logsetup import get_logger

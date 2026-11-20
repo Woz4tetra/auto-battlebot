@@ -1,12 +1,13 @@
 """Target robot loading, selection, and posing (requires Blender)."""
 
+import blenderproc as bproc
+
 import math
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
-import blenderproc as bproc
 import bmesh
 import bpy
 import mathutils
@@ -24,6 +25,7 @@ from synthgen.constants import ROBOT_CATEGORY_ID
 from synthgen.damage import FacePiece, assign_faces_to_pieces, model_box_to_blender_local
 from synthgen.logsetup import get_logger
 from synthgen.materials import apply_pbr_materials
+from synthgen.pass_index import assign_pass_index
 
 logger = get_logger(__name__)
 
@@ -169,6 +171,7 @@ def import_gltf_as_robot(
         mesh = bproc.types.MeshObject(obj)
         mesh.set_cp("category_id", category_id)
         mesh.set_cp("is_distractor", 0)
+        assign_pass_index(mesh)
         bproc_meshes.append(mesh)
 
     return ImportedRobot(bproc_meshes, parent, bbox_corners)
@@ -237,7 +240,7 @@ def split_damage_parts(
                 collection.objects.link(piece)
             _keep_faces(piece, assign == piece_index)
             found[int(piece_index)].append(piece)
-            kept.append(bproc.types.MeshObject(piece))
+            kept.append(assign_pass_index(bproc.types.MeshObject(piece)))
         if count and np.all(assign >= 0):
             bpy.data.objects.remove(obj, do_unlink=True)
             continue

@@ -23,6 +23,8 @@ being silently overwritten and WASD mysteriously stops responding.
 
 from __future__ import annotations
 
+import blenderproc as bproc
+
 import contextlib
 import os
 import sys
@@ -32,7 +34,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import blenderproc as bproc
 import bpy
 import cv2
 import mathutils

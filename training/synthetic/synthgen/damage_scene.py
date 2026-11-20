@@ -33,6 +33,7 @@ from synthgen.damage import (
 )
 from synthgen.distractors import DistractorInstance
 from synthgen.logsetup import get_logger
+from synthgen.pass_index import assign_pass_index
 from synthgen.robots import RobotInstance
 
 logger = get_logger(__name__)
@@ -116,11 +117,7 @@ class CutterPool:
 
 
 def build_cutter_pool(size: int) -> CutterPool:
-    """Create *size* parked cutters, half cubes and half icospheres.
-
-    Call this before ``_enable_segmentation`` so the cutters are covered by the same arming
-    as everything else, and before any render so they never appear in one.
-    """
+    """Create *size* parked cutters, half cubes and half icospheres."""
     cutters: list[bpy.types.Object] = []
     interior = _cut_interior_material() if size > 0 else None
     for index in range(max(size, 0)):
@@ -133,6 +130,7 @@ def build_cutter_pool(size: int) -> CutterPool:
         cutter.name = f"{CUTTER_NAME_PREFIX}_{index:03d}"
         cutter["cutter_shape"] = shape
         cutter["category_id"] = BACKGROUND_CATEGORY_ID
+        assign_pass_index(cutter)
         cutter.hide_render = True
         cutter.location = mathutils.Vector(DISTRACTOR_OFFSCREEN_LOCATION)
         cutter.data.materials.append(interior)

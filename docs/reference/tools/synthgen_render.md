@@ -26,6 +26,21 @@ Design facts for `training/synthetic/synthgen/` (`pipeline.py`, `robots.py`, `pr
 
 - A fresh run (`start_index == 0`) replaces `manifest.jsonl`. A resume (`--start-index`, or a re-run into a directory that already holds images) appends to the rows already there.
 
+## Segmentation pass indices
+
+- `synthgen/pass_index.py` `assign_pass_index()` gives each new mesh object a pass index one above the highest index in `bpy.data.objects`. Every site that creates a mesh calls it right after `set_cp("category_id", ...)`: `environment.py`, `cage.py` (box, cylinder, quad, backdrop, house bot), `distractors.py`, `robots.py` (robot meshes and damage pieces) and `damage_scene.py` (cutters).
+- Reason: BlenderProc 2.8.0 `RendererUtility.enable_segmentation_output` (line 469) numbers the existing meshes once with `obj.pass_index = index + 1`. `PostProcessingUtility` (line 340) maps the rendered index pass back to objects through `obj.pass_index`. A mesh created after that call has index 0, which is the background, so it drops out of the segmentation map.
+- With the index set at creation, build order stops mattering and the distractor pool refresh no longer re-arms segmentation. A later `enable_segmentation_output` call renumbers every mesh and stays consistent.
+- A damage piece is a Blender copy of its parent mesh and starts with the parent's index, so it needs its own.
+- The tests fake `bpy` with `blender_stubs`, so `tests/test_pass_index.py` covers the numbering rule. Nothing here has rendered in Blender.
+
+## First import in BlenderProc scripts
+
+- `blenderproc run` calls `SetupUtility.check_if_setup_utilities_are_at_the_top` (`blenderproc/python/utility/SetupUtility.py`, line 389 in 2.8.0). It strips blank and `#` lines from the script and raises `RuntimeError` unless the first remaining line contains `import blenderproc` or `from blenderproc`.
+- A docstring above the import fails the check. Shebangs and comments do not count.
+- The reason is that BlenderProc's `__init__` installs the packages Blender's Python needs and removes the repo from `sys.path`, so third-party imports placed before it fail.
+- Entry scripts keep `import blenderproc as bproc` on their first code line. `pyproject.toml` puts `blenderproc` in its own isort section ahead of the standard library, so `ruff` keeps that order without a skip comment.
+
 ## Robot import
 
 - `ImportedRobot.bbox_corners` are the 8 corners of the robot's axis-aligned bounding box in parent-rest-pose world space. They give the ground clearance for arbitrary orientations.
