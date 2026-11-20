@@ -88,3 +88,7 @@ Workarounds whose last check needs hardware. Delete a row once the check passes.
 | ZED X One `capture_thread_done_` shutdown | existing | ZED X One: make grab() hang, then shut down; shutdown completes |
 | ZED X One lens model left as pinhole (`zed_one_rgb_camera.hpp:24`) | existing | ZED X One: once `CameraCalibration` supports the rational plus thin-prism model, record raw frames and compare |
 | ZED X One settings read-back keeps the last value when a control reads -1 | existing | ZED X One: dashboard shows the last known value, never -1 |
+| Jig drive reads radio channel B negated (`velocity_jig_drive.py` `--no-read-invert-b`) | `8abc1574` | Radio, robot OFF: `velocity_jig_drive.py --check-radio`; channel B reads negated and straight runs stay straight. Root-cause fix: clear servo-reverse in the radio model |
+| Jig `confirm_stopped` prompt order and `stop_recording` with the cable out | `8abc1574` | Jig + USB: press Enter before replugging, step does not hang to 300 s; plug USB in mid-recording, last log row is complete |
+| Jig `reopen_after_replug` follows the serial number and waits `CDC_ENDPOINT_SETTLE_S` | `8abc1574` | Jig: replug so it enumerates as ttyACM1, reopen follows it; with `CDC_ENDPOINT_SETTLE_S=0` the open still succeeds before the sleep can go |
+| Jig prompt stdin drain | `8abc1574` | Real terminal: double-tap Enter at a jig prompt; the second Enter does not answer the next prompt |
