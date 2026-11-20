@@ -14,6 +14,7 @@ static const char FRAME_START = 0x1e;
 static const size_t MAX_CONNECTIONS = 6;
 static const size_t MAX_REQUEST_LINE = 4096;
 static const size_t RESPONSE_CHUNK_BYTES = 384;
+static const uint32_t WRITE_TIMEOUT_MS = 1000;
 
 struct Connection {
     uint32_t id = 0;
@@ -24,13 +25,9 @@ struct Connection {
 static Connection connections[MAX_CONNECTIONS];
 
 static bool write_whole(const char *data, size_t size) {
-    const uint32_t start = millis();
-    while (static_cast<size_t>(Serial.availableForWrite()) < size) {
-        if (millis() - start > 1000) return false;
-        vTaskDelay(1);
-    }
-    Serial.write(reinterpret_cast<const uint8_t *>(data), size);
-    return true;
+    return usb_framing::write_whole(
+        Serial, reinterpret_cast<const uint8_t *>(data), size, WRITE_TIMEOUT_MS,
+        [] { return millis(); }, [] { vTaskDelay(1); });
 }
 
 static const size_t LOG_RING = 2048;
@@ -41,11 +38,7 @@ static portMUX_TYPE log_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static void IRAM_ATTR log_putc(char c) {
     portENTER_CRITICAL_SAFE(&log_mux);
-    const size_t next = (log_write_index + 1) % LOG_RING;
-    if (next != log_read_index) {
-        log_ring[log_write_index] = c;
-        log_write_index = next;
-    }
+    usb_framing::push_log_char(log_ring, LOG_RING, log_write_index, log_read_index, c);
     portEXIT_CRITICAL_SAFE(&log_mux);
 }
 

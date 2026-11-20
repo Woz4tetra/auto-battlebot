@@ -164,3 +164,37 @@ def test_one_way_glass_rewrites_visibility_only_when_the_hidden_set_changes(
     glass.update(camera)
 
     assert writes == [True, False]
+
+
+def camera_with(animation_data: object | None, data_animation_data: object | None):
+    return SimpleNamespace(
+        animation_data=animation_data,
+        data=SimpleNamespace(animation_data=data_animation_data),
+        matrix_world=None,
+    )
+
+
+@pytest.mark.parametrize(("object_anim", "data_anim"), [(object(), None), (None, object())])
+def test_set_pose_refuses_a_camera_that_picked_up_animation_data(
+    blender_stubs, object_anim: object | None, data_anim: object | None
+) -> None:
+    from synthgen import preview_render
+
+    renderer = make_renderer(preview_render, {})
+    blender_stubs.bpy.context.scene.camera = camera_with(object_anim, data_anim)
+
+    with pytest.raises(RuntimeError, match="animation data"):
+        renderer.set_pose(np.eye(4))
+
+
+def test_set_pose_assigns_matrix_world_and_never_adds_a_camera_pose(blender_stubs) -> None:
+    from synthgen import preview_render
+
+    renderer = make_renderer(preview_render, {})
+    camera = camera_with(None, None)
+    blender_stubs.bpy.context.scene.camera = camera
+
+    renderer.set_pose(np.eye(4))
+
+    assert camera.matrix_world is not None
+    blender_stubs.blenderproc.camera.add_camera_pose.assert_not_called()

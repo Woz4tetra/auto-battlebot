@@ -364,13 +364,14 @@ def _load_cc_materials(
     if not needed:
         return cc_materials
 
-    loaded = bproc.loader.load_ccmaterials(str(cc_path), used_assets=list(needed))
+    missing = sorted(name for name in needed if bpy.data.materials.get(name) is None)
+    loaded = bproc.loader.load_ccmaterials(str(cc_path), used_assets=missing) if missing else []
     cc_materials = {mat.get_name(): mat for mat in loaded}
-    add_materials_loaded_by_earlier_calls(cc_materials, needed)
+    add_materials_already_in_blend_file(cc_materials, needed)
     return cc_materials
 
 
-def add_materials_loaded_by_earlier_calls(
+def add_materials_already_in_blend_file(
     cc_materials: dict[str, bproc.types.Material], needed: set[str]
 ) -> None:
     for name in needed:

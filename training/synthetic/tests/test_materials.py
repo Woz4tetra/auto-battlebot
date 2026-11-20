@@ -43,3 +43,45 @@ def test_jitter_materials_takes_no_hue_argument(blender_stubs: Any) -> None:
 
     with pytest.raises(TypeError):
         jitter_materials([], JITTER, 5.0)  # type: ignore[call-arg]
+
+
+class FakeMaterialStore:
+    def __init__(self, names: list[str]) -> None:
+        self.names = names
+
+    def get(self, name: str) -> object | None:
+        return f"bpy:{name}" if name in self.names else None
+
+
+def test_load_cc_materials_asks_blenderproc_only_for_names_not_in_the_blend_file(
+    blender_stubs: Any, tmp_path: Any
+) -> None:
+    from synthgen.materials import load_cc_materials
+
+    blender_stubs.bpy.data.materials = FakeMaterialStore(["Wood01"])
+    loader = blender_stubs.blenderproc.loader.load_ccmaterials
+    loader.return_value = [SimpleNamespace(get_name=lambda: "Tile02")]
+    config = {
+        "a": SimpleNamespace(cc_texture="Wood01"),
+        "b": SimpleNamespace(cc_texture="Tile02"),
+        "c": SimpleNamespace(cc_texture=None),
+    }
+
+    result = load_cc_materials(config, tmp_path, lambda path: path)
+
+    assert loader.call_args.kwargs["used_assets"] == ["Tile02"]
+    assert set(result) == {"Wood01", "Tile02"}
+
+
+def test_load_cc_materials_skips_blenderproc_when_every_name_is_in_the_blend_file(
+    blender_stubs: Any, tmp_path: Any
+) -> None:
+    from synthgen.materials import load_cc_materials
+
+    blender_stubs.bpy.data.materials = FakeMaterialStore(["Wood01"])
+    config = {"a": SimpleNamespace(cc_texture="Wood01")}
+
+    result = load_cc_materials(config, tmp_path, lambda path: path)
+
+    blender_stubs.blenderproc.loader.load_ccmaterials.assert_not_called()
+    assert set(result) == {"Wood01"}
