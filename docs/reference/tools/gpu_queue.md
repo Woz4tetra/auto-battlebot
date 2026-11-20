@@ -39,7 +39,3 @@ Bytes are copied straight through rather than line-buffered, so the progress bar
 - `--profile`: the cost class a rate is learned within, e.g. `yolo26x-pose@640`. Two jobs share a profile when one unit of work costs them the same. The default is the model and input size read off the command.
 - `--eta`: used until the job's own progress takes over. Give it for the first run of a model family, where no measured rate exists and the queue would otherwise say it does not know.
 - `logs -f` without a job id rolls onto the next job when one ends, so a whole sweep can be watched with one command. With a job id it stops when that job does.
-
-## Workarounds
-
-- **`NCCL_P2P_DISABLED_ENV`.** `submit` sets `NCCL_P2P_DISABLE=1` for any job on more than one GPU. NCCL peer-to-peer is broken on megamind's three A6000s, and DDP hangs silently without it. Unverified: nobody has rerun a multi-GPU job without it.

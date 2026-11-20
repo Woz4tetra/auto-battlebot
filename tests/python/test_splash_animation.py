@@ -1,5 +1,6 @@
 """Key frames of splash_animation land on the events they are named for."""
 
+import shutil
 from types import ModuleType
 
 import pytest
@@ -45,3 +46,9 @@ def test_overshoot_peak_is_the_widest_split(splash: ModuleType) -> None:
 def test_final_frames_hold_the_settled_layout(splash: ModuleType) -> None:
     kf = splash.KEYFRAMES
     assert kf[splash.SETTLED_FRAME] == kf[-1]
+
+
+@pytest.mark.skipif(shutil.which("inkscape") is None, reason="inkscape not installed")
+def test_pill_layer_survives_dangling_clip_path(splash: ModuleType) -> None:
+    layer = splash.render_pill_layer(splash.ASSETS_DIR / "bwbots_logo.svg", 100.0)
+    assert layer.width > 50 and layer.height > 10

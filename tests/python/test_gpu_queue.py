@@ -333,3 +333,42 @@ class TestWorkerLoop:
     ) -> None:
         seen = self._run(monkeypatch, tmp_path)
         assert seen["idle"] == [0.0]
+
+
+class TestSubmitNcclEnv:
+    def _submit(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, devices: list[int]
+    ) -> dict[str, Any]:
+        state: dict[str, Any] = {"next_id": 1, "jobs": [], "worker_stop": False}
+
+        @contextlib.contextmanager
+        def fake_locked_state() -> Any:
+            yield state
+
+        monkeypatch.setattr(queue, "locked_state", fake_locked_state)
+        monkeypatch.setattr(queue, "worker_alive", lambda: True)
+        args = argparse.Namespace(
+            command=["true"],
+            devices=devices,
+            name="n",
+            cwd=str(tmp_path),
+            by="t",
+            work=None,
+            profile=None,
+            eta=None,
+        )
+        assert queue.cmd_submit(args) == 0
+        job: dict[str, Any] = state["jobs"][0]
+        return job
+
+    def test_multi_gpu_job_disables_p2p(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        job = self._submit(monkeypatch, tmp_path, [0, 1, 2])
+        assert job["env"]["NCCL_P2P_DISABLE"] == "1"
+
+    def test_single_gpu_job_leaves_p2p_alone(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        job = self._submit(monkeypatch, tmp_path, [0])
+        assert "NCCL_P2P_DISABLE" not in job["env"]

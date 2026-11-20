@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -92,3 +94,20 @@ def test_plant_moving_blocks_follow_runtime_opponent_order() -> None:
     runtime = [(o.x, o.y, o.hazard_radius) for o in server._opponents if o.hazard_radius > 0.0]
     built = [(o.start_pos[0], o.start_pos[1], o.hazard_radius) for o in captured[-1]]
     assert built == runtime
+
+
+def test_importing_the_plants_package_does_not_import_mujoco() -> None:
+    code = "import sys, auto_battlebot.kinematic_sim.plants; sys.exit(int('mujoco' in sys.modules))"
+    result = subprocess.run([sys.executable, "-c", code], cwd=REPO_ROOT, check=False)
+    assert result.returncode == 0
+
+
+def test_rl_eval_server_skips_the_camera_compositor() -> None:
+    from unittest import mock
+
+    from auto_battlebot.kinematic_sim import rl_eval_server
+
+    server = object.__new__(rl_eval_server.RlEvalServer)
+    with mock.patch.object(server, "_world", create=True) as world:
+        server._render_camera()
+    world.compose_world.assert_not_called()

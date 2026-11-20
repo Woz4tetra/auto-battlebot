@@ -5,8 +5,11 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+import pytest
+
+from auto_battlebot.calibration.jig import drive_protocol as dp
 from auto_battlebot.calibration.jig import excitation as ex
-from auto_battlebot.calibration.jig.velocity_jig import ClockProbe
+from auto_battlebot.calibration.jig.velocity_jig import ClockProbe, read_command_log
 from playground.calibration import velocity_jig_drive as drive
 
 
@@ -75,3 +78,12 @@ def test_download_log_renames_instead_of_overwriting_a_log_left_by_an_earlier_ca
     assert dest.name.startswith("LOG-007-") and dest.suffix == ".csv"
     assert (tmp_path / "LOG-007.csv").read_bytes() == b"earlier card"
     assert dest.read_bytes() == b"new card"
+
+
+def test_command_log_t_host_s_is_the_monotonic_stamp_the_probes_use(tmp_path: Path) -> None:
+    stamps = [123456.789012, 123456.794012, 123456.799012]
+    samples = [dp.CommandSample(t, 0.1, 0.0, 0.0, 0, 0) for t in stamps]
+    path = tmp_path / "LOG-1.cmd.csv"
+    drive.write_command_csv(path, samples, "meta")
+    data = read_command_log(path)
+    assert data["t_host_s"].tolist() == pytest.approx(stamps, abs=1e-6)

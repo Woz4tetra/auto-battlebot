@@ -11,6 +11,7 @@ import pytest
 
 from auto_battlebot.calibration.jig.jig_fit import (
     Loaded,
+    _coupling_cells,
     _mirror_pairs,
     _rise_tau,
     fit_delay,
@@ -66,6 +67,33 @@ def test_mirror_pairs_match_on_the_command_issued_not_the_effective_one() -> Non
 
 def test_a_cell_without_a_mirror_is_dropped() -> None:
     assert _mirror_pairs([(0.5, 0.065, 1.0, 2.0, 0.08)]) == []
+
+
+def _grid_run(levels: list[tuple[float, float, float]]) -> Any:
+    dt, n = 0.01, 100
+    lin = np.concatenate([np.full(n, lv) for lv, _, _ in levels])
+    ang = np.concatenate([np.full(n, a) for _, a, _ in levels])
+    w = np.concatenate([np.full(n, wv) for _, _, wv in levels])
+    return SimpleNamespace(
+        name="grid",
+        dt=dt,
+        t=np.arange(lin.size) * dt,
+        cmd_lin=lin,
+        cmd_ang=ang,
+        v=0.4 * lin,
+        w=w,
+        v_noise=0.0,
+        w_noise=0.0,
+    )
+
+
+def test_coupling_cells_carry_the_issued_angular_command_and_pair_up() -> None:
+    run = _grid_run([(0.5, 0.08, 2.0), (0.0, 0.0, 0.0), (0.5, -0.08, -1.7)])
+    p = PlantParams(dz_ang_l=0.02, dz_ang_r=0.03)
+    cells = _coupling_cells([run], p)
+    assert [round(c.ang_command_issued, 3) for c in cells] == [0.08, -0.08]
+    assert abs(cells[0].u_ang_eff) != pytest.approx(abs(cells[1].u_ang_eff))
+    assert len(_mirror_pairs(cells)) == 1
 
 
 DT = 0.005

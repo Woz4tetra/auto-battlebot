@@ -172,6 +172,7 @@ def test_pause_disarms_before_the_operator_callback_and_stops_the_program_clock(
     link = _Link()
     program = _Program()
     seen: list[str] = []
+    started = time.monotonic()
 
     def on_pause(index: int, count: int) -> None:
         seen.append(link.events[-1][0])
@@ -187,6 +188,7 @@ def test_pause_disarms_before_the_operator_callback_and_stops_the_program_clock(
     assert seen == ["disarm"]
     assert len(result.pauses) == 1
     assert result.pauses[0].held_s >= 0.2
+    assert started <= result.pauses[0].t_start <= time.monotonic()
     assert program.asked[-1] > 0.04
     assert result.completed
 

@@ -238,3 +238,14 @@ def test_pause_windows_excluded_from_still_holds_and_commanded_time(tmp_path: Pa
     assert free.quality.still_holds == 1
     assert paused.quality.still_holds == 0
     assert paused.quality.commanded_s == pytest.approx(free.quality.commanded_s - 2.0, abs=0.05)
+
+
+def test_pause_windows_are_excluded_from_clipped_accel_counts(tmp_path: Path) -> None:
+    rows = [f"{i * 1000},0,0,0,0,0,0,{32000 if 1500 <= i < 1600 else 4096}" for i in range(1, 8001)]
+    header = "accel_g_per_lsb=0.00048828125"
+    (tmp_path / "LOG-1.TXT").write_text(_log_text(rows, header))
+    calib = JigCalibration(meters_per_count=1e-4)
+    free = load_run(_still_run_record([]), tmp_path, calib)
+    paused = load_run(_still_run_record([PauseWindow(1.0, 3.0, 0.0)]), tmp_path, calib)
+    assert free.quality.accel_clip_samples == 100
+    assert paused.quality.accel_clip_samples == 0
