@@ -401,25 +401,14 @@ Replay of an SVO file. It is a separate type from `ZedRgbdCamera` so recording, 
 | `svo_real_time_mode` | `false` decodes frames as fast as the pipeline allows, so the wall-clock gap between shutter and control tick belongs to the machine, not the robot. Field timing, including latency compensation, is not reproduced |
 | `svo_start_frame` | Must lie inside the recording. A config that overrides `svo_file_path` must set it too, or it inherits the value from the config it extends |
 
-### `V4l2RgbCamera`
-
-e-CAM25_CUONX over raw V4L2. There is no pixel-format or codec knob: the sensor emits UYVY and we encode H.264, so both are hard-coded. There is one correct behaviour and one consumer; a second capture format becomes an enum when one turns up. `device` and `calibration_file` are strings because they are paths. `camera_resolution` is an enum because it has a fixed set of valid values, so a misspelling fails at parse with the alternatives listed.
-
-| Field | Meaning |
-| --- | --- |
-| `buffer_count` | V4L2 buffers queued. Four, not the driver default: more buffers means the pipeline reads staler frames when it falls behind, and four costs at most one frame of queueing |
-| `calibration_file` | `config/cameras/<serial>.toml`. Required: the lens is not a pinhole and everything downstream assumes one |
-| `video_bitrate_kbps` | H.264 bitrate. 15000 is about 6.8 GB per hour and 340 MB for a three-minute match |
-| `exposure_us`, `gain`, `white_balance_temperature` | 0 keeps the driver default. Pinning them matters because auto-exposure hunting between a lit arena and a dark robot is a plausible source of frame-to-frame detector instability |
-
 ### `ZedOneRgbCamera`
 
-ZED X One S (or any ZED X One) over GMSL2 through `sl::CameraOne`, as on the ZED Box Mini. There is no `calibration_file`: the lens model is the factory's 12-coefficient rational one, which our plumb-bob `CameraCalibration` cannot hold, so the SDK rectifies and we publish its rectified intrinsics. Recording and replay follow the V4L2 camera: H.264 on `/camera/video`.
+ZED X One S (or any ZED X One) over GMSL2 through `sl::CameraOne`, as on the ZED Box Mini. There is no `calibration_file`: the lens model is the factory's 12-coefficient rational one, which our plumb-bob `CameraCalibration` cannot hold, so the SDK rectifies and we publish its rectified intrinsics. Recording and replay use H.264 on `/camera/video`.
 
 | Field | Meaning |
 | --- | --- |
 | `camera_resolution` | `RES_1920x1200` is the full sensor, `RES_1920x1080` crops it, `RES_960x600` bins it (up to 120 fps). Anything else fails at open |
-| `video_bitrate_kbps` | Same figures as `V4l2RgbCamera` |
+| `video_bitrate_kbps` | H.264 bitrate. 15000 is about 6.8 GB per hour and 340 MB for a three-minute match |
 
 ### `VideoPlaybackCamera`
 

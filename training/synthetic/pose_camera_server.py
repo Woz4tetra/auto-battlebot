@@ -10,7 +10,7 @@ relative mouse deltas with no cursor to hit a window edge, which an OpenCV windo
     training/synthetic/docker/run_synthetic.sh --gpu --port 8770 \\
         auto-battlebot-synthetic blenderproc run pose_camera_server.py -- \\
         --spec cage/cage2_overhead_high.toml \\
-        --camera-calibration ../../config/cameras/ecam25_h01r1_estimated.toml \\
+        --camera-calibration ../../config/cameras/synthetic_cage_lens_118deg.toml \\
         --out ../data/cage_pose
 
 Then open http://127.0.0.1:8770 on the host.
@@ -114,7 +114,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--camera-calibration",
         type=Path,
-        default=REPO_ROOT / "config/cameras/ecam25_h01r1_estimated.toml",
+        default=REPO_ROOT / "config/cameras/synthetic_cage_lens_118deg.toml",
     )
     parser.add_argument(
         "--out",

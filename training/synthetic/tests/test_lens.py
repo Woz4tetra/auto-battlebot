@@ -21,37 +21,39 @@ from auto_battlebot.perception.camera_calibration import (
     rectify_maps,
 )
 
-ECAM25 = Path(__file__).resolve().parents[3] / "config" / "cameras" / "ecam25_h01r1_estimated.toml"
+LENS_PATH = (
+    Path(__file__).resolve().parents[3] / "config" / "cameras" / "synthetic_cage_lens_118deg.toml"
+)
 SIZE = (320, 180)
 
 
 @pytest.fixture(scope="module")
-def ecam25() -> CameraCalibration:
-    return load_camera_calibration(ECAM25)
+def cage_lens() -> CameraCalibration:
+    return load_camera_calibration(LENS_PATH)
 
 
 @pytest.fixture(scope="module")
-def distorted(ecam25):
-    return build_lens_view(ecam25, SIZE, "distorted")
+def distorted(cage_lens):
+    return build_lens_view(cage_lens, SIZE, "distorted")
 
 
 @pytest.fixture(scope="module")
-def rectified(ecam25):
-    return build_lens_view(ecam25, SIZE, "rectified", alpha=1.0)
+def rectified(cage_lens):
+    return build_lens_view(cage_lens, SIZE, "rectified", alpha=1.0)
 
 
-def test_pinhole_renders_at_the_rectified_matrix_without_a_warp(ecam25):
-    lens = build_lens_view(ecam25, SIZE, "pinhole")
+def test_pinhole_renders_at_the_rectified_matrix_without_a_warp(cage_lens):
+    lens = build_lens_view(cage_lens, SIZE, "pinhole")
     assert not lens.warps
     assert lens.render_size == SIZE
-    assert np.allclose(lens.render_k, rectify_maps(ecam25, SIZE, 1.0)[2])
+    assert np.allclose(lens.render_k, rectify_maps(cage_lens, SIZE, 1.0)[2])
     image = np.arange(SIZE[0] * SIZE[1], dtype=np.float32).reshape(SIZE[1], SIZE[0])
     assert warp_image(lens, image) is image
 
 
-def test_unknown_view_is_an_error(ecam25):
+def test_unknown_view_is_an_error(cage_lens):
     with pytest.raises(ValueError, match="valid views"):
-        build_lens_view(ecam25, SIZE, "fisheye")
+        build_lens_view(cage_lens, SIZE, "fisheye")
 
 
 def test_wide_render_holds_every_sensor_ray(distorted):
@@ -62,8 +64,8 @@ def test_wide_render_holds_every_sensor_ray(distorted):
     assert map_y.min() >= 0 and map_y.max() <= render_h - 1
 
 
-def test_render_centre_keeps_sensor_resolution(ecam25, distorted):
-    scaled = ecam25.scaled(*SIZE)
+def test_render_centre_keeps_sensor_resolution(cage_lens, distorted):
+    scaled = cage_lens.scaled(*SIZE)
     assert distorted.render_k[0, 0] == pytest.approx(scaled.fx)
 
 
@@ -83,9 +85,9 @@ def test_rectified_points_land_on_the_rectified_matrix(rectified):
     assert out[0] == pytest.approx((rectified.rect_k[0, 2], rectified.rect_k[1, 2]), abs=1e-6)
 
 
-def test_rectified_border_matches_the_rectifier(ecam25, rectified):
+def test_rectified_border_matches_the_rectifier(cage_lens, rectified):
     assert 1.0 - rectified.valid.mean() == pytest.approx(0.363, abs=0.02)
-    cropped = build_lens_view(ecam25, SIZE, "rectified", alpha=0.0)
+    cropped = build_lens_view(cage_lens, SIZE, "rectified", alpha=0.0)
     assert cropped.valid.mean() > 0.99
 
 
@@ -144,16 +146,16 @@ def test_colour_warp_is_the_distortion_remap(distorted):
     assert warped.shape == (SIZE[1], SIZE[0], 3) and warped.dtype == np.uint8
 
 
-def test_wide_render_camera_rejects_an_unscaled_calibration(ecam25) -> None:
+def test_wide_render_camera_rejects_an_unscaled_calibration(cage_lens) -> None:
     with pytest.raises(ValueError, match="not scaled"):
-        wide_render_camera(ecam25, SIZE)
-    wide_render_camera(ecam25.scaled(*SIZE), SIZE)
+        wide_render_camera(cage_lens, SIZE)
+    wide_render_camera(cage_lens.scaled(*SIZE), SIZE)
 
 
-def test_unknown_view_is_rejected(ecam25) -> None:
+def test_unknown_view_is_rejected(cage_lens) -> None:
     with pytest.raises(ValueError, match="unknown view"):
-        build_lens_view(ecam25, SIZE, "fisheye")
+        build_lens_view(cage_lens, SIZE, "fisheye")
 
 
-def test_view_is_the_enum_whichever_way_it_is_asked_for(ecam25) -> None:
-    assert build_lens_view(ecam25, SIZE, "pinhole").view is View.PINHOLE
+def test_view_is_the_enum_whichever_way_it_is_asked_for(cage_lens) -> None:
+    assert build_lens_view(cage_lens, SIZE, "pinhole").view is View.PINHOLE

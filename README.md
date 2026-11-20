@@ -35,7 +35,7 @@ At NHRL, there is no time to set up tripod hardware across 8+ cages and calibrat
 
 This system is fully handheld. The handheld device features:
 - Jetson Orin NX
-- e-CAM25 RGB camera
+- ZED X One S RGB camera
 - USB connection to any OpenTX transmitter
 - 2+ hours of battery
 - 8-inch LCD display

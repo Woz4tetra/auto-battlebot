@@ -52,9 +52,9 @@ the other 6.2 rows (CUDA 12.6, TensorRT 10.3, Python 3.10) are expected to match
 
 ## Software as shipped
 
-The e-CAM25 Jetson and the Box Mini run the same tree.
+The JetPack 7.2 Jetsons and the Box Mini run the same tree.
 
-| Component | On the box (JetPack 6.2.1, as shipped) | e-CAM25 Jetson (JetPack 7.2) |
+| Component | On the box (JetPack 6.2.1, as shipped) | JetPack 7.2 Jetson |
 |---|---|---|
 | OS | Ubuntu 22.04.5, kernel 5.15.148-tegra | Ubuntu 24.04 |
 | L4T | R36.4.4 | R39.2 |
@@ -149,10 +149,8 @@ GDM is installed, so `graphical.target` brings up an autologin X session, and th
    `install/install_pytorch_jetson.sh` maps every R36.x release to the `v61` wheel (torch 2.5.0a0
    nv24.08). The `v62` path it used to name returns 404 on NVIDIA's redist server, so no separate
    6.2 wheel exists there. Set `TORCH_INSTALL` to override.
-3. **ZED X One S works, but depth needs another camera.** The e-CAM25 has nowhere to plug in
-   (GMSL2 only, no MIPI CSI), so `config/_zed_box.toml` uses a ZED X One S through
-   `ZedOneRgbCamera` (`sl::CameraOne`). It is monocular, so the config runs the RGB path the
-   e-CAM25 used: `FiducialFieldFilter`, height gate off, static gate on.
+3. **ZED X One S works, but depth needs another camera.** The box has GMSL2 only, no MIPI CSI, so `config/_zed_box.toml` uses a ZED X One S through
+   `ZedOneRgbCamera` (`sl::CameraOne`). It is monocular, so the config runs the RGB path: `FiducialFieldFilter`, height gate off, static gate on.
    - SDK 5.2.3 and driver 1.4.1 open it as a ZED X One GS. The startup log reads
      `ZED XOne GS serial 301999176 at 1920x1200 60 fps, fx 665.0 fy 716.2`.
    - `FiducialFieldFilter` locks the field (10 frames, 2.24 px reprojection error in the

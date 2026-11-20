@@ -9,7 +9,6 @@
 #include "directories.hpp"
 #include "rgbd_camera/noop_rgbd_camera.hpp"
 #include "rgbd_camera/sim_rgbd_camera.hpp"
-#include "rgbd_camera/v4l2_rgb_camera.hpp"
 #include "rgbd_camera/video_playback_camera.hpp"
 #ifdef BUILD_WITH_ZED
 #include "rgbd_camera/zed_one_rgb_camera.hpp"
@@ -20,7 +19,6 @@
 namespace auto_battlebot {
 REGISTER_CONFIG(RgbdCameraConfiguration, NoopRgbdCameraConfiguration, "NoopRgbdCamera")
 REGISTER_CONFIG(RgbdCameraConfiguration, SimRgbdCameraConfiguration, "SimRgbdCamera")
-REGISTER_CONFIG(RgbdCameraConfiguration, V4l2RgbCameraConfiguration, "V4l2RgbCamera")
 REGISTER_CONFIG(RgbdCameraConfiguration, VideoPlaybackCameraConfiguration, "VideoPlaybackCamera")
 #ifdef BUILD_WITH_ZED
 REGISTER_CONFIG(RgbdCameraConfiguration, ZedRgbdCameraConfiguration, "ZedRgbdCamera")
@@ -74,9 +72,6 @@ std::shared_ptr<RgbdCameraInterface> make_rgbd_camera(const RgbdCameraConfigurat
         return std::make_shared<ZedOneRgbCamera>(config_cast<ZedOneRgbCameraConfiguration>(config),
                                                  std::move(mcap_recorder));
 #endif
-    } else if (config.type == "V4l2RgbCamera") {
-        return std::make_shared<V4l2RgbCamera>(config_cast<V4l2RgbCameraConfiguration>(config),
-                                               std::move(mcap_recorder));
     } else if (config.type == "VideoPlaybackCamera") {
         return std::make_shared<VideoPlaybackCamera>(
             config_cast<VideoPlaybackCameraConfiguration>(config));

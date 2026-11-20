@@ -25,8 +25,8 @@ from synthgen.preview_server import (
 
 SCENE = SceneInfo(
     spec_path="cage/cage2_overhead_high.toml",
-    calibration_id="ecam25_h01r1_estimated",
-    calibration_path="config/cameras/ecam25_h01r1_estimated.toml",
+    calibration_id="synthetic_cage_lens_118deg",
+    calibration_path="config/cameras/synthetic_cage_lens_118deg.toml",
     out_dir="runs/cage_pose",
     wall_half_m=2.4384 / 2,
     mat_size_m=2.35,
@@ -137,7 +137,7 @@ def test_snap_pulls_a_pose_back_into_the_ranges() -> None:
 
 def test_state_reports_the_scene_before_any_pose_arrives(router: Router) -> None:
     state = router.state()
-    assert state["scene"]["calibration_id"] == "ecam25_h01r1_estimated"
+    assert state["scene"]["calibration_id"] == "synthetic_cage_lens_118deg"
     assert state["views"] == ["pinhole", "distorted", "rectified"]
     assert "pose" not in state
 

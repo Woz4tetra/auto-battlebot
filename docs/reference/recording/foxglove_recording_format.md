@@ -126,11 +126,9 @@ No B-frames means decode order equals capture order, so the nth message is the n
 frame; `start_frame` on playback and `export_camera_transforms.py` matching dataset images by
 position in the stream both depend on that.
 
-The e-CAM25 records frames **before** rectification, so a revised lens calibration can be
-applied to footage already shot; `camera_calibration` in the file metadata is the one in use, and
-a `calibration_file` in the playback config overrides it. The ZED X One records the SDK's
+The ZED X One records the SDK's
 rectified frames, and its `camera_calibration` holds the rectified intrinsics with zero
-distortion. `log_time` is the capture instant the encoder carried through from the V4L2 buffer, not the
+distortion. `log_time` is the capture instant the encoder carried through from the camera, not the
 moment the packet was written.
 
 The encoder is FFmpeg's `h264_nvenc` on the desktop and GStreamer's `nvv4l2h264enc` on the
@@ -834,7 +832,6 @@ JPEG compression costs about 10 ms of CPU on the Jetson. It runs on worker threa
 
 ### RGB camera recording
 
-- The video is recorded pre-rectification on purpose: a calibration can be revised later and re-applied to footage already shot. Replay needs the calibration, so `v4l2_rgb_camera.cpp` embeds it as MCAP metadata (`kCameraCalibrationMetadataKey`). A recording then replays without the calibration file, and a revised file can still override it through config.
 - The encoder numbers the frames it takes. `frame_meta` carries that number, so it matches the video packet in whichever file the frame lands in. It is -1 when the encoder took none.
 - `ZedOneRgbCamera` submits the BGRA frame, not the BGR copy, because the Jetson's `nvvidconv` takes 4-channel input directly.
 - A recording started from the remote UI after launch goes through `start_encoder()`, not `initialize()`. A failure there is not fatal: the UI reports the failed toggle, and killing a running match over it is worse.

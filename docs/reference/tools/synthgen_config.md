@@ -69,7 +69,7 @@ Real arenas the run renders some of its images in, alongside the HDRI arena scen
 | `probability` | Fraction of the whole run. The cage probabilities share the run with the HDRI arena, so they must sum to at most 1.0. What is left over is arena scenes. The split is tracked, not coin-flipped, so a 100-image run lands on these ratios. |
 | `enabled` | `meatball_basement` is off so existing runs keep their ratios. `config_cage_meatball.toml` pins a run to it with `only_cage`. |
 | `spec` | Cage geometry, materials, lights and the exposure solved against footage. |
-| `camera_calibration` | Our own e-CAM25, rectified at `rectify_alpha` the way the C++ `Rectifier` does it and scaled to `[output].image_width`/`image_height`. All three cages use the same lens so they stand in for one camera. |
+| `camera_calibration` | `config/cameras/synthetic_cage_lens_118deg.toml`, rectified at `rectify_alpha` the way the C++ `Rectifier` does it and scaled to `[output].image_width`/`image_height`. All three cages use the same lens so they stand in for one camera. |
 | `tube_jitter` | Per-scene jitter on the LED tube emission strength, plus or minus this fraction, so the set is not a single lighting state. |
 | `mat_margin_m` | Metres of mat kept clear of its edge when placing robots. 0.15 on the meatball box leaves a 1.22 m square of the 1.52 m floor. |
 | `house_bot_clearance_m` | Measured between footprint circles, with each robot's radius taken as 0.20 m. |
@@ -88,7 +88,7 @@ Where a camera can be clamped on the cage and where it then looks. Each draw pic
 | `yaw_deg` | Heading off square-to-the-wall. |
 | `roll_deg` | Camera roll about the optical axis. |
 
-The NHRL ranges cover the eight near-glass poses of 12 flown by hand through the e-CAM25 lens. The MassD ranges come from the 2026-09-12 coverage sweeps, pulled in for the wider e-CAM25 lens. The meatball ranges bracket the stand the ZED stood on, and only the two open sides (`near`, `left`) are used. Numbers are in the experiments doc above.
+The NHRL ranges cover the eight near-glass poses of 12 flown by hand through the 118 degree lens. The MassD ranges come from the 2026-09-12 coverage sweeps, pulled in for the wider 118 degree lens. The meatball ranges bracket the stand the ZED stood on, and only the two open sides (`near`, `left`) are used. Numbers are in the experiments doc above.
 
 ### `[output]`
 

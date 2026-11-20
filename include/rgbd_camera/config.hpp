@@ -76,36 +76,6 @@ struct ZedSvoPlaybackCameraConfiguration : public RgbdCameraConfiguration {
     // clang-format on
 };
 
-struct V4l2RgbCameraConfiguration : public RgbdCameraConfiguration {
-    std::string device = "/dev/video0";
-    Resolution camera_resolution = Resolution::RES_1920x1200;
-    int camera_fps = 60;
-    int buffer_count = 4;
-    std::string calibration_file = "";
-    bool video_recording = true;
-    int video_bitrate_kbps = 15000;
-    int exposure_us = 0;
-    int gain = 0;
-    int white_balance_temperature = 0;
-
-    V4l2RgbCameraConfiguration() { type = "V4l2RgbCamera"; }
-
-    // clang-format off
-    PARSE_CONFIG_FIELDS(
-        PARSE_FIELD_STRING(device)
-        PARSE_ENUM(camera_resolution, Resolution)
-        PARSE_FIELD(camera_fps)
-        PARSE_FIELD(buffer_count)
-        PARSE_FIELD_STRING(calibration_file)
-        PARSE_FIELD_BOOL(video_recording)
-        PARSE_FIELD(video_bitrate_kbps)
-        PARSE_FIELD(exposure_us)
-        PARSE_FIELD(gain)
-        PARSE_FIELD(white_balance_temperature)
-    )
-    // clang-format on
-};
-
 struct ZedOneRgbCameraConfiguration : public RgbdCameraConfiguration {
     Resolution camera_resolution = Resolution::RES_1920x1200;
     int camera_fps = 60;

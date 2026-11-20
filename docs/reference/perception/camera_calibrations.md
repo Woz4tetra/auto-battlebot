@@ -37,13 +37,11 @@ NHRL's fixed `Cage-N-Overhead-High` feed, as re-wrapped by `scripts/video_to_mca
 - The calibration comes from 2024-10-26 footage. If NHRL has swapped the phone since, these drift.
   Re-run the board calibration, or fall back to `FiducialFieldFilter`, when a field pose looks off.
 
-## `ecam25_h01r1_estimated.toml`
+## `synthetic_cage_lens_118deg.toml`
 
-Estimated, not measured. The e-CAM25_CUONX_H01R1 is a fisheye-class M12 lens, approximated by the
-5-coefficient plumb_bob model the C++ `Rectifier` uses and fitted to the three numbers e-con
-publishes: 104.6 degrees horizontal, 61.6 vertical, 128.2 diagonal. No vendor calibration exists
-for this module, and no comparable AR0234 M12 module (Arducam USB3, TechNexion TEVS-AR0234)
-publishes one.
+Estimated, not measured. The lens the synthetic cage renders use: a fisheye-class M12 lens,
+approximated by the 5-coefficient plumb_bob model the C++ `Rectifier` uses and fitted to three
+published fields of view: 104.6 degrees horizontal, 61.6 vertical, 128.2 diagonal.
 
 Derivation, on the sensor's native 1920x1200 mode (AR0234CS, 3 um pixels, 5.76 x 3.6 mm active
 area, half-extents 960 / 600 / 1132.08 px):
@@ -63,14 +61,7 @@ with `cy` recentered, because 16:9 is a crop of the sensor. `CameraCalibration.s
 and `fy` independently, so handing a 16:10 calibration to a 16:9 render would stretch the image.
 
 Rectified at alpha 1.0 this gives fx 576.4, a 118.0 degree horizontal field, and a 36.2% black
-border. `tests/python/test_ecam25_calibration.py` pins all of it.
-
-## `ecam25_example.toml`
-
-Placeholder until the lens is calibrated. Every number is backed out of e-con's spec sheet, whose
-three field-of-view figures imply three different focal lengths (741, 1006 and 550 px), so none is
-measured. The vertical figure sits closest to the axis and is least inflated by barrel distortion,
-which is why `fx` starts at 1006.
+border.
 
 ## Replacing an estimate
 

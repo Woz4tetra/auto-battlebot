@@ -106,7 +106,7 @@ through the same module, so a frame flown in the preview renders the same way in
 | `view` | Frame written | Render cost |
 | --- | --- | --- |
 | `pinhole` (default) | Rendered at the rectified matrix, no distortion and no border | 1x |
-| `distorted` | The raw sensor frame, through the calibration's OpenCV distortion model | 4x pixels (2560x1442 for 1280x720, e-CAM25) |
+| `distorted` | The raw sensor frame, through the calibration's OpenCV distortion model | 4x pixels (2560x1442 for 1280x720) |
 | `rectified` | The sensor frame through the C++ `Rectifier`'s maps at `rectify_alpha`, black border included | 4x pixels, as `distorted` |
 
 The warped views render a pinhole frame wide enough to hold every sensor ray, at the sensor's own
@@ -396,7 +396,7 @@ To pick those ranges by eye rather than by editing numbers, fly the camera aroun
 training/synthetic/docker/run_synthetic.sh --gpu --port 8770 \
   auto-battlebot-synthetic blenderproc run pose_camera_server.py -- \
   --spec cage/cage2_overhead_high.toml \
-  --camera-calibration ../../config/cameras/ecam25_h01r1_estimated.toml \
+  --camera-calibration ../../config/cameras/synthetic_cage_lens_118deg.toml \
   --out ../data/cage_pose
 ```
 
@@ -425,7 +425,7 @@ not captured. Each button shows the current value.
 `R` switches the rectification alpha, the same `getOptimalNewCameraMatrix` alpha the C++
 `Rectifier` passes. At 1.0 every source pixel is kept, so the frame is wider than the lens and
 carries a black border; at 0.0 it is cropped to the largest all-valid rectangle, with no border and
-a narrower field. On the estimated e-CAM25 calibration at 1280x720 that is fx 384, 118 x 86 deg and
+a narrower field. On the estimated 118 degree lens calibration at 1280x720 that is fx 384, 118 x 86 deg and
 a 36% border against fx 514, 102 x 56 deg and no border, which is a third more apparent robot size.
 The shipped `Rectifier` uses 1.0; the toggle is there to see what 0.0 would buy before changing it.
 

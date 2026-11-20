@@ -9,8 +9,8 @@ from synthgen.lens import build_lens_view
 
 from auto_battlebot.perception.camera_calibration import load_camera_calibration
 
-ECAM25_PATH = (
-    Path(__file__).resolve().parents[3] / "config" / "cameras" / "ecam25_h01r1_estimated.toml"
+LENS_PATH = (
+    Path(__file__).resolve().parents[3] / "config" / "cameras" / "synthetic_cage_lens_118deg.toml"
 )
 SIZE = (320, 180)
 
@@ -45,7 +45,7 @@ def test_scene_state_accepts_no_mounts_and_one_mount_per_camera(blender_stubs) -
 def test_warp_render_data_blends_colour_but_keeps_ids_and_depth_unblended(blender_stubs) -> None:
     from synthgen import pipeline
 
-    lens = build_lens_view(load_camera_calibration(ECAM25_PATH), SIZE, "rectified", alpha=1.0)
+    lens = build_lens_view(load_camera_calibration(LENS_PATH), SIZE, "rectified", alpha=1.0)
     render_w, render_h = lens.render_size
     ids = np.zeros((render_h, render_w), dtype=np.int32)
     ids[: render_h // 2] = 7
@@ -75,7 +75,7 @@ def test_warp_render_data_passes_an_unwarped_view_through_untouched(blender_stub
 
     data = {"colors": [np.zeros((4, 4, 3), dtype=np.uint8)]}
     assert pipeline._warp_render_data(None, data) is data
-    lens = build_lens_view(load_camera_calibration(ECAM25_PATH), SIZE, "pinhole")
+    lens = build_lens_view(load_camera_calibration(LENS_PATH), SIZE, "pinhole")
     assert pipeline._warp_render_data(lens, data) is data
 
 
