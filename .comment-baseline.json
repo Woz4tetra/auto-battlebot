@@ -132,7 +132,6 @@
   "scripts/setup_claude_code.sh": 3,
   "service/build_and_install_service.sh": 2,
   "service/with_display.sh": 18,
-  "simulation/config/kinematic.py": 110,
   "simulation/kinematic_sim_server.py": 1,
   "simulation/mujoco_window.py": 3,
   "simulation/plants/__init__.py": 1,
