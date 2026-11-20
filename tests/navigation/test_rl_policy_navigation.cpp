@@ -184,13 +184,13 @@ TEST(RlPolicyNavigationTest, RefusesHoldOpponentMode) {
     const std::string error = start_error<ConfigValidationError>(
         config_for(rl_test::constant_bundle(), OpponentMode::HOLD));
     EXPECT_NE(error.find("opponent_mode = 'KALMAN'"), std::string::npos) << error;
-    EXPECT_NE(error.find("Found opponent_mode HOLD"), std::string::npos) << error;
+    EXPECT_NE(error.find("found opponent_mode HOLD"), std::string::npos) << error;
 }
 
 TEST(RlPolicyNavigationTest, RefusesAFilterWithNoOpponentMode) {
     const std::string error =
         start_error<ConfigValidationError>(config_for(rl_test::constant_bundle(), std::nullopt));
-    EXPECT_NE(error.find("Found opponent_mode not set"), std::string::npos) << error;
+    EXPECT_NE(error.find("found opponent_mode not set"), std::string::npos) << error;
 }
 
 TEST(RlPolicyNavigationTest, AFailedSelftestRefusesToStart) {

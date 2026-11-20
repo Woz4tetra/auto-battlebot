@@ -79,8 +79,7 @@ void RlPolicyNavigation::load() {
                                       : std::string("not set");
         throw ConfigValidationError(
             "RlPolicyNavigation needs [robot_filter.motion_estimator] opponent_mode = 'KALMAN' "
-            "(6-state "
-            "opponent filter); found opponent_mode " +
+            "(6-state opponent filter); found opponent_mode " +
             found + " from " + config_.opponent_mode_source);
     }
 
