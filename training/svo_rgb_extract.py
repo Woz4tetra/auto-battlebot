@@ -12,11 +12,8 @@ from auto_battlebot.recording.svo2 import find_side_by_side_topic, iter_access_u
 _EYES = {0: "left", 1: "right"}
 
 
-def convert_svo_file(svo_file: Path, channel: int, output: Path, crf: int, preset: str) -> None:
-    """Decode one eye of a ``.svo2`` recording into an MP4 via ffmpeg."""
-    topic, total = find_side_by_side_topic(svo_file)
-    fps = sample_fps(svo_file, topic)
-
+def ffmpeg_command(fps: float, channel: int, output: Path, crf: int, preset: str) -> list[str]:
+    """ffmpeg argv that decodes the raw side-by-side H.264 pipe and keeps one eye."""
     crop = "crop=iw/2:ih:0:0" if channel == 0 else "crop=iw/2:ih:iw/2:0"
     command = [
         "ffmpeg",
@@ -48,6 +45,15 @@ def convert_svo_file(svo_file: Path, channel: int, output: Path, crf: int, prese
         "cfr",
         str(output),
     ]
+    return command
+
+
+def convert_svo_file(svo_file: Path, channel: int, output: Path, crf: int, preset: str) -> None:
+    """Decode one eye of a ``.svo2`` recording into an MP4 via ffmpeg."""
+    topic, total = find_side_by_side_topic(svo_file)
+    fps = sample_fps(svo_file, topic)
+
+    command = ffmpeg_command(fps, channel, output, crf, preset)
 
     print(f"Converting {svo_file} [{_EYES[channel]}] -> {output} ({fps:.2f} fps)")
     proc = subprocess.Popen(command, stdin=subprocess.PIPE)

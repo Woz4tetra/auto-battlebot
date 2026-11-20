@@ -1,4 +1,6 @@
 import argparse
+import os
+import tempfile
 from pathlib import Path
 
 from ultralytics import YOLO
@@ -9,6 +11,18 @@ def disable_end2end(model: YOLO) -> None:
     for m in model.model.modules():
         if hasattr(m, "end2end"):
             m.end2end = False
+
+
+def export_onnx(model_path: Path, output_path: Path, imgsz: int | list[int]) -> None:
+    """Export raw-head ONNX straight to `output_path`, leaving no file beside the checkpoint."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=output_path.parent) as scratch:
+        link = Path(scratch) / model_path.name
+        link.symlink_to(model_path.resolve())
+        model = YOLO(str(link))
+        disable_end2end(model)
+        exported = model.export(format="onnx", imgsz=imgsz, device="cpu")
+        os.replace(exported, output_path)
 
 
 def main() -> None:
@@ -41,34 +55,10 @@ def main() -> None:
     if not model_path.exists():
         raise FileNotFoundError(f"Model file not found: {model_path}")
 
-    print(f"Loading YOLO model from {model_path}...")
-    model = YOLO(str(model_path))
-
-    disable_end2end(model)
-
-    print("Moving model to GPU...")
-    model.to("cuda")
-
-    head = model.model.model[-1]
-    if hasattr(head, "end2end") and head.end2end:
-        head.end2end = False
-        print(f"  Disabled end2end NMS on {type(head).__name__} for raw ONNX output.")
-
-    if args.output:
-        output_path = Path(args.output)
-    else:
-        output_path = model_path.parent / f"{model_path.stem}.onnx"
-
-    print("Converting to ONNX format...")
     print(f"Image size: {imgsz}")
-
-    exported_path = model.export(format="onnx", imgsz=imgsz, device="cpu")
-
-    print(f"Model successfully exported to: {exported_path}")
-
-    if args.output and exported_path != str(output_path):
-        Path(exported_path).rename(output_path)
-        print(f"Model moved to: {output_path}")
+    output_path = Path(args.output) if args.output else model_path.with_suffix(".onnx")
+    export_onnx(model_path, output_path, imgsz)
+    print(f"Model exported to: {output_path}")
 
 
 if __name__ == "__main__":

@@ -248,6 +248,11 @@ def resolve_output(model_path: Path, output: str | None, precision_tag: str | No
     )
 
 
+def write_frames_manifest(manifest: Path, frames: list[Path]) -> None:
+    """One calibration frame path per line, UTF-8 whatever the process locale is."""
+    manifest.write_text("".join(f"{path}\n" for path in frames), encoding="utf-8")
+
+
 def resolve_int8_config(model_path: Path, args: argparse.Namespace) -> Int8Config | None:
     """Calibration frames and cache path for one model, or None when building FP16."""
     if not args.int8:
@@ -263,8 +268,7 @@ def resolve_int8_config(model_path: Path, args: argparse.Namespace) -> Int8Confi
     if args.calib_dir:
         frames = select_calibration_frames(Path(args.calib_dir), args.calib_count, partition)
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        manifest = cache_path.with_suffix(".frames.txt")
-        manifest.write_text("".join(f"{path}\n" for path in frames), encoding="utf-8")
+        write_frames_manifest(cache_path.with_suffix(".frames.txt"), frames)
     elif not cache_path.is_file():
         raise SystemExit(
             f"--int8 needs --calib-dir or an existing calibration cache at {cache_path}"

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from shapely.geometry import Point, Polygon
+from shapely.errors import GEOSException
+from shapely.geometry import MultiPolygon, Point, Polygon
 
 
 @pytest.fixture(scope="module")
@@ -43,3 +44,35 @@ def test_invalid_robot_polygon_still_cut_from_floor(seg) -> None:
     assert mask is not None
     assert mask[50, 35] == 0 or mask[35, 50] == 0
     assert mask[10, 10] == 255
+
+
+class _BatchRejectingFloor:
+    is_empty = False
+    is_valid = True
+
+    def __init__(self, polygon: Polygon) -> None:
+        self.polygon = polygon
+
+    def difference(self, other):
+        if isinstance(other, MultiPolygon):
+            raise GEOSException("batched difference failed")
+        return self.polygon.difference(other)
+
+
+def test_difference_falls_back_to_one_obstacle_at_a_time(seg, monkeypatch) -> None:
+    floor = _BatchRejectingFloor(Polygon(_square(0.0, 0.0, 1.0, 1.0)))
+    obstacles = MultiPolygon(
+        [Polygon(_square(0.1, 0.1, 0.3, 0.3)), Polygon(_square(0.6, 0.6, 0.9, 0.9))]
+    )
+    real_explode = seg.explode_to_polygons
+    monkeypatch.setattr(
+        seg,
+        "explode_to_polygons",
+        lambda g: [g.polygon] if isinstance(g, _BatchRejectingFloor) else real_explode(g),
+    )
+    with pytest.raises(GEOSException):
+        floor.difference(obstacles)
+    result = seg.robust_difference(floor, obstacles)
+    assert result.area == pytest.approx(1.0 - 0.04 - 0.09)
+    assert not result.contains(Point(0.2, 0.2))
+    assert result.contains(Point(0.5, 0.5))
