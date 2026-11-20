@@ -121,16 +121,11 @@ Fixed 2026-11-19, found during phase 2:
   recordings (about 283 test MCAPs and 10 replay MCAPs on 2026-11-19) and the toggle tests left
   `toggle_*_test` files there. Test `McapRecorderToggleTest.EvictsOnlyFromItsOwnDirectoryAndNeverFromAnother`
   keeps a 1.1 GB sentinel outside the recorder's directory.
-
-Open, found 2026-11-19:
-
-- `src/robot_filter/front_back_keypoint_converter.cpp` `get_pose_from_points`: the pose is the
-  shortest-arc rotation from +x onto the front-back direction in 3D. For a robot facing near -x
-  with the front keypoint slightly higher than the back (`(-1, 0, 0.01)`), that is a half turn
-  about y: yaw comes out pi, but roll is pi too and the published pose is upside down. In the
-  field plane the same heading gives a clean yaw. Eigen's `FromTwoVectors` did the same before
-  `rotation_between`. Fix: build the pose from the heading's yaw (and pitch, if wanted) instead of
-  a 3D shortest arc.
+- `src/robot_filter/front_back_keypoint_converter.cpp` `get_pose_from_points`: the pose is a
+  rotation about z by the front-back heading. It was the 3D shortest arc from +x, which for a
+  robot facing near -x with the keypoints at different heights came out upside down (roll pi,
+  yaw still right). Every consumer reads yaw only, so filtered poses do not change. Test
+  `FrontBackKeypointConverterTest.PoseStaysUprightWhenTheKeypointsDifferInHeight`.
 
 | Location | What the code does | What the comment claims would break | Verified? | Root-cause fix |
 | --- | --- | --- | --- | --- |

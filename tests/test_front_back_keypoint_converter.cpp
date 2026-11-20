@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <Eigen/Dense>
+#include <cmath>
 #include <opencv2/core.hpp>
 #include <optional>
 
@@ -150,6 +151,27 @@ TEST_F(FrontBackKeypointConverterTest, RobotFacingMinusXIsUprightWithAHalfTurnOf
     EXPECT_NEAR(rotation.determinant(), 1.0, 1e-12);
     EXPECT_NEAR(tf.tf(0, 3), 0.0, 1e-12);
     EXPECT_NEAR(tf.tf(1, 3), 0.5, 1e-12);
+}
+
+TEST_F(FrontBackKeypointConverterTest, PoseStaysUprightWhenTheKeypointsDifferInHeight) {
+    FrontBackKeypointConverter converter(config_);
+    Transform tf;
+    for (const double heading : {0.0, 1.0, 2.5, 3.1, 3.14159, -3.1, -1.5}) {
+        for (const double rise : {-0.05, 0.01, 0.2}) {
+            const Eigen::Vector3d back(0.3, -0.2, 0.05);
+            const Eigen::Vector3d front =
+                back + Eigen::Vector3d(std::cos(heading), std::sin(heading), rise);
+            ASSERT_TRUE(converter.get_pose_from_points(front, back, 0.0, tf));
+            const Eigen::Matrix3d rotation = tf.tf.block<3, 3>(0, 0);
+            EXPECT_NEAR((rotation * Eigen::Vector3d::UnitZ() - Eigen::Vector3d::UnitZ()).norm(),
+                        0.0, 1e-12)
+                << heading << " " << rise;
+            EXPECT_NEAR(
+                std::remainder(std::atan2(rotation(1, 0), rotation(0, 0)) - heading, 2 * M_PI), 0.0,
+                1e-12)
+                << heading << " " << rise;
+        }
+    }
 }
 
 }  // namespace auto_battlebot

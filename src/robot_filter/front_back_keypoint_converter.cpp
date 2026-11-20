@@ -90,7 +90,6 @@ bool FrontBackKeypointConverter::get_pose_from_points(const Eigen::Vector3d &fro
                                                       double reference_offset_m,
                                                       Transform &out_transform) {
     constexpr double EPSILON = 1e-6;
-    Eigen::Vector3d origin_vec(1.0, 0.0, 0.0);
     Eigen::Vector3d offset_vector = front_point - back_point;
     double magnitude = offset_vector.norm();
     if (magnitude <= EPSILON) {
@@ -98,8 +97,8 @@ bool FrontBackKeypointConverter::get_pose_from_points(const Eigen::Vector3d &fro
     }
     Eigen::Vector3d direction = offset_vector / magnitude;
     Eigen::Vector3d center = 0.5 * (front_point + back_point) + reference_offset_m * direction;
-    Eigen::Quaterniond q = rotation_between(origin_vec, direction);
-    Eigen::Matrix3d rot = q.toRotationMatrix();
+    const double yaw = std::atan2(direction.y(), direction.x());
+    Eigen::Matrix3d rot = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()).toRotationMatrix();
     Eigen::Matrix4d tf = Eigen::Matrix4d::Identity();
     tf.block<3, 3>(0, 0) = rot;
     tf.block<3, 1>(0, 3) = center;
