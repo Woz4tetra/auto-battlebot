@@ -7,15 +7,10 @@ COMPOSE_FILE="${REPO}/docker/docker-compose.playback.yml"
 
 export PLAYBACK_CONFIG="${PLAYBACK_CONFIG:-config/playback/mrs_buff_mk3_playback.toml}"
 
-# Compose has no $(id -u) equivalent, so pass them in. UID is set by bash but not
-# exported, and GID is not set at all under some shells.
 HOST_UID="$(id -u)"
 HOST_GID="$(id -g)"
 export HOST_UID HOST_GID
 
-# Compose cannot express a conditional mount. XAUTHORITY must always resolve to a real
-# path or the "${XAUTHORITY}:${XAUTHORITY}:ro" volume becomes ":" and compose rejects
-# the file. Fall back to the conventional location and create it if absent.
 if [ -z "${XAUTHORITY:-}" ]; then
     for candidate in "/run/user/$(id -u)/gdm/Xauthority" "${HOME}/.Xauthority"; do
         if [ -r "${candidate}" ]; then
@@ -52,9 +47,6 @@ adopt_local_display() {
     fi
 }
 
-# Set by the --no-display flag in run_playback.sh and shell.sh. Blanking DISPLAY is what
-# actually stops the container reaching an X server; the socket and cookie stay mounted
-# because compose has no conditional mounts, and they are inert without DISPLAY.
 if [ -n "${AUTO_BATTLEBOT_NO_DISPLAY:-}" ]; then
     export DISPLAY=""
     echo "--no-display: X11 forwarding off, running headless." >&2

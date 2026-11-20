@@ -60,12 +60,7 @@ SVO_PATH_REGEX = re.compile(r"(?:Resolved SVO path|SVO recording started):\s+(\S
 
 
 def _frame_meta_svo_path(data: bytes) -> Optional[Path]:
-    """Return the svo_path from a /camera/frame_meta payload.
-
-    Read straight off the JSON rather than through ``mcap_io.decode_frame_meta``: once video moved
-    into the MCAP the field stopped being part of ``FrameMeta``, and only the recordings this
-    script combines still carry it.
-    """
+    """Return the svo_path from a /camera/frame_meta payload."""
     try:
         raw = str(mcap_io.decode_json(data).get("svo_path", ""))
     except (json.JSONDecodeError, UnicodeDecodeError, AttributeError, KeyError, ValueError):
@@ -441,8 +436,6 @@ def _describe_damage(mcap_path: Path) -> Optional[str]:
             for _record in StreamReader(f).records:
                 pass
     except Exception as exc:
-        # Any parse failure means the file is damaged. Truncation surfaces as an
-        # McapError, but a corrupt chunk can also come out of the decompressor.
         return f"{type(exc).__name__}: {exc}".rstrip(": ")
     return None
 

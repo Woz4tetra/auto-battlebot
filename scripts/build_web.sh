@@ -14,8 +14,6 @@ fi
 cd "$WEB_DIR"
 if [ ! -d node_modules ] || [ package-lock.json -nt node_modules ]; then
     npm ci --no-audit --no-fund
-    # npm ci recreates the directory, but touch it so the timestamp check holds even when npm
-    # keeps an older mtime.
     touch node_modules
 fi
 npm run build

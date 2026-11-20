@@ -188,3 +188,7 @@ python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
   --labels opponent,opponent,house_bot,mr_stabs_mk2,mrs_buff_mk3 \
   --conf 0.6 --taxonomy training/model_eval/taxonomy.yaml
 ```
+
+## Archetype mapping file
+
+`docs/experiments/perception/assets/2026-07-09_indiv/robot_to_archetype.yaml` maps each robot to an archetype for the per-archetype blob dataset. Archetypes are `horizontal_spinner`, `vertical_spinner`, `control`, and `hammersaw`. Our robots (`mr_stabs_mk2`, `mrs_buff_mk3`) and `house_bot` stay distinct. Objects and debris (flight controllers) are dropped from training. Sources are the NHRL wiki weapon field unless an entry says otherwise. Edit any line, then remap and retrain.

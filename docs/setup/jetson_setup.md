@@ -229,3 +229,8 @@ The venv `activate` script gets a `LD_LIBRARY_PATH` block because the host sets 
 - The index is derived from the CUDA version (13.2 gives `cu132`) rather than tabled, so a 13.0 or 13.3 box picks its own.
 - The install uses `--index-url`, not `--extra-index-url`. PyPI's aarch64 torch is a CPU-only build and wins resolution otherwise, leaving `torch.cuda.is_available()` false.
 - cusparselt (for PyTorch 24.06+) installs only for the NVIDIA JetPack 6 wheels. The upstream CUDA-index wheels used on JetPack 7 vendor their own CUDA dependencies.
+
+### Deploy and download script notes
+
+- `scripts/deploy_to_jetson.sh` orders the `--include` for `.build_version` before the gitignore merge, so the stamped version file transfers even though it is gitignored (first match wins).
+- `scripts/download_recordings.sh` skips search directories that do not exist on the remote host, so a missing one does not make `find` exit non-zero and abort the remote script under `pipefail`.

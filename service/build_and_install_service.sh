@@ -18,8 +18,6 @@ fi
 "$PROJECT_ROOT/scripts/build_and_install.sh" "$@"
 
 REAL_USER="${SUDO_USER:-$USER}"
-# The unit needs the numeric uid for XDG_RUNTIME_DIR. systemd's %U specifier resolves to 0 in a
-# system unit even with User= set, which sent dconf to /run/user/0 and broke the kiosk setup.
 REAL_UID="$(id -u "$REAL_USER")"
 
 boots_a_desktop() {

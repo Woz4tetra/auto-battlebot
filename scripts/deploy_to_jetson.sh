@@ -139,8 +139,6 @@ RSYNC_OPTS=(
 
 sync_code() {
     echo "Syncing code to ${REMOTE_DEST}..."
-    # --include for .build_version is ordered before the gitignore merge so the
-    # stamped version file transfers even though it is gitignored (first match wins).
     rsync "${RSYNC_OPTS[@]}" -e "$RSYNC_SSH" \
         --include='/.build_version' \
         "${DEPLOY_FILTER_OPTS[@]}" \

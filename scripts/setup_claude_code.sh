@@ -40,8 +40,6 @@ else
     trap 'rm -rf "${SKILL_TMP}"' EXIT
 
     skill_ok=1
-    # GIT_TERMINAL_PROMPT=0 so a bad URL fails instead of blocking a headless
-    # setup on a credential prompt.
     GIT_TERMINAL_PROMPT=0 git clone --depth 1 --quiet "${SKILL_REPO}" "${SKILL_TMP}" || skill_ok=0
     for f in "${SKILL_FILES[@]}"; do
         [ "${skill_ok}" = 1 ] && [ -f "${SKILL_TMP}/${f}" ] || skill_ok=0
@@ -67,7 +65,6 @@ if [ ! -f "${SLOP_HOOK}" ]; then
     exit 1
 fi
 
-# git preserves the exec bit, but a zip export or a restrictive umask does not.
 [ -x "${SLOP_HOOK}" ] || chmod +x "${SLOP_HOOK}"
 
 if ! command -v jq >/dev/null 2>&1; then

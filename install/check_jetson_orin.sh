@@ -11,8 +11,6 @@ check_jetson_orin() {
         exit 1
     fi
 
-    # The device-tree string is NUL-terminated; tr drops it so the shell does
-    # not warn about a null byte in the command substitution.
     local model
     model=$(tr -d '\0' < /proc/device-tree/model)
     if [[ ! "$model" =~ "Orin" ]]; then

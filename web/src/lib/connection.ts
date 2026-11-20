@@ -1,7 +1,3 @@
-// Foxglove WebSocket client for viz_relay. One socket per page, reconnecting forever.
-//
-// Components subscribe by topic. The connection keeps the wanted topics across reconnects and
-// channel re-advertisements, so a subscriber never has to resubscribe itself.
 
 import {
   FoxgloveClient,
@@ -32,12 +28,8 @@ const ACK_TOPIC = "/status/command_ack";
 const ACK_TIMEOUT_MS = 1000;
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 5000;
-// The Foxglove SDK server answers 400 unless "foxglove.sdk.v1" is offered. The client library
-// speaks the same wire protocol, so offer both.
 const SILENCE_MS = 3000;
 const PROBE_TIMEOUT_MS = 1500;
-// A handshake that has not opened by now is abandoned. Unplugging the cable mid-attempt leaves the
-// SYN unanswered, and iOS waits over a minute before failing it; nothing else retries meanwhile.
 const CONNECT_TIMEOUT_MS = 2000;
 const SUBPROTOCOLS = ["foxglove.sdk.v1", FoxgloveClient.SUPPORTED_SUBPROTOCOL];
 
@@ -100,12 +92,6 @@ class Connection {
     setInterval(() => void this.#checkSilence(), 1000);
   }
 
-  // A socket can say "open" long after its network is gone: the Ethernet link dropping, or
-  // Safari handing back a dead socket after the screen unlocks. No close event comes until TCP
-  // gives up, minutes later. Status arrives at 10 Hz, so after SILENCE_MS with nothing, ask the
-  // relay over plain HTTP whether it has the app. A failed probe, or an app that is connected
-  // while this socket hears nothing, means the socket is dead: drop it and reconnect now. With
-  // the app down the relay is quiet on purpose, and the socket stays.
   async #checkSilence(): Promise<void> {
     if (this.#probing || this.#state !== "open") return;
     if (performance.now() - this.#lastMessageAt < SILENCE_MS) return;
@@ -246,7 +232,6 @@ class Connection {
       this.#scheduleReconnect();
       return;
     }
-    // The DOM send() signature is narrower than IWebSocket's; the client only sends ArrayBuffers.
     const client = new FoxgloveClient({ ws: ws as unknown as IWebSocket });
     this.#client = client;
     this.#connectTimer = setTimeout(() => {

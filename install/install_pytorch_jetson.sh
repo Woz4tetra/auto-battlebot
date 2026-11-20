@@ -82,7 +82,6 @@ ensure_jetson_torch_in_venv() {
         return 0
     fi
 
-    # JetPack 6 (L4T 36) and older: the NVIDIA wheel, with the numpy 1.x pin its ABI needs.
     get_jetson_torch_install_url
     echo "Jetson: installing PyTorch wheel so dependencies use it instead of PyPI..."
     pip install "numpy==1.26.1"
@@ -124,9 +123,6 @@ install_pytorch_jetson() {
     local CUDA_VER
     CUDA_VER=$(get_cuda_version) || return 1
     echo "Detected CUDA version: $CUDA_VER"
-    # PyTorch's install_cusparselt.sh knows only CUDA 11.8 and 12.1-12.4 (JetPack 6.2 is 12.6)
-    # and fetches the sbsa build, so pull NVIDIA's Jetson (linux-aarch64) archive directly.
-    # 0.6.3.2 is the newest release with a CUDA 12.6 build; 0.7+ needs CUDA 12.8.
     if { [ -z "$L4T_MAJOR" ] || [ "$L4T_MAJOR" -lt 39 ]; } \
         && ! ldconfig -p | grep -q 'libcusparseLt\.so\.0'; then
         local CUSPARSELT_NAME="libcusparse_lt-linux-aarch64-0.6.3.2-archive"

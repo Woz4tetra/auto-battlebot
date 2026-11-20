@@ -44,9 +44,6 @@ FetchContent_Declare(
     UPDATE_DISCONNECTED TRUE
 )
 
-# HTTP server for the web dashboard, linked to viz_relay only. Both are header-only; populating
-# them without their own CMake (SOURCE_SUBDIR has no CMakeLists.txt) avoids Crow's find_package
-# for Asio, and the viz_relay target below wires the include paths itself.
 FetchContent_Declare(
     crow
     GIT_REPOSITORY https://github.com/CrowCpp/Crow.git
@@ -72,10 +69,6 @@ FetchContent_Declare(
     UPDATE_DISCONNECTED TRUE
 )
 
-# JSON for the remote protocol (include/remote/). The URL tarball is the release's single-header
-# CMake package, which is far smaller than the repository.
-# DOWNLOAD_EXTRACT_TIMESTAMP is CMake 3.24+. JetPack 6 ships 3.22, which reads the unknown keyword
-# as more URL entries and fails with "At least one entry of URL is a path".
 set(NLOHMANN_JSON_URL_OPTS)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.24)
     set(NLOHMANN_JSON_URL_OPTS DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
@@ -109,7 +102,6 @@ else()
     FetchContent_MakeAvailable(tomlplusplus cli11 magic_enum spdlog nlohmann_json)
 endif()
 
-# mcap ships no CMake target, just headers plus a single-TU implementation define.
 FetchContent_MakeAvailable(mcap)
 FetchContent_MakeAvailable(crow asio)
 add_library(mcap_reader STATIC "${CMAKE_CURRENT_SOURCE_DIR}/src/rgbd_camera/mcap_impl.cpp")
@@ -126,12 +118,6 @@ find_package(Threads REQUIRED)
 find_package(OpenCV 4.10 REQUIRED COMPONENTS core imgproc highgui dnn objdetect calib3d)
 find_package(Eigen3 REQUIRED)
 
-# RTNeural runs RlPolicyNavigation's network. Only src/rl_policy/runtimes/rtneural_runtime.cpp
-# includes it. Used header-only with the Eigen backend against the system Eigen 3, so its own
-# CMakeLists is never added: that one puts its bundled Eigen copy on the include path.
-# SOURCE_SUBDIR names a directory with no CMakeLists.txt, which makes MakeAvailable populate
-# without add_subdirectory. No submodules: xsimd is for the backend this build does not use.
-# SYSTEM keeps its headers out of -Werror.
 FetchContent_Declare(
     rtneural
     GIT_REPOSITORY https://github.com/jatinchowdhury18/RTNeural.git
@@ -158,17 +144,12 @@ pkg_check_modules(GST IMPORTED_TARGET gstreamer-1.0 gstreamer-app-1.0)
 find_package(ZED 5 QUIET)
 option(BUILD_WITH_ZED "Build the ZED camera and SVO playback backends" ${ZED_FOUND})
 if(BUILD_WITH_ZED AND NOT ZED_FOUND)
-    # Asked for explicitly but missing: re-run so the error names the missing SDK.
     find_package(ZED 5 REQUIRED)
 endif()
 message(STATUS "BUILD_WITH_ZED: ${BUILD_WITH_ZED}")
 find_package(CUDA REQUIRED)
 find_package(TensorRT REQUIRED)
 
-# CUDA sources (the GPU preprocess kernels). nvcc is taken from the toolkit FindCUDA picked, since
-# /usr/local/cuda/bin is not on PATH on the Jetsons, and the kernels have to be built by the same
-# toolkit whose static runtime FindCUDA links (CUDA_USE_STATIC_CUDA_RUNTIME): one runtime per
-# process, shared by TensorRT's stream and the kernels.
 if(NOT CMAKE_CUDA_COMPILER)
     set(CMAKE_CUDA_COMPILER "${CUDA_TOOLKIT_ROOT_DIR}/bin/nvcc")
 endif()
@@ -193,10 +174,6 @@ include_directories(SYSTEM ${PCL_INCLUDE_DIRS})
 include_directories(SYSTEM ${OpenCV_INCLUDE_DIRS})
 include_directories(SYSTEM ${EIGEN3_INCLUDE_DIRS})
 
-# Foxglove SDK: C++ wrapper sources compiled here on top of the prebuilt Rust static
-# library. install/install_foxglove_sdk.sh unpacks the release for this architecture into
-# third_party/foxglove. The SDK's own headers trip -Wdeprecated-declarations under C++20, so
-# they are system headers and the wrapper compiles with warnings off; nothing of ours is in it.
 set(FOXGLOVE_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/foxglove")
 if(NOT EXISTS "${FOXGLOVE_SDK_DIR}/include/foxglove/schemas.hpp")
     message(FATAL_ERROR
@@ -344,8 +321,6 @@ set(COMMON_COMPILE_FLAGS
     -O2
 )
 
-# No -DDEBUG: nothing in the tree tests it, and the macro collides with
-# foxglove::schemas::Log::LogLevel::DEBUG in the SDK headers.
 set(DEBUG_COMPILE_FLAGS
     -g
 )
@@ -358,9 +333,6 @@ if(BUILD_WITH_ZED)
     target_compile_definitions(auto_battlebot_lib PUBLIC BUILD_WITH_ZED)
 endif()
 
-# nvcc rejects the GCC warning flags, so .cu files pass them through to the host compiler and
-# promote nvcc's own warnings separately. No -O here: CMAKE_BUILD_TYPE already passes one, and
-# nvcc warns on a second. Device code is optimized by ptxas regardless of the host -O level.
 set(CUDA_COMPILE_FLAGS
     -Xcompiler=-Wall,-Wextra,-Werror
     --Werror=all-warnings
@@ -378,7 +350,6 @@ else()
     )
 endif()
 
-# ZED SDK doesn't support debug builds - override flags for ZED-related source files
 if(BUILD_DEBUG AND BUILD_WITH_ZED)
     set_source_files_properties(
         src/rgbd_camera/zed_rgbd_camera.hpp
@@ -444,12 +415,6 @@ else()
     )
 endif()
 
-# Copy config directory to build directory.
-# Runs every build (custom targets are always out of date). Do not add a
-# file(GLOB) + DEPENDS here: the glob is captured at configure time, so renaming
-# or deleting a config leaves a stale path in the dependency list and the build
-# fails with "No rule to make target 'config/<old_name>.toml'". Removing the
-# destination first also drops orphaned copies of renamed/deleted configs.
 add_custom_target(copy_config_files ALL
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_BINARY_DIR}/config
     COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -480,7 +445,6 @@ install(TARGETS auto_battlebot auto_battlebot_lib viz_relay
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
 )
-# NvjpgJpegEncoder loads the plugin from the directory auto_battlebot_lib is in.
 if(HAVE_NVJPG)
     install(TARGETS auto_battlebot_nvjpg LIBRARY DESTINATION lib)
 endif()

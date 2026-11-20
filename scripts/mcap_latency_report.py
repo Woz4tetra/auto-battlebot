@@ -292,7 +292,7 @@ def plot_end_to_end_latency(ax_time: Axes, samples: LatencySamples) -> None:
 
 def plot_stage_distributions(ax_box: Any, samples: LatencySamples, stats: list[StageStats]) -> None:
     box_stats = [s for s in stats if s.stage != PIPELINE_STAGE]
-    box_stats.reverse()  # horizontal boxplots draw bottom-up
+    box_stats.reverse()
     if box_stats:
         data = [samples.stage_ms[s.stage] for s in box_stats]
         bp = ax_box.boxplot(

@@ -203,9 +203,6 @@ install_dashboard_network() {
 
     sudo apt-get install -y avahi-daemon avahi-utils nftables
 
-    # ---- 3. NetworkManager profile ----
-    # Deleted and re-added, so rerunning is safe. mdns off keeps systemd-resolved off port 5353
-    # for Avahi. Priority 100 beats the distro's "Wired connection 1" at 0.
     sudo nmcli connection delete "$profile" >/dev/null 2>&1 || true
     sudo nmcli connection add type ethernet ifname "$iface" con-name "$profile" \
         ipv4.method manual ipv4.addresses "$address" ipv4.never-default yes \

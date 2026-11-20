@@ -58,9 +58,6 @@ YELLOW='\033[1;33m'
 DIM='\033[2m'
 NC='\033[0m'
 
-# taplo logs an INFO line listing every file it visits to stderr on every run,
-# pass or fail. The Stop hook only surfaces stderr, so that noise buries the
-# real failure. Drop it to warnings unless the caller asked for more.
 export RUST_LOG="${RUST_LOG:-warn}"
 
 VENV_BIN="$PROJECT_ROOT/venv/bin"
@@ -94,8 +91,6 @@ pinned_llvm_tool() {
 CLANG_FORMAT=$(pinned_llvm_tool clang-format || true)
 CLANG_TIDY=$(pinned_llvm_tool clang-tidy || true)
 
-# run-clang-tidy is a driver script, not a compiler; it has no --version, so
-# take the versioned copy when it exists and pin the worker binary explicitly.
 if have "run-clang-tidy-$LLVM_VERSION"; then
     RUN_CLANG_TIDY="run-clang-tidy-$LLVM_VERSION"
 elif have run-clang-tidy; then
@@ -109,8 +104,6 @@ LLVM_HINT="run install/install_llvm_toolchain.sh"
 configure_ctcache() {
     CTCACHE_WRAPPER="$HOME/.local/share/ctcache/clang-tidy"
     if [ -n "$CLANG_TIDY" ] && [ -x "$CTCACHE_WRAPPER" ]; then
-        # The wrapper execs this path directly and defaults to /usr/bin/clang-tidy,
-        # so it needs the resolved binary, not the bare name.
         export CTCACHE_CLANG_TIDY="$(command -v "$CLANG_TIDY")"
         export CTCACHE_SAVE_OUTPUT=1
         export CTCACHE_DIR="${CTCACHE_DIR:-$HOME/.cache/ctcache}"

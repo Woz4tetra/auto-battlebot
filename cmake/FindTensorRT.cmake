@@ -8,7 +8,6 @@ if(TensorRT_DIR AND NOT TensorRT_ROOT)
     set(TensorRT_ROOT "${TensorRT_DIR}")
 endif()
 
-# Search paths: TENSORRT_ROOT first, then system (order must match trt_onnx_builder for same TRT)
 set(_TensorRT_SEARCH_PATHS)
 if(TensorRT_ROOT)
     list(APPEND _TensorRT_SEARCH_PATHS

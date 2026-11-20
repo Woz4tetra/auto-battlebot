@@ -106,9 +106,6 @@ install_python_environment() {
 
     if [ -f /etc/nv_tegra_release ]; then
         local SITE_PACKAGES="$VENV_DIR/lib/python$REQUIRED_MAJOR.$REQUIRED_MINOR/site-packages"
-        # apt installs python3-libnvinfer into the unversioned /usr/lib/python3/dist-packages
-        # on noble (JetPack 7); jammy (JetPack 6) used a versioned directory. Try both, newest
-        # layout first, rather than interpolating a path that exists on only one of them.
         local SYS_PYTHON_PATH=""
         local CANDIDATE
         for CANDIDATE in "/usr/lib/python$REQUIRED_MAJOR/dist-packages" \
@@ -166,8 +163,6 @@ JETSON_ACTIVATE_EOF
 
     echo "Installing project dependencies from pyproject.toml..."
     if [ -f /etc/nv_tegra_release ]; then
-        # Pin torch to the Jetson wheel so pip won't replace it with PyPI (CPU) build.
-        # Use version from pip's metadata so the constraint matches exactly.
         local TORCH_VER
         TORCH_VER=$(pip show torch 2>/dev/null | sed -n 's/^Version: *//p')
         if [ -n "$TORCH_VER" ]; then

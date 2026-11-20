@@ -42,6 +42,4 @@ if [ "${#COMMAND_ARGS[@]}" -eq 0 ]; then
     COMMAND_ARGS=(bash)
 fi
 
-# --no-deps skips the Foxglove bridge; a shell rarely needs it.
-# Not exec'd: compose is a shell function from docker_common.sh, and exec needs a binary.
 compose run --rm --no-deps --build playback "${COMMAND_ARGS[@]}"

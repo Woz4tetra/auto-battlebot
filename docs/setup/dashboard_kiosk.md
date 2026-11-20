@@ -12,3 +12,14 @@
 `service/enable_kiosk.sh` does nothing without a display. Both `gsettings` and `xset` fail noisily on a headless deploy, and `with_display.sh` leaves `DISPLAY` unset on those boxes, so the script returns early when `DISPLAY` is empty.
 
 `gsettings` needs the session dbus. GLib finds it at `$XDG_RUNTIME_DIR/bus` without `DBUS_SESSION_BUS_ADDRESS` being set. The script uses it to disable the GNOME on-screen keyboard so it does not cover the UI on the touchscreen.
+
+## with_display.sh
+
+`service/with_display.sh` runs a command with `DISPLAY` pointing at the X server of the logged-in session on boxes that have one. Headless boxes run the command straight away. `dashboard-kiosk.service` runs through it for two reasons:
+
+1. The display number moves. GDM hands the session whichever number is free: `:1` on the handheld on 2026-09-22 and `:0` on 2026-10-13. A hardcoded `DISPLAY` aims at a server that is not there.
+2. At boot the service starts before GDM's autologin session exists. Measured on the handheld: the service started at t=11.8 s and the session's Xorg at t=13.6 s. The kiosk treats no display as a headless box and exits for good, so it has to wait rather than start and hope.
+
+The wait is gated on the machine booting a desktop at all, so a headless deploy never waits for a session that is not coming. Both conditions must hold: a display manager enabled (that creates the X session) and `graphical.target` as the boot target (that runs it). Anything else counts as headless, so an unclear answer costs no startup time. No `XAUTHORITY` handling is needed: GDM grants the session owner by uid (`xhost` shows `SI:localuser:<user>`), so a process running as that user connects without a cookie.
+
+`service/build_and_install_service.sh` expands `__UID__` to the numeric uid for `XDG_RUNTIME_DIR`. systemd's `%U` specifier resolves to 0 in a system unit even with `User=` set, which sent dconf to `/run/user/0` and broke the kiosk setup.

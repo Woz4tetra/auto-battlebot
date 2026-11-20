@@ -1,7 +1,3 @@
-# Robot -> archetype mapping for the per-archetype blob dataset (2026-07-09).
-# archetypes: horizontal_spinner | vertical_spinner | control | hammersaw ;
-# our robots (mr_stabs_mk2, mrs_buff_mk3), house_bot kept distinct; object/debris (flight controllers) DROPPED from training.
-# Sources: NHRL wiki weapon field unless noted. Edit any line, then remap+retrain.
 mapping:
   0-0:
     archetype: horizontal_spinner

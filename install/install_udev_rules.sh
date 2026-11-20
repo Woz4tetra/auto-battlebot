@@ -1,12 +1,5 @@
 #!/bin/bash
 
-# Install udev rules for USB serial devices used by auto-battlebot.
-# - OpenTX / EdgeTX transmitter (VID=0483, PID=5740): creates /dev/opentx symlink
-# - ESP-NOW dongle (firmware/espnow_dongle/README.md): creates /dev/espnow_dongle symlink
-# - mr_stabs_mk2 on USB: creates /dev/mr_stabs symlink
-# - Adds the current user to the dialout group
-# - Disables ModemManager probing of the transmitter (prevents CRSF frame corruption)
-# - Ensures the cdc_acm kernel module loads on boot
 
 add_user_to_dialout() {
     if groups "$USER" | grep -qw dialout; then

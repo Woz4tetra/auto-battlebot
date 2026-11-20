@@ -54,3 +54,12 @@ Payload structs live in `include/remote/messages.hpp`. A field name is the JSON 
 - `unproject_image_point` casts an image point onto the field floor (z = 0) and inverts `project_field_point`. It returns nullopt when the ray points at or above the horizon, or the field or intrinsics are missing. The result can land outside the field.
 - `project_field_outline` samples each border side so a side that passes behind the camera is cut where it does, not dropped whole. Every returned polyline has at least two points. Empty when the field or intrinsics are missing.
 - `project_camera_marker` projects the top-down view's camera triangle, which sits below the field's -y edge pointing away from it. Order is tip, then the two base corners. It has the same field-frame placement as the triangle in `web/src/components/TopDown.svelte`, and `FieldProjectionTest.CameraMarkerMatchesTheTopDownTriangle` reads that file, so moving the triangle there fails the test. Empty when any corner is behind the camera or the field or intrinsics are missing.
+
+## Web client connection
+
+`web/src/lib/connection.ts` is the Foxglove WebSocket client for `viz_relay`: one socket per page, reconnecting forever. Components subscribe by topic. The connection keeps the wanted topics across reconnects and channel re-advertisements, so a subscriber never resubscribes itself.
+
+- The Foxglove SDK server answers 400 unless `foxglove.sdk.v1` is offered. The client library speaks the same wire protocol, so the client offers both subprotocols.
+- A handshake that has not opened within `CONNECT_TIMEOUT_MS` (2000) is abandoned. Unplugging the cable mid-attempt leaves the SYN unanswered, and iOS waits over a minute before failing it, with nothing else retrying meanwhile.
+- A socket can say open long after its network is gone: the Ethernet link dropping, or Safari handing back a dead socket after the screen unlocks. No close event comes until TCP gives up, minutes later. Status arrives at 10 Hz, so after `SILENCE_MS` with nothing, the client asks the relay over plain HTTP whether it has the app. A failed probe, or an app that is connected while this socket hears nothing, means the socket is dead: it drops the socket and reconnects now. With the app down the relay is quiet on purpose and the socket stays.
+- The DOM `send()` signature is narrower than `IWebSocket`'s, so the adapter casts. The client only sends `ArrayBuffer`s.

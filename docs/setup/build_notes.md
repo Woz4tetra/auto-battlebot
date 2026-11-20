@@ -17,3 +17,19 @@ PCL is only reachable from `PointCloudFieldFilter` and `data_structures/point_cl
 ## Web dashboard
 
 `scripts/build.sh` builds the web dashboard that `viz_relay` serves, through `scripts/build_web.sh`. It is optional. Without Node the build skips it and the relay answers 503 with a note.
+
+## CMake dependency workarounds
+
+- Crow and Asio (web dashboard HTTP server) are header-only and linked to `viz_relay` only. They are populated with `SOURCE_SUBDIR` pointing at a directory with no `CMakeLists.txt`, which skips Crow's own `find_package` for Asio. The `viz_relay` target wires the include paths itself.
+- nlohmann_json (remote protocol, `include/remote/`) comes from the release's single-header URL tarball, which is far smaller than the repository. `DOWNLOAD_EXTRACT_TIMESTAMP` needs CMake 3.24. JetPack 6 ships 3.22, which reads the unknown keyword as more URL entries and fails with "At least one entry of URL is a path", so the option is passed only on 3.24 and newer.
+- mcap ships no CMake target, only headers plus a single-translation-unit implementation define.
+- RTNeural runs `RlPolicyNavigation`'s network and is included only by `src/rl_policy/runtimes/rtneural_runtime.cpp`. It is used header-only with the Eigen backend against system Eigen 3, so its own `CMakeLists.txt` is never added: that file puts its bundled Eigen copy on the include path. `SOURCE_SUBDIR` names a directory with no `CMakeLists.txt`, which makes `FetchContent_MakeAvailable` populate without `add_subdirectory`. No submodules are fetched, since xsimd is for a backend this build does not use. `SYSTEM` keeps its headers out of `-Werror`.
+- ZED: when `BUILD_WITH_ZED` is on and `find_package` found nothing, the file calls `find_package(ZED 5 REQUIRED)` again so the error names the missing SDK.
+- CUDA sources (the GPU preprocess kernels): nvcc comes from the toolkit that FindCUDA picked, since `/usr/local/cuda/bin` is not on `PATH` on the Jetsons. The kernels must be built by the same toolkit whose static runtime FindCUDA links (`CUDA_USE_STATIC_CUDA_RUNTIME`), so the process has one CUDA runtime, shared by TensorRT's stream and the kernels.
+- Foxglove SDK: the C++ wrapper sources compile in this tree on top of the prebuilt Rust static library, which `install/install_foxglove_sdk.sh` unpacks into `third_party/foxglove`. The SDK's own headers trip `-Wdeprecated-declarations` under C++20, so they are system headers and the wrapper compiles with warnings off. Nothing of ours is in it.
+- There is no `-DDEBUG` in the debug flags: nothing in the tree tests it, and the macro collides with `foxglove::schemas::Log::LogLevel::DEBUG` in the SDK headers.
+- nvcc rejects the GCC warning flags, so `.cu` files pass them through to the host compiler and promote nvcc's own warnings separately. The CUDA flags carry no `-O`: `CMAKE_BUILD_TYPE` already passes one and nvcc warns on a second. ptxas optimizes device code regardless of the host `-O` level.
+- The ZED SDK does not support debug builds, so the ZED-related source files get the release flags when `BUILD_DEBUG` and `BUILD_WITH_ZED` are both on.
+- `copy_config_files` copies `config/` into the build directory on every build, since custom targets are always out of date. Do not add `file(GLOB)` plus `DEPENDS` there: the glob is captured at configure time, so renaming or deleting a config leaves a stale path in the dependency list and the build fails with "No rule to make target 'config/<old_name>.toml'". Removing the destination first also drops orphaned copies of renamed or deleted configs.
+- `NvjpgJpegEncoder` loads its plugin from the directory `auto_battlebot_lib` is in, so the plugin builds beside the library.
+- `cmake/FindTensorRT.cmake` searches `TENSORRT_ROOT` first, then the system paths. The order must match `trt_onnx_builder` so both resolve the same TensorRT.

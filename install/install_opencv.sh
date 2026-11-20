@@ -162,10 +162,6 @@ install_opencv() (
         echo 'export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH' >> ~/.bashrc
     fi
     if [[ "${build_python}" == "ON" ]]; then
-        # Debian and Ubuntu put third-party modules in dist-packages, and OpenCV follows:
-        # it reports an install path of lib/python3.12/dist-packages/cv2. Hardcoding
-        # site-packages here points PYTHONPATH at a directory that does not exist. Find the
-        # one cv2 actually landed in.
         local py_packages=""
         local candidate
         for candidate in "${install_prefix}/lib/python${python_ver}/dist-packages" \
@@ -179,10 +175,6 @@ install_opencv() (
             echo "Warning: no cv2 package found under ${install_prefix}/lib/python${python_ver};"
             echo "         leaving PYTHONPATH alone."
         else
-            # Drop any line pointing at a different Python under the same prefix first.
-            # Guarding only on the new path leaves a JetPack 6 python3.10 entry in place
-            # forever, and deploy_to_jetson.sh runs the remote build under `bash -lc`, so a
-            # stale entry gets injected into every build.
             sed -i "\#^export PYTHONPATH=${install_prefix}/lib/python[0-9.]*/\(dist\|site\)-packages:#d" ~/.bashrc
             echo "export PYTHONPATH=${py_packages}:\$PYTHONPATH" >> ~/.bashrc
         fi

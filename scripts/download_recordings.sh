@@ -127,8 +127,6 @@ if [ "$MAX_AGE_MIN" -gt 0 ]; then
 else
     echo "Listing recordings on ${REMOTE}:${JETSON_PATH} (no time limit) ..."
 fi
-# Runs remotely: skip search directories that do not exist there, so a missing
-# one does not make find exit non-zero and abort this script under pipefail.
 ssh "${SSH_OPTS[@]}" "$REMOTE" "sh -s '${JETSON_PATH}' '${MAX_AGE_MIN}' ${RECORDING_SEARCH_DIRS[*]}" <<'REMOTE_EOF' | sort > "$RAW_LIST"
 root=$1; shift
 max_age=$1; shift

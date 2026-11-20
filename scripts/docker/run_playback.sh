@@ -42,8 +42,6 @@ source "${SCRIPT_DIR}/docker_common.sh"
 
 warn_first_run
 
-# Overriding the command drops the compose file's default -c, so re-supply it unless the
-# caller named a config themselves.
 config_given=false
 for arg in "${BINARY_ARGS[@]}"; do
     if [ "${arg}" = "-c" ] || [ "${arg}" = "--config" ]; then
@@ -55,8 +53,5 @@ if [ "${config_given}" = false ]; then
     BINARY_ARGS=(-c "${PLAYBACK_CONFIG}" "${BINARY_ARGS[@]}")
 fi
 
-# compose builds the playback image if it is missing, so a fresh machine needs no separate
-# install step. The Foxglove relay starts inside the container (container_entrypoint.sh).
-# Not exec'd: compose is a shell function from docker_common.sh, and exec needs a binary.
 compose run --rm --build playback \
     ./scripts/docker/container_entrypoint.sh "${BINARY_ARGS[@]}"

@@ -398,7 +398,7 @@ def convert_one(src: Path, dst: Path, *, check: bool, overwrite: bool) -> tuple[
         return "skipped", "empty file"
     try:
         profile = input_profile(src)
-    except Exception as exc:  # noqa: BLE001 - a torn file is a per-file outcome, not a crash
+    except Exception as exc:  # noqa: BLE001
         return "failed", f"unreadable header: {exc}"
     if profile != "ros1":
         return "skipped", f"profile {profile!r} is not ros1"

@@ -49,3 +49,7 @@ ruff lints and formats `playground/` like the rest of the tree, but mypy skips i
 | `scripts/*`, `simulation/*.py`, `training/**/*.py` (`INP`) | Top-level scripts are run directly, not imported as a package. |
 | `hardware/**/*.py` (`INP`) | CAD part files, loaded by the build123d-part check script rather than imported. |
 | `playground/**/*.py` (`C901`) | Analysis scripts are one long linear `main()` per file that reads a recording and writes plots. Splitting them to satisfy the complexity limit costs more than it buys. Library code they call does not get this exemption; it lives in `auto_battlebot/`. |
+
+## mypy
+
+`mypy.ini` sets `ignore_errors` for `auto_battlebot.mujoco_sim.warp_kernels`: its kernel annotations are calls such as `wp.array(dtype=float)` that warp evaluates at runtime.
