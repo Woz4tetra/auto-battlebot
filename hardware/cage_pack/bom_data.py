@@ -259,15 +259,13 @@ def mcmaster(pn: str) -> dict:
     """BOM keys for a McMaster item placed as a component."""
     if pn not in MCMASTER:
         return {
-            "vendor": "McMaster-Carr",
-            "part_number": pn,
+            "mcmaster_bom": pn,
             "url": MC + pn,
             "note": "Price not checked",
         }
     unit, pack, pack_price, _ = MCMASTER[pn]
     return {
-        "vendor": "McMaster-Carr",
-        "part_number": pn,
+        "mcmaster_bom": pn,
         "url": MC + pn,
         "price": round(unit, 3),
         "note": f"Pack of {pack}, ${pack_price:.2f}",

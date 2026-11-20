@@ -1020,8 +1020,6 @@ Keys left out take PrusaSlicer's defaults.
 
 All unverified unless noted: the CAD builds are too heavy to rerun for a comment purge.
 
-- `cage_pack/bom_data.py:mcmaster`: the BOM keys for a McMaster item placed as a component. A
-  component's own `mcmaster` key would make the skill load its STEP instead.
 - `cage_pack/cage_layout.py:OUTER_CORNER_R`: the outside vertical corners. The inside ones are
   `OUTER_CORNER_R - WALL_T`.
 - `cage_pack/cage_pack_assembly.py:_hr10_plug`: the GrabCAD "Hirose HR10 6 pin plug end" STEP, the
