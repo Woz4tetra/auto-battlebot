@@ -1,6 +1,5 @@
 #pragma once
 
-
 #include <Arduino.h>
 #include <command_tracker.h>
 #include <diagnostics_server.h>

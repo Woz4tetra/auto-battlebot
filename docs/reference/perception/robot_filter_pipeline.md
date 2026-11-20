@@ -253,7 +253,6 @@ since they capture one frame per tick.
 
 The sensing file's `dropout.enabled` is true by default. False delivers every captured frame, so the robot never drops out.
 
-
 ## Our-robot dropout blob drop
 
 `suppress_blobs_near_our_anchor` removes blobs within `our_keypoint_dropout_blob_radius_meters_` of our robot's held pose while no `OUR_ROBOT_1` keypoint measurement exists this frame. The blob model has no class for our robot, so such a blob would be assigned an opponent FrameId at our own location and navigation would steer into it. It does nothing when our keypoint is present (`is_blob_suppressed_by_keypoint` covers that case) or when the anchor is stale. It returns the number of blobs removed.
@@ -271,8 +270,5 @@ The resolved robot set is a non-owning view. `robots` references either the `cur
 ## Workarounds
 
 - **`fit_sensing_model.py` repeated measurements.** `drop_repeated_measurements` keeps a row only when its stamp is more than 10 ms after the previous one. The same measurement can be logged on two consecutive diagnostics messages.
-
-## Workarounds
-
 - `tests/test_kalman_motion_estimator.cpp` builds keypoint measurements with `make_our_pose_measurement` and `make_opponent_pose_measurement`. Non-empty keypoints mark the heading as measured, matching what the front/back converter emits for our robot. A `heading_measured` field on `RobotDescription` would replace the convention but touches the tracker, the estimator and the scene adapter.
 - `tests/perception_batch/test_parallel_model_batch.cpp` sleeps `kStragglerDrain` (500 ms) after a timed-out update so the 1300 ms straggler finishes its stale request. Without it the next `update()` races the straggler still in the blob model and the recovery assertion flakes.
