@@ -69,6 +69,8 @@ python training/yolo/seg_to_bbox.py training/data/nhrl_seg/nhrl_robots -o traini
 - `SUBCONTOUR_JUMP = 0.03` is about the p99.7 of consecutive-point steps.
 - Over-splitting is safe. The pieces rasterise into the same mask, so parts of a contiguous shape touch and merge back into one contour. Only truly disjoint blobs stay separate.
 - `TOP_CONTOURS = 3` in `top_contours_bbox()` keeps the largest parts, because a robot's mask commonly splits into a few real parts.
+- One box per label encloses its `top_n` largest contours. Min/max over every point is wrong for two reasons: a bridged row gives a box far larger than the robot, and a shattered mask emits one row per fragment, which turned one robot into about 270 separate targets scattered across the crowd while the robot itself sat unboxed. Rasterising the label into one mask and keeping only the biggest contour clips the other parts out of the box. Enclosing the three largest recovers the parts and still ignores the long tail of speckle.
+- The trade-off is real. When a label's second contour is genuinely distant (debris across the arena, a detached blade), enclosing it re-inflates the box. `top_n` is a parameter so the balance can be retuned without touching callers.
 
 ## Scaling split construction
 
@@ -98,6 +100,11 @@ The `yolo26n` entry in `training/yolo/train.py` sets `imgsz` 640, the same as `y
 
 - Epochs are 100, not 500. Every arm in `data_scaling_2026-07-27.md` peaked on val between epoch 63 and 90 on `nhrl_robots_bbox_2class`, and none was still rising at 100. `category_addition_2026-07-25.md` found fully annealed 150-epoch endpoints failed the eval parity gate. A 500-epoch schedule anneals far past the point where this data generalizes.
 - Cache is `ram`, not `disk`. The disk cache writes one full-resolution `.npy` per image, about 200 GB against 12 GB of JPEGs on this corpus (the blowup described under `reclaim_stale_caches()`). The resized RAM cache is about 17 GB per DDP process.
+- Batch defaults to 64, safe for a single-GPU run. The size sweep (`model_size_2026-09-04.md`) overrode it to 96 with `--batch`, because 96 splits evenly over 3 GPUs (32 per GPU, measured at 32.4 GB for `yolo26x`) and 64 and 128 do not. On one GPU, `yolo26x` at batch 96 needs about 93 GB, and `yolo26m` and `yolo26l` do not fit either.
+
+## Synthetic arm runs
+
+`training/yolo/run_synthetic_arms.sh` trains the three synthetic-vs-real arms of `docs/experiments/perception/synthetic_arms_plan.md` one after another, not in parallel. Each arm gets the same 3-GPU DDP recipe, so arm-to-arm differences come from the training set and nothing else. It renames each run directory per arm afterwards, because `train.py` names every run by date and model key alone.
 
 ## Input geometry dataset builders
 

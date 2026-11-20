@@ -47,6 +47,10 @@ boolean applied to mesh data would compound across scenes. Instead:
 - Part removal hides the chosen parts from the render. The colour pass and the segmentation pass get
   the same silhouette deleting them would give. Named part removal hides the pieces
   `split_damage_parts` cut at load.
+- A robot that names its parts loses whole assemblies in `_damage_instance`. The random-fraction path replaces those draws, so a batch that allows none of them leaves the robot clean.
+- `cutter_radius_m` returns the half-extent (cube) or radius (icosphere) that removes `volume_fraction` of a box. The cutter is seeded on the surface, so about half of it overlaps the mesh. The fraction is what the cutter was sized for, not a measured loss. It raises `ValueError` for an unknown shape.
+- `_apply_chunk_draw` gives the cutter a random orientation so a cube cutter leaves a different facet shape each time.
+- Cutters alternate shapes. `acquire` returns the next free cutter of the requested shape, or `None` when the pool is exhausted. It scans forward for the first match and swaps it to the front of the free range instead of keeping a queue per shape.
 - Chunk removal borrows a cutter from a pool built once at startup and attaches a boolean
   difference modifier to the target mesh.
 

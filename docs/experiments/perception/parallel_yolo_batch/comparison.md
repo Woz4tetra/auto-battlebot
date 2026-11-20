@@ -138,22 +138,6 @@ of 42.5 ms per tick, so even a partial overlap there is worth several millisecon
    GPU color conversion), and merge the two YOLOs into one multi-head engine to remove
    GPU contention in the ~13 ms parallel batch.
 
-## Notes moved from code comments (2026-11-15)
+## Timing cache for engine builds
 
-- `training/yolo/convert_to_tensorrt.py` (`above DEFAULT_INT8_CACHE_DIR = REPO_ROOT / ".cache" / "tensorrt" / "int8"`):
-
-  ```text
-  Every engine in a sweep is the same architecture with different weights, so TensorRT's tactic
-  timings are reusable. Persisting them turns each build after the first from a kernel-autotuning
-  search into little more than weight serialisation: measured 396.4 s cold vs 4.2 s warm on
-  yolo26n at 640x640, a 94x difference, with 7,175 timing entries reused.
-
-  Builds are deliberately sequential and in-process. Fanning them across GPUs was tried and gives
-  only ~3x, because each concurrent builder pays the full tactic search independently, and three
-  cold searches cost far more than one cold search plus N warm ones. Sequential also keeps the
-  cache warm in memory between models within a single invocation.
-  Repo-local so the cache travels with the checkout and is obviously disposable; `.cache/` is
-  already gitignored. Not in $HOME, where it would silently outlive the project and be easy to
-  forget when a TensorRT or driver upgrade invalidates it.
-  ```
-
+Every engine in the sweep has the same architecture and different weights, so the persisted TensorRT timing cache turns the first build from a kernel-autotuning search into little more than weight serialisation. Measured on `yolo26n` at 640x640: 396.4 s cold, 4.2 s warm, a 94x difference with 7,175 timing entries reused. Fanning builds across GPUs gave only about 3x, because each concurrent builder pays the full search, so three cold searches cost far more than one cold search plus N warm builds. Design notes are in `docs/reference/perception/trt_engine.md`.

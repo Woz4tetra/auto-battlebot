@@ -54,3 +54,20 @@
 | `gain_min_load` | `g` updates only above this fraction of the draw with no back-EMF. |
 | `stall_duty` | Stall flag: `|d|` above this with eRPM 0. |
 | `fallback_volts` | Volts used once the last INA238 voltage is `volts_hold_s` old. |
+
+## Allowed current and loop gain
+
+- Steady state satisfies `dT = k tau (1 + alpha dT) I^2`. The guard solves it at `dT = rise_max_c` for the per-motor allowed current. Leaving out the copper tempco puts the equilibrium about 12 C above `rise_max_c`.
+- The limiter computes a per-motor allowed current from temperature, then runs one integrator on `ln(scale)`. In a stall the current is proportional to the scale, so the loop gain is 1 everywhere.
+
+## Placeholder defaults
+
+Step 0 of `docs/plans/motor_stall_protection_plan.md` (the bench measurements) was deferred, so every `Config` default is a placeholder chosen to err toward limiting early. `r_cold_ohm` sits below the MuJoCo fit, which overestimates current. `rise_max_c` is 20 C under the plan's 70 C.
+
+## Test plant
+
+`test_motor_guard.cpp` simulates two motors on a stiff pack. Current is the averaged ESC model the guard assumes, `I = (d V - Ke w) / R`, with `R` 15% below the guard's `R_cold` so the shunt gain has something to correct (`g` only corrects upward). A DShot stop freewheels and draws no current.
+
+## Hard trip
+
+`trip_rise_c`: a motor whose estimated rise reaches this value has its drive cut until disarm. It protects the motors while the scaling limits are loosened for test-box sessions. The value is a placeholder. Set it from a motor can temperature measured after a 3 minute driven session, against the logged `motor_rise_left` and `motor_rise_right` (`docs/plans/nav_scoring_and_rl_v2_plan.md`, section 0.3).

@@ -37,3 +37,18 @@ python training/rl/train_nav_policy.py --robot mrs_buff_mk3 --name rl_nav_mk3 --
 - The level rises by 0.1 each time the last 500 or more attack episodes against a pursuer since the last raise strike in at least `--pursuit-advance-at` of them. Only episodes whose pursuer was drawn at the current level count.
 - Use it with stage P, which gives pursuit half the episodes.
 - `--anchor` holds the policy near another checkpoint's actions in every episode that is not against a pursuer (the `Ppo` anchor), so the pursuit fine-tune keeps the rest.
+
+## Sidestep warm start
+
+`training/rl/pretrain_sidestep.py` warm-starts the navigation policy on the scripted sidestep controller (`auto_battlebot/rl/sidestep.py`) before PPO, using DAgger. It runs stage P (half the episodes against a pursuer) from a trained checkpoint.
+
+- In attack episodes against a pursuer, the label is the sidestep controller's action on true state. Everywhere else the label is the starting policy's own deterministic action, so the other behaviours are kept rather than forgotten.
+- Each round rolls out a mix of expert and student actions, with the expert's share falling from 1 to 0 across rounds. It adds the observations and labels to the data set and fits the actor mean to the labels.
+- The critic and observation normalization are left as they are.
+- The output is a checkpoint in the training format, for `train_nav_policy.py --resume`.
+
+```bash
+source scripts/activate_python.sh
+python training/rl/pretrain_sidestep.py runs/rl_nav/<run>/checkpoint.pt \
+    --out runs/rl_nav/sidestep_bc/checkpoint.pt --expert '{"flank_m": 0.4}'
+```

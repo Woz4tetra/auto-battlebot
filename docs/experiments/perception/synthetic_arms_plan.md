@@ -170,9 +170,3 @@ result is neutral again, it will be the first time that conclusion is actually s
 2. Three 100-epoch `yolo26n` runs, checkpoints every 25 epochs.
 3. `score.py` output for all three on the independent eval, plus the paired-bootstrap table.
 4. A report, `synthetic_arms_<date>.md`, opening with the reproduced provenance gate.
-
-## Notes moved from code comments (2026-11-15)
-
-- `training/yolo/run_synthetic_arms.sh` (`above set -u`):
-  Three-arm synthetic-vs-real experiment (docs/experiments/perception/synthetic_arms_plan.md).
-  Sequential, not parallel: each arm gets the same 3-GPU DDP recipe, so arm-to-arm differences come from the training set and nothing else. Run dirs are renamed per arm afterwards because train.py names every run by date + model key alone.
