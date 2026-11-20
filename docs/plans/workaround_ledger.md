@@ -189,7 +189,6 @@ Fixed 2026-11-19, found during phase 2:
 | `src/runner.cpp:68` | `quit_from_signal_handler` calls `camera_->cancel_initialize()` because it only stores an atomic | An override that locks a mutex or logs would deadlock the signal handler on Ctrl-C during a camera re-open | unverified: async-signal safety of an arbitrary override cannot be tested; `QuitCancelsACameraReopen` covers the behavior only | none known (interface contract) |
 | `src/runner.cpp:587` | `static_gate_->reset()` after field init | Static-gate clusters live in field coordinates, so a re-init leaves them pointing at the wrong place and the gate suppresses real detections | unverified: no test double for `FieldFilterInterface::compute_field` that returns a plane, and `StaticDetectionGate` exposes no cluster count | add a fake field filter and a cluster count accessor |
 | `src/rgbd_camera/zed_one_rgb_camera.cpp:65` | Waits on `pending_open_` before `zed_.close()` | `sl::Camera::close()` during `open()` on another thread crashes at shutdown | unverified: needs a ZED camera | none known |
-| `src/rgbd_camera/zed_one_rgb_camera.cpp:114` | Resolution is part of `calibration_id` | Two modes of one serial would share an id, and a cropped 1920x1080 mode would replay with the wrong cy | unverified: needs a ZED camera to produce `information` | split the id builder into a pure function and test it |
 | `src/rgbd_camera/zed_one_rgb_camera.cpp:148` | Encoder callback stamps `CompressedVideo` with `log_time_ns` | Foxglove's decoder rejects a frame whose timestamp is not after the previous one | unverified: needs the Foxglove decoder in the loop | none known |
 | `src/rgbd_camera/zed_one_rgb_camera.cpp:182` | `start_encoder()` failure throws when recording is on | A session recorded without video cannot be replayed | unverified: needs a ZED camera | none known |
 | `src/rgbd_camera/zed_one_rgb_camera.cpp:225` | Fresh pinned `cv::Mat` per frame | Reusing one Mat overwrites a frame the pipeline still holds by reference | unverified: needs a ZED camera | none known |
@@ -222,11 +221,6 @@ gone and the claim is in a reference doc; the test is still owed.
 | `src/transmitter/opentx_transmitter.cpp:112` | enable()/disable() gate only trainer output | With autonomy disabled link stats stop updating and the radio init button stops working | unverified: same serial dependency | Same seam |
 | `src/transmitter/opentx_transmitter.cpp:119` | disable() zeroes the slew-limiter state | Re-enabling jumps straight to the last commanded speed instead of ramping from zero | unverified: send() returns early without an open port | Same seam |
 | `src/transmitter/opentx_transmitter.cpp:278` | log_switch_states stamps the section on every frame, not on change | A staleness check reads a live link as dead because the section age grows while frames arrive | unverified: same serial dependency, plus a process-global DiagnosticsLogger | Same seam and a capturing DiagnosticsBackend |
-| `src/rgbd_camera/v4l2_rgb_camera.cpp:281` | initialize() fails when the H.264 encoder cannot start with recording on | The session records no video | unverified: needs a V4L2 device and an NVENC encoder | A capture-source seam |
-| `src/rgbd_camera/v4l2_rgb_camera.cpp:319` | frame stamps come from the sensor read instant | Replay timing drifts from the sensor | unverified: needs a V4L2 device | A capture-source seam |
-| `src/rgbd_camera/v4l2_rgb_camera.cpp:364` | the uncalibrated path pins its own buffer for the GPU preprocess | Pageable memory reaches the GPU preprocess, which cannot read it in place | unverified: needs a CUDA device and a V4L2 device | A capture-source seam |
-| `src/rgbd_camera/v4l2_rgb_camera.cpp:378` | camera_info reuses the image frame and stamp | Foxglove image panels reject the calibration | unverified: needs a V4L2 device | A capture-source seam |
-| `src/rgbd_camera/v4l2_rgb_camera.cpp:457` | encoded packets get strictly increasing log_time_ns | Two packets share or go back in time and the Foxglove decoder rejects the frame | unverified: needs a V4L2 device and an encoder | A capture-source seam |
 | `src/rgbd_camera/zed_svo_playback_camera.cpp:58` | close waits for a leaked background open before closing the handle | Closing during a leaked open races the SDK on replay shutdown | unverified: needs the ZED SDK and an SVO file | none known |
 | `src/rgbd_camera/zed_svo_playback_camera.cpp:88` | a start frame past the end of the SVO is clamped | A shorter SVO grabs once and reports END OF SVO, which reads as a corrupt recording | unverified: needs the ZED SDK and a short SVO under data/, which this batch may not add | A tiny checked-in SVO fixture |
 | `src/rgbd_camera/zed_svo_playback_camera.cpp:126` | a grab error that is not end-of-file ends replay | Replay spins in a retry loop forever on a real grab error | unverified: needs the ZED SDK to inject a grab error | A camera-handle seam |
@@ -247,7 +241,6 @@ harness named in the last column exists.
 | `include/mcap_recorder/mcap_recorder.hpp` (start_file_locked, mutex_) | Lock held / members guarded | No Clang thread-safety annotations or -Wthread-safety in the build |
 | `include/rgbd_camera/video_encoder.hpp`, `zed_rgbd_camera.hpp` (lock discipline) | Members guarded by their mutex | No thread-safety annotations; GCC with unannotated std::mutex |
 | `auto_battlebot/perception/trt_yolo.py` (module docstring) | Python path matches the C++ detector | Parity needs a C++ golden output from a TensorRT engine and a frame |
-| `src/rgbd_camera/v4l2_rgb_camera.cpp` (5 rows: encoder fatal, monotonic stamps, pinned allocator, camera_info header, strictly increasing stamps) | V4L2 capture behavior | No test seam without a real V4L2 device |
 | `src/rgbd_camera/video_encoder.cpp:125` | `stopping_` read under lock | A test would be a nondeterministic timing race |
 | `src/rgbd_camera/video_playback_camera.cpp:345` | Playback pacing uses sleep_until | `PacingHoldsTheRecordedRateWhilePipelineWorkRuns` still passes with a fixed sleep_for; the test does not guard pacing |
 | `src/rgbd_camera/zed_device.cpp` (3), `zed_one_rgb_camera.cpp` (7), `zed_rgbd_camera.cpp` (4) | ZED camera behavior | No ZED SDK seam or hardware-free test; needs `sl::Camera` |
@@ -285,6 +278,12 @@ Rows a batch could not settle. Each needs the action in the last column first.
 | `src/navigation/rl_policy_navigation.cpp:189` | Zero-command path is tested; the coasted spin and motion-blur claim needs a recording. Decide between decaying coasted yaw rate in the robot filter and training the policy on observation age |
 | `hardware/cage_pack/bom_data.py:263` | Needs a change in `~/build123d-skill`: a spec key (e.g. `mcmaster_bom`) that sets part_number and vendor without loading the STEP (skill `assembly.py:304-307`) |
 | `hardware/zed_box_mini_mount/assembly_page.py:62` | Needs a test of GLB handling on the artifact host, which means an upload; decide whether to allow one |
+| `src/rgbd_camera/v4l2_rgb_camera.cpp` (5 rows: encoder fatal, monotonic stamps, pinned allocator, camera_info header, strictly increasing stamps) | Pending the decision on deleting `V4l2RgbCamera` (the e-CAM25 was its only camera) |
+| `src/rgbd_camera/v4l2_rgb_camera.cpp:281` | Pending the decision on deleting `V4l2RgbCamera` (the e-CAM25 was its only camera) |
+| `src/rgbd_camera/v4l2_rgb_camera.cpp:319` | Pending the decision on deleting `V4l2RgbCamera` (the e-CAM25 was its only camera) |
+| `src/rgbd_camera/v4l2_rgb_camera.cpp:364` | Pending the decision on deleting `V4l2RgbCamera` (the e-CAM25 was its only camera) |
+| `src/rgbd_camera/v4l2_rgb_camera.cpp:378` | Pending the decision on deleting `V4l2RgbCamera` (the e-CAM25 was its only camera) |
+| `src/rgbd_camera/v4l2_rgb_camera.cpp:457` | Pending the decision on deleting `V4l2RgbCamera` (the e-CAM25 was its only camera) |
 
 ## Follow-up: purge the relocated comments from docs
 
