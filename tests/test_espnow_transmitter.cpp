@@ -2,12 +2,15 @@
 #include <fcntl.h>
 #include <gtest/gtest.h>
 #include <pty.h>
+#include <sys/inotify.h>
 #include <toml++/toml.h>
 #include <unistd.h>
 
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -339,6 +342,63 @@ bool logged_silent_reconnect() {
             return true;
     }
     return false;
+}
+
+TEST(EspNowTransmitterReopenTest, ReopenAttemptsAreRateLimited) {
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path() / "auto_battlebot_dongle_probe";
+    std::ofstream(path).put('x');
+    const int watch_fd = inotify_init1(IN_NONBLOCK);
+    ASSERT_GE(watch_fd, 0);
+    ASSERT_GE(inotify_add_watch(watch_fd, path.c_str(), IN_OPEN), 0);
+
+    EspNowTransmitterConfiguration config;
+    config.dongle_serial_path = path.string();
+    EspNowTransmitter transmitter(config, nullptr, nullptr);
+    int opens = 0;
+    const auto drain_opens = [&] {
+        alignas(inotify_event) char buffer[4096];
+        ssize_t n;
+        while ((n = read(watch_fd, buffer, sizeof(buffer))) > 0) {
+            for (ssize_t offset = 0; offset < n;) {
+                const auto *event = reinterpret_cast<const inotify_event *>(buffer + offset);
+                if (event->mask & IN_OPEN) ++opens;
+                offset += static_cast<ssize_t>(sizeof(inotify_event) + event->len);
+            }
+        }
+    };
+    const auto start = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(1800)) {
+        transmitter.update();
+        drain_opens();
+        usleep(10000);
+    }
+
+    close(watch_fd);
+    std::filesystem::remove(path);
+    EXPECT_GE(opens, 1);
+    EXPECT_LE(opens, 2);
+}
+
+TEST_F(EspNowTransmitterPtyTest, SilentDongleIsNotClosedBeforeTheReopenIntervalElapses) {
+    EspNowTransmitterConfiguration config;
+    config.dongle_serial_path = path_;
+    EspNowTransmitter transmitter(config, nullptr, nullptr);
+    auto logger = DiagnosticsLogger::get_logger("espnow_transmitter");
+    ASSERT_TRUE(transmitter.initialize());
+    logger->clear();
+
+    const auto run_for = [&](std::chrono::milliseconds duration) {
+        const auto start = std::chrono::steady_clock::now();
+        while (std::chrono::steady_clock::now() - start < duration) {
+            transmitter.update();
+            usleep(10000);
+        }
+    };
+    run_for(std::chrono::milliseconds(800));
+    EXPECT_FALSE(logged_silent_reconnect());
+    run_for(std::chrono::milliseconds(500));
+    EXPECT_TRUE(logged_silent_reconnect());
 }
 
 TEST_F(EspNowTransmitterPtyTest, ReopensTheDongleOnlyAfterItGoesSilent) {

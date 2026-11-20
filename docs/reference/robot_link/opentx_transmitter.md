@@ -6,5 +6,3 @@
 
 - `enable()` and `disable()` gate only the trainer command output. The telemetry streams stay on whenever the port is open, so link statistics and the init button on the radio keep working with autonomy disabled.
 - `reconnect_if_needed` closes a port that is open but has had no channel frames for `kChannelTimeout`. Trainer mode dropped out or the `channels on` stream never started, and re-priming needs a fresh open. It is rate limited by `next_reconnect_attempt_` so a radio that never streams is retried once per interval instead of thrashing the port every tick. Unverified: radio firmware behaviour, not checkable here.
-- `EspNowTransmitter` applies the same rule to the dongle: a port open but quiet for `kDongleSilence` is closed and reopened, rate limited like open itself. A port whose device went away reads empty forever, so only a fresh open recovers it.
-- `Esp32DiagnosticsOpenTxTransmitter::~Esp32DiagnosticsOpenTxTransmitter` calls `diagnostics_->stop()` first so the worker is gone before the channel it feeds.

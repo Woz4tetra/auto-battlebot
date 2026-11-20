@@ -21,7 +21,6 @@ class Esp32DiagnosticsOpenTxTransmitter : public OpenTxTransmitter {
                                       std::shared_ptr<ClockInterface> clock,
                                       std::shared_ptr<VizSink> sink,
                                       std::shared_ptr<McapRecorder> mcap_recorder);
-    ~Esp32DiagnosticsOpenTxTransmitter() override;
 
     bool initialize() override;
 
