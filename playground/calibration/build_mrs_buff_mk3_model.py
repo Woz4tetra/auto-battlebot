@@ -156,15 +156,23 @@ def weapon_sweep(assembly: UrdfAssembly) -> dict[str, list[float] | float]:
     }
 
 
+def clip_hull_to_floor(vertices: np.ndarray, floor: float) -> trimesh.Trimesh | None:
+    """Convex hull of the vertices with z raised to floor, or None if none sit below it."""
+    if vertices[:, 2].min() >= floor:
+        return None
+    clipped = vertices.copy()
+    clipped[:, 2] = np.maximum(clipped[:, 2], floor)
+    return trimesh.Trimesh(clipped).convex_hull
+
+
 def trim_to_cad_floor(assembly: UrdfAssembly) -> float:
     """Cut every piece off at the structure's lowest CAD point. Idempotent."""
     floor = float(to_body(assembly, STRUCTURAL_LINKS).bounds[0, 2])
     for path in COLLISION_DIR.glob("*.obj"):
         piece = trimesh.load(path, force="mesh")
-        v = np.asarray(piece.vertices).copy()
-        if v[:, 2].min() < floor:
-            v[:, 2] = np.maximum(v[:, 2], floor)
-            trimesh.Trimesh(v).convex_hull.export(path)
+        hull = clip_hull_to_floor(np.asarray(piece.vertices), floor)
+        if hull is not None:
+            hull.export(path)
     return floor
 
 

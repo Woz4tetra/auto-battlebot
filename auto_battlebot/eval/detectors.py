@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import argparse
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol
 
@@ -180,28 +180,31 @@ def build_detector(
     engine_path: Path,
     class_labels: list[str],
     images: dict[FrameKey, Path],
-    args: argparse.Namespace,
+    *,
+    conf: float,
+    nms_iou: float,
+    stretch: Sequence[str] = (),
+    field_boxes: Sequence[str] = (),
+    crop_margin: float = 0.0,
 ) -> Detector:
     """The detector for one candidate, with any preprocessing that candidate was trained on."""
     if not engine_path.exists():
         raise SystemExit(f"Candidate not found: {engine_path}")
     if engine_path.suffix == ".json":
-        return PrecomputedDetector(engine_path, args.conf)
+        return PrecomputedDetector(engine_path, conf)
 
     inner = EngineDetector(
         TrtYoloModel(
             str(engine_path),
-            conf_threshold=args.conf,
-            nms_iou_threshold=args.nms_iou,
+            conf_threshold=conf,
+            nms_iou_threshold=nms_iou,
             num_classes=len(class_labels),
             preprocess=(
-                PreprocessMode.STRETCH
-                if name in set(args.stretch or [])
-                else PreprocessMode.LETTERBOX
+                PreprocessMode.STRETCH if name in set(stretch) else PreprocessMode.LETTERBOX
             ),
         )
     )
-    boxes = parse_candidates(args.field_boxes or []).get(name)
+    boxes = parse_candidates(list(field_boxes)).get(name)
     if boxes is None:
         return inner
-    return FieldCropDetector(inner, boxes, images, args.crop_margin)
+    return FieldCropDetector(inner, boxes, images, crop_margin)

@@ -66,3 +66,26 @@ def test_opp_channels_for_2class_excludes_house_bot(interpret, monkeypatch) -> N
     assert interpret.Model.opp_scores(model, [None]).max() < 0.01
     monkeypatch.setattr(interpret, "OPP_CHANNELS", (0, 1))
     assert interpret.Model.opp_scores(model, [None]).min() > 0.99
+
+
+def test_opponent_probability_ignores_unselected_channels(interpret) -> None:
+    import torch
+
+    logits = torch.full((1, 2, 3), -10.0)
+    logits[0, 1, 1] = 10.0
+    only_opponent = interpret.opponent_probability(logits, (0,))
+    both = interpret.opponent_probability(logits, (0, 1))
+    assert float(only_opponent.max()) < 0.01
+    assert float(both[0, 1]) > 0.99
+
+
+def test_flatten_branch_maps_matches_anchor_order_and_keeps_gradient(interpret) -> None:
+    import torch
+
+    maps = [torch.randn(1, 2, n, n, requires_grad=True) for n in (4, 2, 1)]
+    flat = interpret.flatten_branch_maps(maps, (0,))
+    assert flat.shape == (16 + 4 + 1,)
+    expected = torch.sigmoid(maps[1][0, 0]).reshape(-1)
+    assert torch.allclose(flat[16:20], expected)
+    flat.sum().backward()
+    assert all(m.grad is not None for m in maps)

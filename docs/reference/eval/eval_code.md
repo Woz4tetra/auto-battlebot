@@ -242,8 +242,6 @@ Environment: `ARM` (default `d50000`), `BASELINE` (default `s`), `SHAPE`, `SM` (
 
 ## Workarounds in `training/model_eval`
 
-- `export_labels.py` `link_images` removes a real `<dataset>/images` directory before symlinking. Datasets exported under an earlier layout have a real directory, and `symlink_to` fails on it.
 - `interpret_context_vs_appearance.py` `gradcam` rebuilds the opponent score from the grad-carrying class-branch conv outputs (`Detect.cv3`), flattened and concatenated into the 8400-anchor order to match `anchor_centers`, then takes the max opponent probability inside the box. The end2end head detaches its postprocessed dict, so Grad-CAM from it has no gradient.
-- `recall_by_size.py` sets `stretch=None`, `field_boxes=None`, `crop_margin=0.0` as parser defaults the CLI never exposes. `build_detector` reads them from the args namespace, and every arm there is letterbox. Unverified: `build_detector`'s signature was not traced.
 - `score_domain_mix.sh` and `score_size_ladder.sh` score per-venue symlink roots over the set's recordings, each with its own slice of `validation_state.json`. The GT loader reads review state only in the directory it is pointed at.
 - `score_size_ladder.sh` scores bare recordings directly because every label file in an eval recording is a `pass` frame, so a bare recording scores the same frames the gated root does.

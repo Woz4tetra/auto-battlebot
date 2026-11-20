@@ -24,6 +24,12 @@ def main() -> None:
         "gt", type=Path, help="GT dataset dir, or a root of subdatasets (from edit_labels.py)"
     )
     parser.add_argument(
+        "--recordings",
+        nargs="+",
+        metavar="NAME",
+        help="score only these subdatasets of the GT root, against the root's validation state",
+    )
+    parser.add_argument(
         "--candidate",
         action="append",
         required=True,
@@ -93,7 +99,7 @@ def main() -> None:
     args.output = args.output or (args.gt / "scores")
     args.output.mkdir(parents=True, exist_ok=True)
 
-    gt_frames, names, images = load_gt(args.gt)
+    gt_frames, names, images = load_gt(args.gt, args.recordings)
     taxonomy = Taxonomy(args.taxonomy)
     print(f"GT: {len(gt_frames)} frames, classes: {names}")
 

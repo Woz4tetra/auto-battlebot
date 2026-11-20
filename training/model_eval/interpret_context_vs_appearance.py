@@ -40,6 +40,16 @@ def anchor_centers() -> np.ndarray:
     return np.concatenate(pts, 0).astype(np.float32)
 
 
+def opponent_probability(logits: torch.Tensor, channels: tuple[int, ...]) -> torch.Tensor:
+    """(B, C, N) class logits -> (B, N) max sigmoid probability over the opponent channels."""
+    return torch.sigmoid(logits[:, list(channels), :]).amax(1)
+
+
+def flatten_branch_maps(maps: list[torch.Tensor], channels: tuple[int, ...]) -> torch.Tensor:
+    """Per-scale (1, C, H, W) class maps -> (sum H*W,) opponent probability in head anchor order."""
+    return torch.cat([torch.sigmoid(m[0, list(channels)]).amax(0).reshape(-1) for m in maps])
+
+
 def letterbox(img: np.ndarray) -> tuple[np.ndarray, float, float, float]:
     """Resize (aspect-preserving) into IMGSZ square, pad 114. Returns img, scale, pad_x, pad_y."""
     h, w = img.shape[:2]
@@ -122,8 +132,7 @@ class Model:
         """(B, 8400) max opponent class probability per anchor for a batch of RGB 640 images."""
         with torch.no_grad():
             _, extra = self.net(self._pre(imgs_rgb))
-        raw_logits_b_cls_anchors = extra["one2one"]["scores"]
-        opp = torch.sigmoid(raw_logits_b_cls_anchors[:, OPP_CHANNELS, :]).amax(1)
+        opp = opponent_probability(extra["one2one"]["scores"], OPP_CHANNELS)
         return opp.float().cpu().numpy()
 
     def box_score(self, imgs_rgb: list[np.ndarray], box: list[float]) -> np.ndarray:
@@ -165,12 +174,7 @@ class Model:
             x = self._pre([img_rgb]).requires_grad_(True)
             with torch.enable_grad():
                 self.net(x)
-                opp = torch.cat(
-                    [
-                        torch.sigmoid(cls_maps[j][0, OPP_CHANNELS]).amax(0).reshape(-1)
-                        for j in range(3)
-                    ]
-                )
+                opp = flatten_branch_maps([cls_maps[j] for j in range(3)], OPP_CHANNELS)
                 cx, cy = self.anchors[:, 0], self.anchors[:, 1]
                 inside = (cx >= box[0]) & (cx <= box[2]) & (cy >= box[1]) & (cy <= box[3])
                 idx = np.where(inside)[0]

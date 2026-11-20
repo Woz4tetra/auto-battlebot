@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pytest
 
@@ -47,3 +49,13 @@ def test_train_tapes_have_unique_names_and_enum_kinds() -> None:
     tapes = distill.train_tapes()
     assert len({t.name for t in tapes}) == len(tapes)
     assert all(isinstance(t.kind, distill.TapeKind) for t in tapes)
+
+
+def test_blas_threads_are_pinned_to_one_for_spawned_workers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    names = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")
+    for name in names:
+        monkeypatch.setenv(name, "32")
+    distill.pin_one_blas_thread_per_worker()
+    assert [os.environ[name] for name in names] == ["1", "1", "1"]

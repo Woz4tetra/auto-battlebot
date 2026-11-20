@@ -31,3 +31,27 @@ def test_precomputed_replays_single_recording(tmp_path: Path) -> None:
 def test_precomputed_rejects_multi_recording_root(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="multi-recording"):
         _replay(tmp_path).detect(np.zeros((2, 2, 3)), FrameKey("rec_a", 5))
+
+
+def test_build_detector_takes_keywords_and_defaults_preprocessing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from auto_battlebot.eval import detectors
+    from auto_battlebot.perception.trt_yolo import PreprocessMode
+
+    seen: list[dict] = []
+
+    class FakeModel:
+        def __init__(self, path: str, **kwargs) -> None:
+            seen.append(kwargs)
+
+    monkeypatch.setattr(detectors, "TrtYoloModel", FakeModel)
+    engine = tmp_path / "m.engine"
+    engine.write_bytes(b"")
+    built = detectors.build_detector("m", engine, ["a", "b"], {}, conf=0.3, nms_iou=0.4)
+    assert isinstance(built, detectors.EngineDetector)
+    assert seen[-1]["preprocess"] is PreprocessMode.LETTERBOX
+    assert seen[-1]["conf_threshold"] == 0.3
+    assert seen[-1]["nms_iou_threshold"] == 0.4
+    detectors.build_detector("m", engine, ["a"], {}, conf=0.3, nms_iou=0.4, stretch=["m"])
+    assert seen[-1]["preprocess"] is PreprocessMode.STRETCH

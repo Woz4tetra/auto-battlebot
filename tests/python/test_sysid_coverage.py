@@ -473,3 +473,17 @@ def test_offline_edges_include_final_hold() -> None:
     steer = np.zeros_like(throttle)
     edges = edges_of(throttle, steer, np.zeros(len(throttle), dtype=bool), 0.01)
     assert [e.text for e in edges] == ["Throttle snap to 50% forward"]
+
+
+def test_live_client_sources_only_name_subscribe_ops() -> None:
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    files = [
+        root / "auto_battlebot/recording/foxglove_ws.py",
+        root / "auto_battlebot/calibration/sysid/sources.py",
+        root / "playground/calibration/sysid_coverage.py",
+    ]
+    ops = {op for path in files for op in re.findall(r'"op":\s*"(\w+)"', path.read_text())}
+    assert ops == {"subscribe"}

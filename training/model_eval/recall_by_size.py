@@ -130,7 +130,6 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0, help="bootstrap RNG seed")
     parser.add_argument("--alpha", type=float, default=0.05, help="1 - CI coverage")
     parser.add_argument("--output", type=Path, required=True, help="csv/plot output dir")
-    parser.set_defaults(stretch=None, field_boxes=None, crop_margin=0.0)
     args = parser.parse_args()
 
     candidates = parse_candidates(args.candidate)
@@ -149,7 +148,9 @@ def main() -> None:
     counts: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for name, engine_path in candidates.items():
         print(f"{name}: {engine_path}")
-        detector = build_detector(name, engine_path, class_labels, images, args)
+        detector = build_detector(
+            name, engine_path, class_labels, images, conf=args.conf, nms_iou=args.nms_iou
+        )
         frames = infer_frames(gt_frames, images, detector, class_labels, taxonomy)
         counts[name] = per_frame_counts(frames, edges, args.iou)
         del detector

@@ -1756,9 +1756,6 @@ Reads a bundle written by ``smooth_tag_poses.py`` and writes, under ``<bundle>/p
 ## Workarounds
 
 - **`mujoco_sim/onshape_export.py` frames and mass.** The export's root frame is the Onshape assembly frame: the axle runs along `X_asm` and the robot faces `-Y_asm`. The body frame used everywhere else (C++ filter, MJCF, smoother) is FLU at the axle midpoint, so `x = -Y_asm`, `y = +X_asm`, `z = +Z_asm`. The export carries no mass for the motors, ESCs, flight controller, batteries or switch (Onshape mass overrides do not survive it), so only the wheels are lumped from it. The chassis is the Onshape whole-assembly total minus the wheels; see `chassis_from_assembly`.
-- **`check_sysid_recordings.py` catches `Exception` on read.** The mcap reader raises a mix of exception types on a torn file, so the check reports any of them as an unreadable file.
-- **`plot_jig_runs.py` drive channels.** The two drive channels the radio reported are logged directly since the format change. Older runs stored only the mixed body units, so the plot reconstructs the channels by inverting the tank un-mix that produced them.
-- **`render_match_prediction_camera.py` video source and tail.** Only recordings before 2026-09 name a separate SVO in `svo_path`; video now lives on `/camera/video` inside the recording, so there is no path to follow. A JPEG stream tail can yield one truncated frame, and the renderer skips it rather than hand ffmpeg a short packet.
 
 ## Workarounds in tests
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import glob
-import shutil
 from pathlib import Path
 from typing import Literal, NewType
 
@@ -114,7 +113,9 @@ def link_images(link: Path) -> None:
     if link.is_symlink() or link.is_file():
         link.unlink()
     elif link.is_dir():
-        shutil.rmtree(link)
+        raise SystemExit(
+            f"{link} is a real directory; move it aside, link_images will not delete it"
+        )
     link.symlink_to(Path("..") / "images", target_is_directory=True)
 
 

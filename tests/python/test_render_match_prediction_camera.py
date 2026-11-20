@@ -33,3 +33,30 @@ def test_slots_follow_cumulative_rounding() -> None:
     _t, _grid, dt, t0_ns = _fill_grid(track)
     slots = grid_slots(stamps, t0_ns, dt, int(indices[-1]) + 1)
     np.testing.assert_array_equal(slots, indices)
+
+
+def _jpeg(width: int, height: int) -> bytes:
+    import cv2
+
+    ok, encoded = cv2.imencode(".jpg", np.full((height, width, 3), 90, np.uint8))
+    assert ok
+    return encoded.tobytes()
+
+
+def test_truncated_jpeg_is_skipped() -> None:
+    from playground.calibration.render_match_prediction_camera import decode_full_frame
+
+    whole = _jpeg(64, 48)
+    assert decode_full_frame(whole, 64, 48) is not None
+    assert decode_full_frame(whole[: len(whole) // 3], 64, 48) is None
+    assert decode_full_frame(b"", 64, 48) is None
+    assert decode_full_frame(whole, 32, 48) is None
+
+
+def test_frame_meta_entry_carries_the_separate_svo_path() -> None:
+    from playground.calibration.render_match_prediction_camera import frame_meta_entry
+
+    legacy = {"image_stamp_ns": 5, "svo_frame_index": 7, "svo_path": "data/svo/a.svo2"}
+    assert frame_meta_entry(1, legacy) == (1, 5, 7, "data/svo/a.svo2")
+    inline = {"image_stamp_ns": 5, "video_frame_index": 9}
+    assert frame_meta_entry(1, inline) == (1, 5, 9, "")

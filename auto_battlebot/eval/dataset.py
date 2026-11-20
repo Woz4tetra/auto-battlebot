@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
@@ -114,13 +115,20 @@ class LoadedGt(NamedTuple):
     images: dict[FrameKey, Path]
 
 
-def load_gt(root: Path) -> LoadedGt:
+def load_gt(root: Path, recordings: Sequence[str] | None = None) -> LoadedGt:
     """Read YOLO labels from a dataset dir or a root of subdatasets, keeping reviewed frames."""
     reviewed = reviewed_frames(root)
     names: list[str] = []
     frames: dict[FrameKey, GtFrame] = {}
     images: dict[FrameKey, Path] = {}
-    for dataset in _dataset_dirs(root):
+    datasets = _dataset_dirs(root)
+    if recordings is not None:
+        wanted = set(recordings)
+        datasets = [d for d in datasets if str(d.relative_to(root)) in wanted]
+        missing = wanted - {str(d.relative_to(root)) for d in datasets}
+        if missing:
+            raise SystemExit(f"Recordings not under {root}: {sorted(missing)}")
+    for dataset in datasets:
         data = yaml.safe_load((dataset / "data.yaml").read_text())
         dataset_names = list(data["names"])
         if dataset_names[: len(names)] != names[: len(dataset_names)]:

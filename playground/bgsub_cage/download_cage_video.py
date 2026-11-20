@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -129,6 +130,7 @@ def bot_fights(
             continue
         if (fight.get("matchLength") or 0) < min_length_s:
             continue
+        fight["id"] = fight.get("id") or fight.get("gameID")
         fight["_tournamentName"] = fight.get("tournamentName", "")
         kept.append(fight)
     return kept
@@ -213,7 +215,7 @@ def download_clip(clip: Clip, destination: Path, encoder: list[str]) -> bool:
 def build_clip(fight: dict[str, Any], api_key: str | None) -> Clip | None:
     """Resolve one fight to an overhead recording and a fight-window clip spec."""
     tournament_id = fight["tournamentID"]
-    game_id = fight.get("id") or fight["gameID"]
+    game_id = fight["id"]
     try:
         detail = api_get(f"/tournaments/{tournament_id}/fights/{game_id}", api_key)["fight"]
     except (requests.HTTPError, KeyError) as error:
@@ -253,18 +255,17 @@ def build_clip(fight: dict[str, Any], api_key: str | None) -> Clip | None:
     )
 
 
+TOURNAMENT_PATTERN = re.compile(r"tournamentID-([a-z0-9_]+)")
+
+
 def corpus_tournaments(tarball: Path) -> list[str]:
     """Tournament IDs in the training corpus tarball; raises FileNotFoundError if absent."""
     if not tarball.exists():
         raise FileNotFoundError(tarball)
-    listing = subprocess.run(
-        f"tar tf {tarball} | grep -oE 'tournamentID-[a-z0-9_]+' | sort -u",
-        shell=True,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return [line.removeprefix("tournamentID-") for line in listing.stdout.split() if line]
+    with tarfile.open(tarball, "r:*") as archive:
+        names = archive.getnames()
+    found = {match.group(1) for name in names for match in TOURNAMENT_PATTERN.finditer(name)}
+    return sorted(found)
 
 
 def write_manifest(output_dir: Path, clips: list[Clip], args: argparse.Namespace) -> None:

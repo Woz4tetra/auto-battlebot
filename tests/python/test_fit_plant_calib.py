@@ -43,3 +43,31 @@ def test_actuation_lag_is_not_earlier_than_the_true_delay() -> None:
     lag_ms, count, _ = fit.fit_actuation_lag(session)
     assert count >= 6
     assert lag_ms == pytest.approx(delay * DT * 1000.0, abs=0.3 * DT * 1000.0)
+
+
+def _step_session(polarity: float, lag_samples: int = 5) -> SimpleNamespace:
+    n = 1200
+    cmd = np.zeros(n)
+    for start in range(40, n - 80, 80):
+        cmd[start : start + 40] = 0.8 if (start // 80) % 2 == 0 else -0.8
+    delayed = np.concatenate([np.zeros(lag_samples), cmd[:-lag_samples]])
+    vel = np.zeros(n)
+    for i in range(1, n):
+        vel[i] = vel[i - 1] + (delayed[i] * 2.0 - vel[i - 1]) * 0.2
+    return SimpleNamespace(
+        dt_s=DT,
+        cmd_lin_norm=cmd,
+        v_raw_mps=polarity * vel,
+        cmd_ang=cmd.copy(),
+        w_raw_radps=polarity * vel,
+        in_truth_gap=np.zeros(n, dtype=bool),
+    )
+
+
+def test_mirrored_measured_velocity_gives_the_same_actuation_lag() -> None:
+    upright = fit.fit_actuation_lag(_step_session(1.0))
+    mirrored = fit.fit_actuation_lag(_step_session(-1.0))
+    assert upright[1] > 6
+    assert mirrored[1] == upright[1]
+    assert mirrored[0] == pytest.approx(upright[0])
+    assert mirrored[2] == pytest.approx(upright[2])

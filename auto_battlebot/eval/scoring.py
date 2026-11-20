@@ -29,7 +29,17 @@ def score_candidate(
     args: argparse.Namespace,
 ) -> tuple[list[dict], dict]:
     """Return (summary rows, per-frame stats). Stats feed the paired bootstrap."""
-    detector = build_detector(name, engine_path, class_labels, images, args)
+    detector = build_detector(
+        name,
+        engine_path,
+        class_labels,
+        images,
+        conf=args.conf,
+        nms_iou=args.nms_iou,
+        stretch=args.stretch or (),
+        field_boxes=args.field_boxes or (),
+        crop_margin=args.crop_margin,
+    )
     print(f"  {detector.describe()}")
     frames = infer_frames(gt_frames, images, detector, class_labels, taxonomy)
     kp_stats = keypoint_per_frame(frames, args.iou)

@@ -47,18 +47,29 @@ class CameraTrack:
     svo_path: Path
 
 
+def decode_full_frame(jpeg: bytes, width: int, height: int) -> np.ndarray | None:
+    """The decoded BGR frame, or None for a truncated or wrong-sized JPEG."""
+    img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+    if img is None or img.shape != (height, width, 3):
+        return None
+    return np.asarray(img)
+
+
+def frame_meta_entry(log_time_ns: int, payload: dict) -> tuple[int, int, int, str]:
+    """(log time, image stamp, video frame index or -1, separate SVO path or empty)."""
+    return (
+        log_time_ns,
+        int(payload["image_stamp_ns"]),
+        int(payload.get("video_frame_index", payload.get("svo_frame_index", -1))),
+        payload.get("svo_path", ""),
+    )
+
+
 def load_camera_track(replay_path: Path | str) -> CameraTrack:
     metas: list[tuple[int, int, int, str]] = []
     for _topic, ts, data in iter_messages(replay_path, ["/camera/frame_meta"]):
         payload = json.loads(decode_string(data))
-        metas.append(
-            (
-                ts,
-                int(payload["image_stamp_ns"]),
-                int(payload.get("video_frame_index", payload.get("svo_frame_index", -1))),
-                payload.get("svo_path", ""),
-            )
-        )
+        metas.append(frame_meta_entry(ts, payload))
     meta_lt = np.array([m[0] for m in metas], dtype=np.int64)
 
     info = None
@@ -267,8 +278,8 @@ def main() -> None:
                 tick = index_to_tick.get(svo_index)
                 if tick is None:
                     continue
-                img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
-                if img is None or img.shape != (cam.height, cam.width, 3):
+                img = decode_full_frame(jpeg, cam.width, cam.height)
+                if img is None:
                     continue
                 k = int(slots[tick])
                 cam_from_field = cam.cam_from_field[tick]

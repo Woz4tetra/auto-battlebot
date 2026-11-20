@@ -123,3 +123,31 @@ def test_class_names_may_trail_off(two_recordings: Path) -> None:
 def test_frame_rejects_misshapen_boxes() -> None:
     with pytest.raises(ValueError, match="expected"):
         Frame(np.zeros((0, 4)), [], [], np.zeros((1, 3)), ["a"], np.ones(1), [np.zeros((0, 3))])
+
+
+def test_recordings_filter_scores_only_named_subdatasets(two_recordings: Path) -> None:
+    frames, _, _ = load_gt(two_recordings, ["rec_b"])
+    assert {key.dataset for key in frames} == {"rec_b"}
+
+
+def test_recordings_filter_uses_the_root_validation_state(two_recordings: Path) -> None:
+    import json
+
+    state = {
+        "rec_a/labels/0000000000000000000.txt": "pass",
+        "rec_b/labels/0000000000000000000.txt": "pass",
+    }
+    (two_recordings / "validation_state.json").write_text(json.dumps(state))
+    frames, _, _ = load_gt(two_recordings, ["rec_b"])
+    assert [key.stamp_ns for key in frames] == [0]
+
+
+def test_recordings_filter_rejects_unknown_name(two_recordings: Path) -> None:
+    with pytest.raises(SystemExit, match="rec_x"):
+        load_gt(two_recordings, ["rec_x"])
+
+
+def test_single_recording_without_review_state_scores_every_label_file(tmp_path: Path) -> None:
+    write_dataset(tmp_path / "rec_a", ["0000000000000000000", "0000000007500000000"])
+    frames, _, _ = load_gt(tmp_path / "rec_a")
+    assert len(frames) == 2

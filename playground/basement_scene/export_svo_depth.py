@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import cv2
@@ -26,6 +27,14 @@ def open_svo(path: Path) -> tuple[sl.Camera, str]:
     raise SystemExit(f"{path}: could not open with NEURAL or ULTRA depth")
 
 
+def decode_sequentially(camera, runtime, last_frame: int, on_frame: Callable[[int], None]) -> None:
+    """Grab every frame from 0 to last_frame in order; seeking returns smeared frames."""
+    for index in range(last_frame + 1):
+        if camera.grab(runtime) != sl.ERROR_CODE.SUCCESS:
+            raise SystemExit(f"ran out of frames at {index}")
+        on_frame(index)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("svo", type=Path)
@@ -40,16 +49,18 @@ def main() -> None:
     runtime.confidence_threshold = args.confidence
     image, xyz = sl.Mat(), sl.Mat()
     stack: list[np.ndarray] = []
-    left = None
-    for index in range(args.frame + 1):
-        if camera.grab(runtime) != sl.ERROR_CODE.SUCCESS:
-            raise SystemExit(f"{args.svo}: ran out of frames at {index}")
+    holder: dict[str, np.ndarray] = {}
+
+    def on_frame(index: int) -> None:
         if index > args.frame - args.depth_frames:
             camera.retrieve_measure(xyz, sl.MEASURE.XYZ)
             stack.append(xyz.get_data()[:, :, :3].copy())
         if index == args.frame:
             camera.retrieve_image(image, sl.VIEW.LEFT)
-            left = image.get_data()[:, :, :3].copy()
+            holder["left"] = image.get_data()[:, :, :3].copy()
+
+    decode_sequentially(camera, runtime, args.frame, on_frame)
+    left = holder["left"]
     left_cam = camera.get_camera_information().camera_configuration.calibration_parameters.left_cam
     camera.close()
 

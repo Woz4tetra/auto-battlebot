@@ -422,10 +422,3 @@ Mr Stabs Mk2 has no jig fit. Its table comes from the MuJoCo fit through distill
 ### `playground/calibration/fit_plant_calib.py` input
 
 - `load_session` needs a CSV from an `apriltag_track.py --drive` recording analyzed by `analyze_apriltag_mcap.py`. Read-only stick captures have no command columns.
-
-## Workarounds
-
-- **`distill_mujoco_plant.py` BLAS threads.** `pin_one_blas_thread_per_worker` sets `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS` and `MKL_NUM_THREADS` to 1. Workers are spawned rather than forked, so they load BLAS after the variables are set. Without it, `least_squares` runs every worker's SVD on all cores at once.
-- **`fit_plant_calib.py` tag polarity.** `_tag_frame_polarity` recovers the sign of each channel from the data. The AprilTag pose frame can be inverted relative to the command frame (a mirrored tag or a 180-degree mount), so a positive command reads as negative measured velocity. Fixing the sign lets both channels stack in the same direction instead of cancelling.
-- **`sim_stop_test.py` port.** `CPP_SIM_CONNECTION_PORT` (14882) duplicates the port hard-coded in `src/simulation/sim_connection.cpp`. Changing the C++ port breaks the test until this value follows.
-- **`build_mrs_buff_mk3_model.py` CAD floor trim.** `trim_to_cad_floor` cuts every piece off at the structure's lowest CAD point. CoACD hulls run up to a millimetre outside the mesh, and the fork tips sit 0.35 mm above the floor in CAD, so an untrimmed hull reaches under the floor and the robot rests on its forks with the front wheels in the air. Idempotent.
