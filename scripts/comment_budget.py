@@ -651,8 +651,8 @@ class LongMessage:
     chars: int
 
 
-def _cxx_statement_end(text: str, start: int) -> int:
-    """Index of the semicolon ending the statement at start, skipping string literals."""
+def _cxx_statement_end(text: str, start: int, stop_at_brace: bool = False) -> int:
+    """Index of the semicolon ending the statement at start (or its first brace), past literals."""
     i = start
     while i < len(text):
         ch = text[i]
@@ -660,7 +660,7 @@ def _cxx_statement_end(text: str, start: int) -> int:
             match = CXX_STRING_RE.match(text, i)
             i = match.end() if match else i + 1
             continue
-        if ch == ";":
+        if ch == ";" or (stop_at_brace and ch == "{"):
             return i
         i += 1
     return len(text)
@@ -670,7 +670,8 @@ def cxx_long_messages(path: str, text: str) -> list[LongMessage]:
     """C and C++ throw and log statements whose string literals total past the limit."""
     found = []
     for match in CXX_MESSAGE_START_RE.finditer(text):
-        end = _cxx_statement_end(text, match.start())
+        is_log = not match.group(0).startswith(("throw", "add_"))
+        end = _cxx_statement_end(text, match.start(), stop_at_brace=is_log)
         chars = sum(len(m.group(0)) - 2 for m in CXX_STRING_RE.finditer(text, match.start(), end))
         if chars > LONG_MESSAGE_CHARS:
             found.append(LongMessage(path, text.count("\n", 0, match.start()) + 1, chars))

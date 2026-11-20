@@ -265,6 +265,12 @@ def test_cxx_spdlog_and_logger_calls_are_listed() -> None:
     assert long_message_lines("src/a.cpp", text) == [1, 2]
 
 
+def test_cxx_structured_log_field_keys_are_not_message_text() -> None:
+    keys = ", ".join(f'{{"field_{i:02d}_name", x}}' for i in range(12))
+    text = f'logger_->debug("profile",\n    {{{keys}}});\n'
+    assert long_message_lines("src/a.cpp", text) == []
+
+
 def test_python_raise_log_and_help_past_limit_are_listed() -> None:
     long = "w" * 170
     text = (
