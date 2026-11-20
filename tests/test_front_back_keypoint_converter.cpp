@@ -136,4 +136,20 @@ TEST_F(FrontBackKeypointConverterTest, AssignmentCarriesKeypointReferenceOffset)
     ASSERT_EQ(it->second.size(), 1u);
     EXPECT_DOUBLE_EQ(it->second[0].first.reference_offset_m, -0.0455);
 }
+TEST_F(FrontBackKeypointConverterTest, RobotFacingMinusXIsUprightWithAHalfTurnOfYaw) {
+    FrontBackKeypointConverter converter(config_);
+    Transform tf;
+    ASSERT_TRUE(converter.get_pose_from_points(Eigen::Vector3d(-1.0, 0.5, 0.0),
+                                               Eigen::Vector3d(1.0, 0.5, 0.0), 0.0, tf));
+    const Eigen::Matrix3d rotation = tf.tf.block<3, 3>(0, 0);
+    ASSERT_TRUE(rotation.allFinite());
+    EXPECT_NEAR((rotation * Eigen::Vector3d::UnitX() - Eigen::Vector3d(-1.0, 0.0, 0.0)).norm(), 0.0,
+                1e-12);
+    EXPECT_NEAR((rotation * Eigen::Vector3d::UnitZ() - Eigen::Vector3d::UnitZ()).norm(), 0.0,
+                1e-12);
+    EXPECT_NEAR(rotation.determinant(), 1.0, 1e-12);
+    EXPECT_NEAR(tf.tf(0, 3), 0.0, 1e-12);
+    EXPECT_NEAR(tf.tf(1, 3), 0.5, 1e-12);
+}
+
 }  // namespace auto_battlebot

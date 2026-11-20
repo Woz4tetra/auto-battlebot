@@ -123,6 +123,16 @@ Fixed 2026-11-19, found during phase 2:
   `toggle_*_test` files there. Test `McapRecorderToggleTest.EvictsOnlyFromItsOwnDirectoryAndNeverFromAnother`
   keeps a 1.1 GB sentinel outside the recorder's directory.
 
+Open, found 2026-11-19:
+
+- `src/robot_filter/front_back_keypoint_converter.cpp` `get_pose_from_points`: the pose is the
+  shortest-arc rotation from +x onto the front-back direction in 3D. For a robot facing near -x
+  with the front keypoint slightly higher than the back (`(-1, 0, 0.01)`), that is a half turn
+  about y: yaw comes out pi, but roll is pi too and the published pose is upside down. In the
+  field plane the same heading gives a clean yaw. Eigen's `FromTwoVectors` did the same before
+  `rotation_between`. Fix: build the pose from the heading's yaw (and pitch, if wanted) instead of
+  a 3D shortest arc.
+
 | Location | What the code does | What the comment claims would break | Verified? | Root-cause fix |
 | --- | --- | --- | --- | --- |
 | `CMakeLists.txt:126` | hand-built mcap_reader STATIC library | mcap ships no CMake target | yes: the FetchContent mcap repo has no add_library for the C++ headers (spot-check) | none known |

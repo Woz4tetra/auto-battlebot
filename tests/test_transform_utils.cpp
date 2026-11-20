@@ -3,6 +3,7 @@
 #include <Eigen/Dense>
 #include <cmath>
 #include <opencv2/core.hpp>
+#include <vector>
 
 #include "transform_utils.hpp"
 
@@ -172,6 +173,52 @@ TEST(RotationBetweenTest, MatchesHandWrittenRodriguesForPlaneTipping) {
     const Eigen::Vector3d expected =
         unit_x * cos_angle + axis.cross(unit_x) + axis * axis.dot(unit_x) / (1.0 + cos_angle);
     EXPECT_NEAR((rotation_between(from, normal) * unit_x - expected).norm(), 0.0, 1e-12);
+}
+
+TEST(RotationBetweenTest, OppositeVectorsMapOntoEachOtherInEveryDirection) {
+    const std::vector<Eigen::Vector3d> directions = {
+        Eigen::Vector3d::UnitX(),        -Eigen::Vector3d::UnitX(),
+        Eigen::Vector3d::UnitY(),        -Eigen::Vector3d::UnitY(),
+        Eigen::Vector3d::UnitZ(),        -Eigen::Vector3d::UnitZ(),
+        Eigen::Vector3d(1, 1, 0),        Eigen::Vector3d(0.3, -0.2, 0.9),
+        Eigen::Vector3d(0.1, 0.0, 0.95), Eigen::Vector3d(-2.0, 5.0, -1.0)};
+    for (const Eigen::Vector3d &direction : directions) {
+        for (const double scale : {1.0, 0.01, 40.0}) {
+            const Eigen::Vector3d from = scale * direction;
+            const Eigen::Vector3d to = -2.0 * from;
+            const Eigen::Quaterniond q = rotation_between(from, to);
+            ASSERT_TRUE(q.coeffs().allFinite()) << direction.transpose() << " x" << scale;
+            EXPECT_NEAR(q.norm(), 1.0, 1e-12) << direction.transpose();
+            EXPECT_NEAR(std::abs(q.w()), 0.0, 1e-12) << direction.transpose();
+            EXPECT_NEAR((q * from.normalized() - to.normalized()).norm(), 0.0, 1e-12)
+                << direction.transpose() << " x" << scale;
+        }
+    }
+}
+
+TEST(RotationBetweenTest, NearlyOppositeVectorsInTheXyPlaneApproachTheHalfTurnAboutZ) {
+    const Eigen::Vector3d from = Eigen::Vector3d::UnitX();
+    const Eigen::Quaterniond exact = rotation_between(from, -from);
+    constexpr double kSnapAngle = 1.5e-6;
+    for (const double offset : {1e-2, 1e-4, 1e-6, 1e-9, 1e-13}) {
+        for (const double sign : {1.0, -1.0}) {
+            const Eigen::Vector3d to(-1.0, sign * offset, 0.0);
+            const Eigen::Quaterniond q = rotation_between(from, to);
+            ASSERT_TRUE(q.coeffs().allFinite()) << offset;
+            EXPECT_NEAR((q * from - to.normalized()).norm(), 0.0, kSnapAngle) << offset;
+            EXPECT_LT(q.angularDistance(exact), offset + kSnapAngle) << offset;
+            EXPECT_NEAR((q * Eigen::Vector3d::UnitZ() - Eigen::Vector3d::UnitZ()).norm(), 0.0,
+                        1e-12)
+                << offset;
+        }
+    }
+}
+
+TEST(RotationBetweenTest, VectorsWithinTheSnapAngleOfOppositeGiveTheExactHalfTurn) {
+    const Eigen::Vector3d from = Eigen::Vector3d::UnitX();
+    const Eigen::Quaterniond exact = rotation_between(from, -from);
+    const Eigen::Quaterniond q = rotation_between(from, Eigen::Vector3d(-1.0, 0.0, 1e-7));
+    EXPECT_NEAR(q.angularDistance(exact), 0.0, 1e-12);
 }
 
 }  // namespace auto_battlebot
