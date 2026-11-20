@@ -101,6 +101,10 @@ Fixed 2026-11-19, found during phase 2:
   `EspNowTransmitterPtyTest.ReEnablingWithSaOnRampsFromStandstill`.
 - `include/robot_filter/ekf_math.hpp` `wrap_angle`: returns `(-pi, pi]` as documented; `-pi` maps
   to `pi`.
+- `src/mask_model/deeplab_mask_model.cpp`: feeds RGB with the training corpus statistics. The
+  audit found the ImageNet normalization; the eval found the bigger defect, 3-channel BGR frames
+  passed to the network unswapped. Macro IoU 0.9219 to 0.9440
+  (`docs/experiments/perception/2026-11-19_deeplab_preprocessing_fix.md`).
 - `playground/opponent_prediction/run_replays.py`: start frames come from
   `config/playback/svo_start_frames.toml` through `auto_battlebot.recording.svo_start_frames`, so
   14-12-27 replays from 3000, not the script's own 1540. `make_eval_dataset.py` uses the same loader.
@@ -110,14 +114,6 @@ Fixed 2026-11-19, found during phase 2:
 - `scripts/convert_ros1_mcap.py`: `--check` now flags a `/diagnostics` array whose log time
   reaches no per-module topic, so a dropped array fails the check; before, only a module with more
   messages than the source failed it.
-
-Open, found during phase 2 (2026-11-19):
-
-- `src/mask_model/deeplab_mask_model.cpp`: normalizes with ImageNet mean/std (0.485/0.456/0.406,
-  0.229/0.224/0.225) while training (`training/deeplab/semantic_train.py`) and Python scoring
-  (`training/deeplab/score_masks.py`) use the `common_transforms` defaults
-  (0.4611/0.4359/0.3905, 0.2193/0.2150/0.2109). Fixing it changes the deployed field mask, so it
-  needs a mask eval first.
 
 ## Ledger
 

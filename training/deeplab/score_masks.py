@@ -22,7 +22,15 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from auto_battlebot.segmentation.field_labels import UNCLASSIFIED
-from auto_battlebot.segmentation.load_deeplabv3 import common_transforms, load_model
+from auto_battlebot.segmentation.load_deeplabv3 import load_model
+from auto_battlebot.segmentation.model_config import ModelConfig
+from auto_battlebot.segmentation.preprocess import (
+    TRAINING,
+    Preprocess,
+    Resolution,
+    model_input,
+    output_labels,
+)
 
 FIELD_CHANNEL = 1
 UNKNOWN_FIELD = "unknown"
@@ -30,32 +38,49 @@ EPOCH_RE = re.compile(r"_ep(\d+)$")
 
 
 class EvalFrames(Dataset):
-    """Eval images and their ground-truth masks, preprocessed exactly as in training."""
+    """Eval images as model inputs, with their ground-truth masks at the scoring resolution."""
 
-    def __init__(self, images: list[Path], masks: list[Path], image_size: int, pad_size: int):
+    def __init__(
+        self,
+        images: list[Path],
+        masks: list[Path],
+        config: ModelConfig,
+        preprocess: Preprocess,
+        resolution: Resolution,
+    ):
         self.images = images
         self.masks = masks
-        self.image_size = image_size
-        self.transforms = common_transforms(pad_size=pad_size)
+        self.config = config
+        self.preprocess = preprocess
+        self.resolution = resolution
 
     def __len__(self) -> int:
         return len(self.images)
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
-        size = (self.image_size, self.image_size)
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, np.ndarray, tuple[int, int]]:
         image = cv2.imread(str(self.images[index]))
         if image is None:
             raise SystemExit(f"Failed to read image {self.images[index]}")
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = cv2.resize(image, size, interpolation=cv2.INTER_NEAREST)
-
         mask = cv2.imread(str(self.masks[index]), cv2.IMREAD_UNCHANGED)
         if mask is None:
             raise SystemExit(f"Failed to read mask {self.masks[index]}")
         mask = mask[:, :, 0] if mask.ndim == 3 else mask
-        mask = cv2.resize(mask, size, interpolation=cv2.INTER_NEAREST)
+        if mask.shape != image.shape[:2]:
+            mask = cv2.resize(mask, image.shape[1::-1], interpolation=cv2.INTER_NEAREST)
+        if self.resolution is Resolution.MODEL:
+            size = (self.config.image_size, self.config.image_size)
+            mask = cv2.resize(mask, size, interpolation=cv2.INTER_NEAREST)
+        truth = (mask > 0).astype(np.uint8)
+        native_shape = (image.shape[0], image.shape[1])
+        return model_input(image, self.config, self.preprocess), truth, native_shape
 
-        return self.transforms(image), torch.from_numpy((mask > 0).astype(np.uint8))
+
+def collate_frames(
+    batch: list[tuple[torch.Tensor, np.ndarray, tuple[int, int]]],
+) -> tuple[torch.Tensor, list[np.ndarray], list[tuple[int, int]]]:
+    """Stack the inputs; keep masks and shapes as lists, since native frames differ in size."""
+    inputs = torch.stack([item[0] for item in batch])
+    return inputs, [item[1] for item in batch], [item[2] for item in batch]
 
 
 def resolve_eval_set(target: Path) -> tuple[list[Path], list[Path]]:
@@ -140,6 +165,7 @@ def frame_stats(
 def score_candidate(
     name: str,
     checkpoint: Path,
+    preprocess: Preprocess,
     images: list[Path],
     masks: list[Path],
     args: argparse.Namespace,
@@ -154,13 +180,16 @@ def score_candidate(
         f"-> {config.input_size}px"
     )
 
-    dataset = EvalFrames(images, masks, config.image_size, config.pad_size)
+    resolution = Resolution(args.score_resolution)
+    print(f"  preprocess {preprocess.spec}, scored at {resolution.value} resolution")
+    dataset = EvalFrames(images, masks, config, preprocess, resolution)
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
         shuffle=False,
         pin_memory=True,
+        collate_fn=collate_frames,
     )
 
     n = len(dataset)
@@ -172,21 +201,23 @@ def score_candidate(
         for key in ("p_hit", "p_tot", "r_hit", "r_tot"):
             stats[f"bf{tol}_{key}"] = np.zeros(n)
 
-    pad = config.pad_size
     position = 0
     with torch.no_grad():
-        for batch_images, batch_masks in tqdm(
+        for batch_images, truth_masks, native_shapes in tqdm(
             loader, desc=f"  {name}", dynamic_ncols=True, total=len(loader)
         ):
             logits = model(batch_images.to(device, non_blocking=True))
-            predicted = torch.argmax(logits, dim=1)
-            if pad:
-                predicted = predicted[:, pad:-pad, pad:-pad]
-            predicted = (predicted == FIELD_CHANNEL).to(torch.uint8).cpu().numpy()
-            truth = batch_masks.numpy().astype(np.uint8)
-
+            labels = torch.argmax(logits, dim=1).to(torch.uint8).cpu().numpy()
+            predicted = [
+                (
+                    output_labels(label_map, shape, config, preprocess, resolution) == FIELD_CHANNEL
+                ).astype(np.uint8)
+                for label_map, shape in zip(labels, native_shapes)
+            ]
             for i in range(len(predicted)):
-                intersection, union, counts = frame_stats(predicted[i], truth[i], args.boundary_tol)
+                intersection, union, counts = frame_stats(
+                    predicted[i], truth_masks[i], args.boundary_tol
+                )
                 stats["inter"][position] = intersection
                 stats["union"][position] = union
                 for tol, (p_hit, p_tot, r_hit, r_tot) in counts.items():
@@ -398,6 +429,22 @@ def parse_candidates(entries: list[str] | None, patterns: list[str] | None) -> d
     return candidates
 
 
+def parse_preprocesses(
+    entries: list[str] | None, candidates: dict[str, Path]
+) -> dict[str, Preprocess]:
+    """`NAME=channels,normalization,geometry` entries, each naming a candidate."""
+    preprocesses: dict[str, Preprocess] = {}
+    for entry in entries or []:
+        name, _, spec = entry.partition("=")
+        if name not in candidates:
+            raise SystemExit(f"--preprocess names {name!r}, which is not a candidate")
+        try:
+            preprocesses[name] = Preprocess.parse(spec)
+        except ValueError as error:
+            raise SystemExit(f"--preprocess {entry!r}: {error}") from error
+    return preprocesses
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", maxsplit=1)[0])
     parser.add_argument("eval", type=Path, help="eval directory, or a .txt image list")
@@ -425,6 +472,18 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=8)
     parser.add_argument("--output", type=Path, help="csv/plot output dir")
+    parser.add_argument(
+        "--preprocess",
+        action="append",
+        metavar="NAME=CHANNELS,NORM,GEOMETRY",
+        help="input path for a candidate, e.g. deployed=bgr,imagenet,deployed (default: training)",
+    )
+    parser.add_argument(
+        "--score-resolution",
+        choices=[r.value for r in Resolution],
+        default=Resolution.MODEL.value,
+        help="score against masks at the model's image size or at the frame's own size",
+    )
     args = parser.parse_args()
 
     args.boundary_tol = [int(t) for t in args.boundary_tol.split(",") if t]
@@ -453,11 +512,15 @@ def main() -> None:
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     candidates = parse_candidates(args.candidate, args.candidate_glob)
+    preprocesses = parse_preprocesses(args.preprocess, candidates)
 
     stats_by_candidate: dict[str, dict[str, np.ndarray]] = {}
     for name, checkpoint in candidates.items():
         print(f"Scoring {name}: {checkpoint}")
-        stats_by_candidate[name] = score_candidate(name, checkpoint, images, masks, args, device)
+        preprocess = preprocesses.get(name, TRAINING)
+        stats_by_candidate[name] = score_candidate(
+            name, checkpoint, preprocess, images, masks, args, device
+        )
 
     metrics = ["iou"] + [f"bf1@{tol}" for tol in args.boundary_tol]
     summary, aggregates = summarize(stats_by_candidate, field_positions, metrics)

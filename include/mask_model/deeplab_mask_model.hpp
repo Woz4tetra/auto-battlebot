@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <iostream>
 #include <memory>
 #include <opencv2/opencv.hpp>
@@ -17,6 +18,13 @@
 #include "time_utils.hpp"
 
 namespace auto_battlebot {
+
+inline constexpr std::array<float, 3> kDeepLabTrainingMeanRgb = {0.4611f, 0.4359f, 0.3905f};
+inline constexpr std::array<float, 3> kDeepLabTrainingStdRgb = {0.2193f, 0.2150f, 0.2109f};
+
+void deeplab_input_nchw(const cv::Mat &bgr_image, int model_height, int model_width,
+                        int border_padding, std::vector<float> &buffer);
+
 class DeepLabMaskModel : public MaskModelInterface {
    public:
     DeepLabMaskModel(DeepLabMaskModelConfiguration &config,

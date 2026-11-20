@@ -143,7 +143,6 @@
   "src/foxglove_adapters/scene.cpp": 2,
   "src/keypoint_model/sim_keypoint_model.cpp": 2,
   "src/main.cpp": 8,
-  "src/mask_model/deeplab_mask_model.cpp": 1,
   "src/mcap_recorder/mcap_recorder.cpp": 2,
   "src/navigation/hazard_avoidance.cpp": 2,
   "src/navigation/rl_policy_navigation.cpp": 3,

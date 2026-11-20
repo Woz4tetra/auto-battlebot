@@ -29,6 +29,26 @@ decoder = "v3"
 
 `test_sidecar_round_trips_and_matches_cpp_keys` checks that the keys the C++ loader reads are the keys Python writes.
 
+## Input preprocessing
+
+The network takes RGB, scaled to [0, 1] and normalized with the training corpus statistics: mean
+(0.4611, 0.4359, 0.3905), std (0.2193, 0.2150, 0.2109). Camera frames arrive as 8-bit BGR, so
+both paths convert channel order first.
+
+| Step | Training (`semantic_train.py`, `score_masks.py`) | C++ `DeepLabMaskModel` |
+| --- | --- | --- |
+| Channel order | `cv2.COLOR_BGR2RGB` | `deeplab_input_nchw()`: `COLOR_BGR2RGB`, `BGRA2RGB` or `GRAY2RGB` |
+| Geometry | Nearest resize to `image_size`, then zero pad `pad_size` | Replicate pad `pad_size` at frame resolution, then bilinear resize to the engine input |
+| Normalization | `common_transforms` in `load_deeplabv3.py` | `kDeepLabTrainingMeanRgb`, `kDeepLabTrainingStdRgb` |
+| Output | Argmax, crop the pad | Argmax, nearest resize to the padded frame, crop the pad |
+
+The geometry differs on purpose: on the 2026-11-19 eval it scored the same IoU as the training
+geometry with sharper boundaries at 2 px
+(`docs/experiments/perception/2026-11-19_deeplab_preprocessing_fix.md`).
+`auto_battlebot/segmentation/preprocess.py` reproduces either path in Python, and
+`score_masks.py --preprocess NAME=channels,normalization,geometry` scores a checkpoint through
+either one. `DeepLabInputTest` pins the C++ channel order and constants.
+
 ## Hull mask blob filter
 
 `training/deeplab/convex_hull_masks.py` regenerates a segmask dataset with every mask blob replaced by its convex hull. Each `*_mask.png` is read as class IDs (0 is background). Each connected blob of a non-background class gets its own hull, so three blobs of one class come out as three hulls.

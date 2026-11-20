@@ -104,59 +104,52 @@ MaskStamped DeepLabMaskModel::update(RgbImage image) {
     return result;
 }
 
+void deeplab_input_nchw(const cv::Mat& bgr_image, int model_height, int model_width,
+                        int border_padding, std::vector<float>& buffer) {
+    cv::Mat rgb_image;
+    if (bgr_image.channels() == 4) {
+        cv::cvtColor(bgr_image, rgb_image, cv::COLOR_BGRA2RGB);
+    } else if (bgr_image.channels() == 1) {
+        cv::cvtColor(bgr_image, rgb_image, cv::COLOR_GRAY2RGB);
+    } else {
+        cv::cvtColor(bgr_image, rgb_image, cv::COLOR_BGR2RGB);
+    }
+
+    cv::Mat padded_image;
+    if (border_padding > 0) {
+        cv::copyMakeBorder(rgb_image, padded_image, border_padding, border_padding, border_padding,
+                           border_padding, cv::BORDER_REPLICATE);
+    } else {
+        padded_image = rgb_image;
+    }
+
+    cv::Mat resized;
+    cv::resize(padded_image, resized, cv::Size(model_width, model_height));
+    cv::Mat float_image;
+    resized.convertTo(float_image, CV_32F, 1.0 / 255.0);
+
+    const size_t plane = static_cast<size_t>(model_height) * static_cast<size_t>(model_width);
+    buffer.resize(3 * plane);
+    for (int y = 0; y < model_height; y++) {
+        const cv::Vec3f* row = float_image.ptr<cv::Vec3f>(y);
+        for (int x = 0; x < model_width; x++) {
+            const size_t offset = static_cast<size_t>(y) * model_width + x;
+            for (int c = 0; c < 3; c++) {
+                buffer[c * plane + offset] =
+                    (row[x][c] - kDeepLabTrainingMeanRgb[c]) / kDeepLabTrainingStdRgb[c];
+            }
+        }
+    }
+}
+
 void DeepLabMaskModel::preprocess_image_to_nchw_float(const cv::Mat& image,
                                                       std::vector<float>& buffer) {
     const std::vector<int64_t> in_shape = engine_.getInputShape();
     if (in_shape.size() < 4 || in_shape[0] != 1 || in_shape[1] != 3) {
         return;
     }
-    const int model_h = static_cast<int>(in_shape[2]);
-    const int model_w = static_cast<int>(in_shape[3]);
-
-    cv::Mat rgb_image;
-    if (image.channels() == 3) {
-        rgb_image = image;
-    } else if (image.channels() == 4) {
-        cv::cvtColor(image, rgb_image, cv::COLOR_BGRA2RGB);
-    } else {
-        cv::cvtColor(image, rgb_image, cv::COLOR_BGR2RGB);
-    }
-
-    cv::Mat padded_image;
-    if (border_padding_ > 0) {
-        cv::copyMakeBorder(rgb_image, padded_image, border_padding_, border_padding_,
-                           border_padding_, border_padding_, cv::BORDER_REPLICATE);
-    } else {
-        padded_image = rgb_image;
-    }
-
-    cv::Mat resized;
-    cv::resize(padded_image, resized, cv::Size(model_w, model_h));
-
-    cv::Mat float_image;
-    resized.convertTo(float_image, CV_32F, 1.0 / 255.0);
-
-    // ImageNet per-channel normalization - must match transforms.Normalize in training pipeline
-    const std::vector<float> mean = {0.485f, 0.456f, 0.406f};
-    const std::vector<float> std_dev = {0.229f, 0.224f, 0.225f};
-
-    std::vector<cv::Mat> channels(3);
-    cv::split(float_image, channels);
-    for (int i = 0; i < 3; i++) {
-        channels[i] = (channels[i] - mean[i]) / std_dev[i];
-    }
-    cv::merge(channels, float_image);
-
-    const int64_t num_elements = engine_.getInputNumElements();
-    buffer.resize(static_cast<size_t>(num_elements));
-    float* ptr = buffer.data();
-    for (int c = 0; c < 3; c++) {
-        for (int y = 0; y < model_h; y++) {
-            for (int x = 0; x < model_w; x++) {
-                ptr[c * model_h * model_w + y * model_w + x] = float_image.at<cv::Vec3f>(y, x)[c];
-            }
-        }
-    }
+    deeplab_input_nchw(image, static_cast<int>(in_shape[2]), static_cast<int>(in_shape[3]),
+                       border_padding_, buffer);
 }
 
 cv::Mat DeepLabMaskModel::postprocess_host_output(const float* output, int original_height,
