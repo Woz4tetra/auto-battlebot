@@ -196,7 +196,7 @@ bulkhead in the enclosure's antenna wall.
 - `Placement(model, rot_deg, x, y)`: KiCad frames, mating face toward -Y, top +Z.
 - `BoxEnvelope(w, d, h)` stands in for a KiCad model where there is none, using the datasheet
   outline: `SOP4` is the Toshiba TLP172A photoMOS and TLP293 optocoupler, SO4.
-- `MATERIAL = "nylon"` is a density stand-in for FR4.
+- `MATERIAL = "fr4"` (1.85 g/cm3 in the skill density table).
 
 ### `cage_pack/smallrig_4122c.py`
 
@@ -1020,11 +1020,6 @@ Keys left out take PrusaSlicer's defaults.
 
 All unverified unless noted: the CAD builds are too heavy to rerun for a comment purge.
 
-- `cage_pack/b123d_fix.py`: build123d 0.12 `Face.radius` returns `None` for a cylinder or sphere
-  whose surface is a `Geom_RectangularTrimmedSurface` (verified in `two_d.py:1241`). A boss merged
-  into a wall, or a key slot cut across a hole, leaves such faces, and the build123d-part skill's
-  `check.py` crashes rounding the `None`. The module patches `Face.radius` to read
-  `BasisSurface().Radius()`. Import it before building.
 - `cage_pack/bom_data.py:mcmaster`: the BOM keys for a McMaster item placed as a component. A
   component's own `mcmaster` key would make the skill load its STEP instead.
 - `cage_pack/cage_layout.py:OUTER_CORNER_R`: the outside vertical corners. The inside ones are
@@ -1032,18 +1027,8 @@ All unverified unless noted: the CAD builds are too heavy to rerun for a comment
 - `cage_pack/cage_pack_assembly.py:_hr10_plug`: the GrabCAD "Hirose HR10 6 pin plug end" STEP, the
   same size-7 shell as the 4-pin HR10A-7P-4P. The body's front face sits on the receptacle's 7.8 mm
   front, plus 40 mm of cable, in the `hr10.py` frame (+Z into the enclosure). Only the body is
-  placed: the nose and pins sit inside the receptacle, and a boolean of the nose against the
-  receptacle envelope segfaults OpenCascade (not reproduced).
-- `cage_pack/cage_pack_assembly.py:MIN_STRAIGHT_BETWEEN_FILLETS`: OpenCascade cannot build a path
-  whose straight run between two fillets is zero long, so each segment must exceed its two fillet
-  setbacks plus 0.5 mm. The check only raises a clearer error earlier (not reproduced).
-- `cage_pack/cage_pack_assembly.py:sweep_round_else_transformed`: OpenCascade's pipe shell fails
-  `Transition.ROUND` on some smooth 3D paths, so the sweep retries with `Transition.TRANSFORMED`.
-  The bare `except Exception` also hides any other sweep error. Not reproduced.
+  placed: the nose and pins sit inside the receptacle.
 - `cage_pack/camera_shield.py:_rib_profile`: the rib ends one corner radius short of the hood's end.
-- `cage_pack/connectors.py:tube`: `FilletPolyline` raises `IndexError` on collinear points (no
-  corner to round). `tube()` already drops collinear interior points, so that branch looks
-  unreachable. Not run.
 - `cage_pack/dynamics.py`: the rotational inertia `J` is that of a box about its own CG, roughly
   160 x 100 x 100 mm.
 - `cage_pack/enclosure.py:TOUCHING_LAND_GROWTH`: a land circle that only touches a cell's edge
@@ -1054,7 +1039,3 @@ All unverified unless noted: the CAD builds are too heavy to rerun for a comment
   its underside a 50 degree gusset back into the wall. The profile starts 0.2 mm inside the wall
   so the block fuses, and the gusset drops 0.2 mm extra. Top and bottom walls sketch on Right
   (Y, Z), the +X and -X walls on Front (X, Z). Not verified without the overlap.
-- `cage_pack/pcba_cage.py:MATERIAL`: `"nylon"` stands in for FR4, which the skill's density table
-  lacks (nylon 1.14 g/cm3). It underestimates the board mass by about 38%.
-- `cage_pack/print_mass.py:slice_grams`: the temporary directory is under `~/.cache`, not `/tmp`.
-  The PrusaSlicer flatpak can write under `$HOME` only. Not run without it.

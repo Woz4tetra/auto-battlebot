@@ -431,13 +431,6 @@ CABLES = {
 MIN_STRAIGHT_BETWEEN_FILLETS = 0.5
 
 
-def sweep_round_else_transformed(profile, path):
-    try:
-        return sweep(profile, path=path, transition=Transition.ROUND)
-    except Exception:
-        return sweep(profile, path=path, transition=Transition.TRANSFORMED)
-
-
 def _fillet_setback(r: float, turn: float) -> float:
     return r * math.tan(turn / 2)
 
@@ -461,7 +454,7 @@ def _run(kind: str, points: list[tuple[float, float, float]]):
     path = FilletPolyline(*pts, radius=r) if len(pts) > 2 else Polyline(*pts)
     edges = path.edges()
     plane = Plane(origin=edges[0].position_at(0), z_dir=edges[0].tangent_at(0))
-    return sweep_round_else_transformed(plane * Circle(d / 2), path), path.length
+    return sweep(plane * Circle(d / 2), path=path, transition=Transition.ROUND), path.length
 
 
 MINIFIT_PLUG_TOP = 16.6

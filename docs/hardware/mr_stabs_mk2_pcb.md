@@ -712,8 +712,6 @@ Routed board to JLCPCB upload files. Run from this directory after SKILL/scripts
 
 All unverified: SKiDL and the routing flow were not run for this purge.
 
-- `mr_stabs_mk2_pcb/mr_stabs_mk2_pcb.py:MATERIAL`: `"pc"` is a density stand-in. check.py has no
-  PCB process, so `PROCESS = "none"`.
 - `mr_stabs_mk2_pcb/pcba/design.py:NC`: SKiDL 2.3 injects its no-connect net into `builtins`
   instead of exporting it, so `from skidl import NC` fails.
 - `mr_stabs_mk2_pcb/pcba/design.py:GND_STITCH`: two GND stitching vias in the stem's sides. The

@@ -56,6 +56,7 @@ class Params:
     tower_half_y: float = 7.83
     tower_gap: float = 1.5
     corner_peak_z: float = -21.1
+    step_nudge: float = 0.05
     panel_t: float = 2.0
     hole_d: float = 8.3
     key_d: float = 10.6
@@ -90,7 +91,9 @@ def bar() -> Solid:
     return Solid.make_loft(wires, ruled=True)
 
 
-def _draft_wire(x: float, loop: np.ndarray, upper: bool, z_cut: float, z_far: float) -> Wire:
+def _draft_wire(
+    x: float, loop: np.ndarray, upper: bool, z_cut: float, z_far: float, nudge: float
+) -> Wire:
     """One half's bore profile at one station."""
     n = len(loop)
     i_back, i_front = int(np.argmax(loop[:, 0])), int(np.argmin(loop[:, 0]))
@@ -110,7 +113,7 @@ def _draft_wire(x: float, loop: np.ndarray, upper: bool, z_cut: float, z_far: fl
     chain = np.vstack(head + [arc[lo : hi + 1]] + tail)
     pts = [Vector(x, y, z) for y, z in chain]
     y_start, y_end = (y_back, y_front) if upper else (y_front, y_back)
-    step = -0.05 if upper else 0.05
+    step = -nudge if upper else nudge
     s_end = Vector(x, y_end, pts[-1].Z + (step if not tail else 0))
     s_start = Vector(x, y_start, pts[0].Z + (step if not head else 0))
     f_end, f_start = Vector(x, y_end, z_far), Vector(x, y_start, z_far)
@@ -144,7 +147,7 @@ def bore_tool(p: Params, upper: bool) -> Solid:
     stations = [(x, loop) for x, loop in zip(xs[keep], loops[keep], strict=True)]
     last = stations[-1][1]
     stations.append((p.x1 + 3, _grow(last, p.lead_open)))
-    wires = [_draft_wire(x, loop, upper, z_cut, z_far) for x, loop in stations]
+    wires = [_draft_wire(x, loop, upper, z_cut, z_far, p.step_nudge) for x, loop in stations]
     return Solid.make_loft(wires, ruled=True)
 
 

@@ -23,7 +23,7 @@ from build123d import (
 )
 
 PROCESS = "none"
-MATERIAL = "pc"
+MATERIAL = "fr4"
 
 STEP_DIR = Path.home() / "Downloads" / "Mr Stabs Mk2"
 CHASSIS_STEP = STEP_DIR / "Mr Stabs Mk2 - Mr Stabs Mk2 Chassis.step"

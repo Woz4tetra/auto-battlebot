@@ -4,13 +4,12 @@ from dataclasses import dataclass
 from functools import cache
 from typing import NamedTuple
 
-import b123d_fix  # noqa: F401
 import cage_layout as cl
 import recipe
 from build123d import Align, Box, Compound, Part, Pos, Rot, Shape, import_step
 
 PROCESS = "none"
-MATERIAL = "nylon"
+MATERIAL = "fr4"
 C_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
 
 

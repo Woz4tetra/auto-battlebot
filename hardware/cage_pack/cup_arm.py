@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 
-import b123d_fix  # noqa: F401
 import cage_layout as cl
 import recipe
 from build123d import Part, Pos, Rot

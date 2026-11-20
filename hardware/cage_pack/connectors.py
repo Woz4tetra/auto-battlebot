@@ -169,7 +169,7 @@ def tube(points: list[tuple[float, float, float]], d: float, bend_r: float | Non
     while path is None and len(pts) > 2 and r > 0.5:
         try:
             path = FilletPolyline(*pts, radius=r)
-        except (ValueError, IndexError):
+        except ValueError:
             r *= 0.6
     if path is None:
         path = Polyline(*pts)

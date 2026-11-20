@@ -4,7 +4,6 @@ import math
 from dataclasses import dataclass
 from typing import NamedTuple
 
-import b123d_fix  # noqa: F401
 import cage_layout as cl
 import hr10
 import recipe

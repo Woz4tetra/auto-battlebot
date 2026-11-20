@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from typing import NamedTuple
 
-import b123d_fix  # noqa: F401
 import cage_layout as cl
 import enclosure
 import recipe
