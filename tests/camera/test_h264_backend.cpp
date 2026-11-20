@@ -80,7 +80,7 @@ class H264BackendTest : public ::testing::TestWithParam<size_t> {
    protected:
     std::vector<Packet> encode_all(int keyframe_interval = kKeyframeInterval,
                                    int forced_frame = -1) {
-        const NamedOpener &opener = openers()[GetParam()];
+        const NamedOpener opener = openers()[GetParam()];
         VideoEncoderOptions options;
         options.width = 320;
         options.height = 240;

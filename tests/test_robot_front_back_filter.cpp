@@ -672,7 +672,8 @@ TEST(RobotFrontBackFilterTest, SizeOverrideReplacesDetectedSize) {
     drive_opponent_to(filter, camera_info, field, 5);
     DiagnosticsLogger::publish();
 
-    const RobotDescription *opponent = find_opponent(filter.state());
+    const RobotDescriptionsStamped state = filter.state();
+    const RobotDescription *opponent = find_opponent(state);
     ASSERT_NE(opponent, nullptr);
     EXPECT_DOUBLE_EQ(opponent->size.x, known.x);
     EXPECT_DOUBLE_EQ(opponent->size.y, known.y);

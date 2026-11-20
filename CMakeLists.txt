@@ -17,6 +17,25 @@ endif()
 if(BUILD_DEBUG)
     message("Building with debug flags")
 endif()
+set(AUTO_BATTLEBOT_SANITIZER "none" CACHE STRING "Sanitizer for every target: none, address or thread")
+set_property(CACHE AUTO_BATTLEBOT_SANITIZER PROPERTY STRINGS none address thread)
+if(NOT AUTO_BATTLEBOT_SANITIZER MATCHES "^(none|address|thread)$")
+    message(FATAL_ERROR
+        "AUTO_BATTLEBOT_SANITIZER='${AUTO_BATTLEBOT_SANITIZER}' is invalid. Valid values: none, address, thread")
+endif()
+if(NOT AUTO_BATTLEBOT_SANITIZER STREQUAL "none")
+    message("Building with -fsanitize=${AUTO_BATTLEBOT_SANITIZER}")
+    add_compile_options(
+        "$<$<COMPILE_LANGUAGE:CXX>:-fsanitize=${AUTO_BATTLEBOT_SANITIZER}>"
+        "$<$<COMPILE_LANGUAGE:CXX>:-fno-omit-frame-pointer>"
+        "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:GNU>>:-Wno-error=maybe-uninitialized>"
+        "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fsanitize=${AUTO_BATTLEBOT_SANITIZER}>"
+        "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fno-omit-frame-pointer>"
+    )
+    add_compile_definitions(AUTO_BATTLEBOT_SANITIZED)
+    add_link_options(-fsanitize=${AUTO_BATTLEBOT_SANITIZER} -fno-omit-frame-pointer)
+endif()
+
 
 include(FetchContent)
 

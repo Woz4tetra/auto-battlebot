@@ -193,6 +193,20 @@ TEST(FoxglovePublisherTest, PublishesWithoutSinks) {
     EXPECT_NO_THROW(publisher.publish_navigation(nav));
 }
 
+TEST(FoxglovePublisherTest, DestroyWhilePublishingIsClean) {
+    CameraData camera;
+    camera.rgb.header.frame_id = FrameId::CAMERA;
+    camera.rgb.image = cv::Mat(1080, 1920, CV_8UC3, cv::Scalar(1, 2, 3));
+    camera.camera_info.intrinsics = cv::Mat::eye(3, 3, CV_64F);
+    record_to([&](const std::shared_ptr<McapRecorder> &recorder) {
+        for (int i = 0; i < 20; ++i) {
+            FoxglovePublisher publisher(nullptr, recorder);
+            publisher.publish_camera_data(camera);
+            publisher.publish_camera_data(camera);
+        }
+    });
+}
+
 TEST(FoxglovePublisherTest, AnnotationsAreLiveOnly) {
     if (!DiagnosticsLogger::is_initialized()) DiagnosticsLogger::initialize({});
     const auto cwd = std::filesystem::current_path();
