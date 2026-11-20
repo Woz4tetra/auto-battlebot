@@ -255,7 +255,6 @@
   "training/synthetic/cage/meatball_basement.toml": 42,
   "training/synthetic/coco_to_yolo.py": 1,
   "training/synthetic/compute_nhrl_keypoints.py": 1,
-  "training/synthetic/config.toml": 285,
   "training/synthetic/config_cage_massd.toml": 10,
   "training/synthetic/config_cage_meatball.toml": 4,
   "training/synthetic/config_cage_nhrl.toml": 10,

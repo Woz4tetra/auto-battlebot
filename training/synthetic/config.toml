@@ -1,191 +1,66 @@
-# Real arenas the run renders some of its images in, alongside the HDRI arena scenes. Each
-# entry is an independent scene: its own geometry spec, camera, lighting and mount ranges.
-# The probabilities are fractions of the whole run and share it with the HDRI arena, so they
-# must sum to at most 1.0; what is left over is arena scenes. The split is tracked, not
-# coin-flipped, so even a 100-image run lands on these ratios.
 
 [[cages]]
 name = "nhrl_cage"
 enabled = true
 probability = 0.5
-# Cage geometry, materials, lights and the exposure solved against footage.
 spec = "cage/cage2_overhead_high.toml"
-# Our own camera, rectified (alpha 1.0) the way the C++ Rectifier does it and scaled to
-# [output].image_width/height. The e-CAM25 is the camera these mounts are for, and it is the
-# lens the mount ranges below were judged through in pose_camera_server.py, so it is the lens
-# the domain frames render through. Not NHRL's own phone (brettzone_cage_high.toml, 95.2 deg
-# horizontal): that belongs only on footage actually shot from the broadcast mount. The
-# deployed ZED is in config/cameras/zed2i_720p.toml, measured at 101.0 deg, if a ZED-matched
-# set is ever wanted.
 camera_calibration = "../../config/cameras/ecam25_h01r1_estimated.toml"
-# The frame this cage writes (synthgen/lens.py): "pinhole" at the rectified matrix, what
-# every render before 2026-09-13 was; "distorted", the raw sensor frame, for training a detector
-# that runs before rectification; or "rectified", the sensor frame through the C++ Rectifier's
-# maps, black border included. Labels follow the view. Warped views render a frame wide enough to
-# hold every sensor ray, 2560x1442 for a 1280x720 frame with this lens, so four times the pixels.
-# --view overrides it for every cage.
 view = "pinhole"
-# getOptimalNewCameraMatrix alpha behind the rectified matrix. 1.0, what the Rectifier ships,
-# keeps every sensor pixel and leaves 36 percent of the frame black for this lens.
 rectify_alpha = 1.0
-# Overrides the run's --render-samples for this cage. 64 with the spec's OptiX denoiser
-# scored 37.6 dB PSNR / 0.960 SSIM against a 512-sample reference on 2026-09-12, against
-# 39.9 dB / 0.972 for 128 with the compositor denoiser, and robot crops at 3x were
-# indistinguishable. 32 lost faint texture on dark surfaces. Leave unset to use the run's value.
 render_samples = 64
-# Per-scene jitter on the LED tube emission strength (+- this fraction), so the set is not a
-# single lighting state.
 tube_jitter = 0.25
-# Metres of mat kept clear of its edge when placing robots.
 mat_margin_m = 0.20
-# The house bot drives around during a fight, so every scene draws it a new position anywhere
-# on the mat and a new heading, clear of the robots (synthgen/house_bot_pose.py). Before
-# 2026-09-19 it stood at the spec's fitted corner pose, (0.92, 1.02) facing the camera, in
-# every frame.
 randomize_house_bot = true
-# Gap between its footprint circle and each robot's, whose radius is taken as 0.20 m.
 house_bot_clearance_m = 0.05
 
-# Where a camera can be clamped on the cage, and where it then looks. Read off 12 poses flown
-# by hand in pose_camera_server.py on 2026-09-12 through the e-CAM25 lens. Eight of them sit
-# within 0.17 m of the glass and four sit 0.35 to 0.70 m back, and these ranges cover the near
-# eight only. The far four frame worst of all twelve, filling 12 to 33 percent of the picture
-# with mat against 24 to 44 for the near ones, and including them cost more than their own
-# share: sampling each axis independently over the full envelope drew past -0.17 m in 78
-# percent of frames where the marks are there in 33, and paired heights and setbacks that
-# nothing was ever flown at into a derived tilt of up to 67 degrees. That rendered a camera too
-# far back and aimed too high, filling 24.9 percent of frame against the marks' 31.8. Over the
-# ranges below it is 35.1 percent, median tilt 40.4 degrees, 99.3 percent of the mat in frame.
-# Read that fill number with care: it projects the mat and takes a convex hull, with no
-# occlusion term, so it cannot see a pane covering the view and keeps rising as the camera
-# closes on the glass. The near end of inset_m is what stops it.
-#
-# The quantities a wall swap mirrors (along, yaw, roll) are symmetrized, since their asymmetry
-# says more about twelve hand-flown samples than about the mount. The earlier block bracketed
-# the eleven poses fit_cage_camera.py solved for NHRL's own phone, which is a different camera
-# on a different side of the glass; playground/cage_scene/fit_cage_camera.py still has those.
-#
-# Every marked pose sits OUTSIDE the polycarbonate, which is why inset is negative where the
-# phone-fitted block was positive. That is the cheaper side to shoot from: a pane the camera
-# looks through from outside is hidden for that frame and costs no labels, while a mount inside
-# the cage shooting through a far pane loses them, because the segmentation pass stops at the
-# glass. Kept strictly negative so the hiding always applies.
-#
-# `aim = "centre"` derives tilt from where the mount landed and jitters it, rather than drawing
-# tilt independently. The marks earn it: each sits 5.1 to 18.8 degrees steeper than a straight
-# aim at field centre (mean 10.9, sd 3.9), so every one of them is aimed short of the centre,
-# which puts the far edge of the mat high in the frame and leaves foreground below it. Tilt is
-# measured off straight down, so a negative offset here is steeper, aimed nearer the camera.
-# Sampling the offset keeps tilt tied to where the mount landed.
 [cages.mount]
 walls = ["near", "far", "left", "right"]
-# Along the wall from its centre, metres.
 along_m = [-0.55, 0.55]
-# Above the mat surface, metres. Not capped by the 1.22 m polycarbonate top, since the mount is
-# outside it.
 height_m = [0.60, 1.25]
-# Inside the wall plane, metres. Negative is outside the cage; see above.
-#
-# The near end is a render-cost limit, not a framing choice. The pane the camera looks through
-# is hidden, but the panes either side of it are not, and at this lens they fill much of a
-# 118 degree frame edge-on when the camera is close. Rough refraction through a grazing slab
-# never converges, so the adaptive sampler runs to the sample cap on most of the picture.
-# Measured on 2026-09-12: a scene at -0.03 took 402 seconds per render pass at 32 samples,
-# where a healthy scene takes 4 to 23 at 128, and the frames show an adjacent pane covering
-# half the picture. A run that sampled -0.072 to -0.172 across 11 scenes had no slow pass at
-# all, and one that sampled -0.028 and -0.055 was slow on every pass, so the cliff sits
-# between 0.055 and 0.072. -0.08 is the near end with margin on that.
 inset_m = [-0.20, -0.08]
 aim = "centre"
-# Degrees added to the aim-at-centre tilt. Negative is steeper, aimed short of the centre.
 tilt_offset_deg = [-22.0, -10.0]
-# Heading off square-to-the-wall, degrees.
 yaw_deg = [-23.0, 23.0]
-# Camera roll about the optical axis, degrees.
 roll_deg = [-13.0, 13.0]
 
-# The MassDestruction arena (Charles River Museum), fitted from one broadcast clip in
-# docs/experiments/perception/massd_arena_scene_2026-09-11.md. A 2.26 m plywood
-# floor with a 0.43 m pit in it, wooden kick rails and a much brighter room than NHRL's cage.
 [[cages]]
 name = "massd_arena"
 enabled = true
 probability = 0.25
 spec = "cage/massd_resurgence6.toml"
-# The same wide lens as the NHRL half, on purpose: this stands in for our own camera clamped
-# to the arena, not for the 62-degree broadcast camera the scene was fitted from. That one is
-# in training/data/environments/massd_arena/camera/ and is what render_cage_view.py grades.
 camera_calibration = "../../config/cameras/ecam25_h01r1_estimated.toml"
 view = "pinhole"
 rectify_alpha = 1.0
-# Same measurement basis as the NHRL cage above.
 render_samples = 64
 tube_jitter = 0.25
 mat_margin_m = 0.20
 
-# The 2026-09-12 coverage sweeps put this mount 0.32 to 0.76 m outside the wall, because a
-# camera on the MassD wall could not contain the 2.26 m floor at any height. That held for the
-# lens the sweeps ran, NHRL's 95.2 degree phone. It does not hold for the e-CAM25 this half now
-# renders through, which is 118 degrees rectified: sampled over the block below, the phone
-# holds a median 91.2 percent of the floor and never the whole of it, while the e-CAM25 holds
-# 99.0 percent and fits the whole floor in 27 percent of frames. So the camera comes in.
-#
-# That setback was what made the arena a third of the picture. The wall plane is at 1.168 m.
-# The glass was raised from 0.66 m to 1.41 m on 2026-09-13, above the whole height range below,
-# so every mount now looks through a pane rather than over it; the pane on the camera's side is
-# hidden whenever the camera stands outside it, so the labels behind it survive.
-#
-# `aim = "centre"` derives tilt from where the mount landed instead of drawing it
-# independently: the sweep varied tilt with distance and height, and the frames that were
-# judged good all sit on that curve. The offset is negative for the same reason it is on the
-# NHRL half, to aim short of the centre rather than past it.
 [cages.mount]
 walls = ["near", "far", "left", "right"]
 along_m = [-0.45, 0.45]
 height_m = [0.45, 1.10]
-# Held off the glass for the same reason as the NHRL half, where a camera within 0.055 m of
-# the wall cost 402 seconds per render pass instead of 20. This arena's panes are thinner at
-# 9 mm, and at 1.41 m tall the glass now spans every mount height in the range, so the inset
-# is what keeps every mount clear of it. Over this block (measured with the old 0.66 m wall)
-# the floor fills 36.1 percent
-# of the frame at a median 47.4 degrees off straight down, against 17.9 percent at 52.8 for
-# the sweep block it replaces.
 inset_m = [-0.25, -0.10]
 aim = "centre"
 tilt_offset_deg = [-18.0, -8.0]
 yaw_deg = [-9.0, 9.0]
 roll_deg = [-3.0, 3.0]
 
-# The meatball basement drive-test box: a 1.52 m plywood floor in 2x4 rails, in a corner of
-# stone walls, fitted from our own ZED on 2026-09-19 (playground/basement_scene/README.md).
-# Off in the default mix so existing runs keep their ratios; config_cage_meatball.toml pins a
-# run to it with only_cage.
 [[cages]]
 name = "meatball_basement"
 enabled = false
 probability = 0.0
 spec = "cage/meatball_basement.toml"
-# The same lens as the other two venues, so the three stand in for one camera. The scene was
-# fitted through the ZED (config/cameras/zed2i_720p.toml), which is the lens to swap in for a
-# ZED-matched set.
 camera_calibration = "../../config/cameras/ecam25_h01r1_estimated.toml"
 view = "pinhole"
 rectify_alpha = 1.0
 render_samples = 64
 tube_jitter = 0.25
-# 0.15 leaves a 1.22 m square of the 1.52 m floor to place robots on.
 mat_margin_m = 0.15
 
-# Brackets the stand the ZED stood on in the fitted frame: 0.56 m outside the near rail,
-# 0.56 m above the plywood, 64 degrees off straight down, square to the box, 3.6 degrees
-# steeper than a straight aim at the floor centre. Only the two open sides: the far and right
-# rails have stone 2.5 and 7 cm behind them, so a mount there would sit inside the wall.
 [cages.mount]
 walls = ["near", "left"]
 along_m = [-0.40, 0.40]
 height_m = [0.40, 0.95]
-# Outside the rail, metres; the fitted stand is at -0.56. The wall plane here is the rail's
-# outer face, 0.80 m from the floor centre.
 inset_m = [-0.80, -0.30]
 aim = "centre"
 tilt_offset_deg = [-10.0, 2.0]
@@ -195,57 +70,28 @@ roll_deg = [-4.0, 4.0]
 [output]
 image_dir = "../data/synthetic/images"
 label_dir = "../data/synthetic/labels"
-# "keypoints_bbox" (default): YOLO pose labels with bbox + keypoints.
-# "segmentation_bbox": YOLO segmentation polygons (bbox implied by polygons).
 annotation_mode = "keypoints_bbox"
-# annotation_mode = "segmentation_bbox"
 num_images = 20000
 image_width = 1280
 image_height = 720
-# Number of camera viewpoints to render per scene arrangement.
-# Higher values = faster generation but less object placement diversity.
 images_per_scene = 10
-# Minimum visible fraction of robot pixels after occlusion.
-# Computed as: visible instance pixels (with distractors) divided by
-# unobstructed instance pixels from a distractor-free segmentation pass.
-# Ignored when ignore_obstructions = true.
 min_robot_visibility = 0.10
-# Annotate robots and keypoints straight through occluding objects. When true,
-# skip the distractor-clearing pass, the clean visibility-fraction render, and
-# the per-keypoint depth occlusion test; every in-frame keypoint is marked
-# visible (flag 2) and no frame is dropped for being occluded. Use this when the
-# obstruction checks are discarding too many otherwise-usable frames.
 ignore_obstructions = false
-# Force periodic Blender data cleanup during long renders to avoid memory growth.
-# Set to 0 to disable.
 memory_cleanup_interval = 1000
 
-# Each [[robots]] entry defines a robot model that can appear in scenes.
-# Per scene, 1..max_robots_per_scene robots are selected using weighted
-# sampling without replacement.  See [scene].max_robots_per_scene.
 [[robots]]
 name = "mr_stabs_mk2"
 model_path = "../data/models/MR STABS MK2.gltf"
 class_id = 0
-# Scale factor applied to the imported model (1.0 = no scaling).
-# Adjust if the OnShape export units don't match Blender's meters.
 scale = 1.0
-# Relative probability of this robot being chosen for a scene.
 weight = 0.5
-# Ground orientation roll (Y-rotation, degrees) used when grounded.
-# Pitch is fixed at +/-90 deg and yaw is always randomized.
 ground_roll_upright = 9.587585
 ground_roll_inverted = 9.587585
 
-# 3D keypoint positions in model-local space (meters).
-# Measure these from the CAD model origin in OnShape.
 [robots.keypoints]
 front = [0.1115, 0.0, -0.00313]
 back = [-0.0206, 0.0, -0.00394205]
 
-# Map OnShape part colors (RGB 0-255) to material types.
-# Run `blenderproc run prepare_robot_model.py config.toml --inspect`
-# to list all colors present in the GLTF for filling this out.
 [[robots.color_mapping]]
 color = [128, 128, 128]
 tolerance = 1
@@ -276,7 +122,6 @@ color = [232, 232, 232]
 tolerance = 1
 material = "paper"
 
-
 [[robots]]
 name = "mrs_buff_mk3"
 model_path = "../data/models/MRS BUFF MK3.glb"
@@ -289,7 +134,6 @@ ground_roll_inverted = -30.0
 [robots.keypoints]
 front = [0.0, 0.0, -0.05014]
 back = [-0.1528, 0.0, -0.05014]
-
 
 [[robots.color_mapping]]
 color = [41, 123, 203]
@@ -305,19 +149,16 @@ material = "blue_tpu"
 color = [1, 0, 203]
 tolerance = 1
 material = "blue_tpu"
-# material = "tin_foil" # front guard with tin foil
 
 [[robots.color_mapping]]
 color = [250, 182, 1]
 tolerance = 1
 material = "yellow_plastic"
-# material = "tin_foil" # weapon guard with tin foil
 
 [[robots.color_mapping]]
 color = [255, 193, 14]
 tolerance = 1
 material = "yellow_plastic"
-# material = "tin_foil" # weapon guard with tin foil
 
 [[robots.color_mapping]]
 color = [253, 62, 4]
@@ -328,8 +169,6 @@ material = "red_tpu"
 color = [239, 34, 27]
 tolerance = 1
 material = "red_tpu"
-# material = "tin_foil" # front guard with tin foil
-
 
 [[robots.color_mapping]]
 color = [40, 40, 40]
@@ -431,17 +270,8 @@ color = [195, 139, 205]
 tolerance = 1
 material = "mrs_buff_mk3_bottom_sticker"
 
-# Assemblies battle damage removes whole, instead of the random-fraction part hiding: the GLB
-# groups faces by colour, not by part, so that path only ever hid a scatter of bolts. Boxes
-# are [x_min, y_min, z_min, x_max, y_max, z_max] in the model frame the keypoints use: x from
-# the back (-0.177) to the weapon (+0.045), y across the wheels, z up when the robot sits
-# upright. Read off face-centre plots of the Blender export on 2026-09-13. Order matters: the
-# first entry to claim a face keeps it, so the stickers and the disk go before the parts around
-# them. `objects` names the GLB's colour objects; the export's `_N` index suffixes match, and
-# mat_41_123_203 holds both the blue guard and the blue weapon pod, so boxes separate those.
 [[robots.damage_parts]]
 name = "top_sticker"
-# Only ever removed with its plate.
 selectable = false
 objects = ["mat_87_198_189"]
 boxes = [[-0.2, -0.14, -0.06, 0.06, 0.14, 0.05]]
@@ -459,7 +289,6 @@ boxes = [[-0.03, -0.01, -0.045, 0.05, 0.035, 0.045]]
 
 [[robots.damage_parts]]
 name = "wheels"
-# Each box is one wheel. A wheel usually comes off alone, so one is the likely draw.
 subset = true
 count_weights = [8.0, 3.0, 1.0, 0.5]
 exclude_objects = [
@@ -505,8 +334,6 @@ boxes = [
 
 [[robots.damage_parts]]
 name = "wheel_side_guards"
-# The red (-y) and blue (+y) TPU guards around the wheels, each one printed piece: a side
-# wall and a front arm with the forks moulded in. One side usually goes, sometimes both.
 subset = true
 count_weights = [4.0, 1.0]
 objects = ["mat_239_34_27", "mat_41_123_203"]
@@ -551,7 +378,6 @@ pieces = [
 
 [[robots.damage_parts]]
 name = "weapon_module"
-# The pod above the top plate: weapon motor, belt and bearing blocks. The disk hangs on it.
 exclude_objects = ["mat_128_128_128"]
 includes = ["weapon_disk"]
 boxes = [[-0.125, -0.045, -0.009, 0.05, 0.045, 0.045]]
@@ -560,7 +386,6 @@ boxes = [[-0.125, -0.045, -0.009, 0.05, 0.045, 0.045]]
 name = "top_plate"
 objects = ["mat_128_128_128"]
 includes = ["top_sticker"]
-# Three boxes leave out the weapon pulley, which shares the plate colour.
 boxes = [
   [
     -0.18,
@@ -593,32 +418,6 @@ name = "bottom_plate"
 objects = ["mat_128_128_128"]
 includes = ["bottom_sticker"]
 boxes = [[-0.18, -0.11, -0.056, 0.02, 0.11, -0.04]]
-
-
-# To add another robot, duplicate the block above:
-# [[robots]]
-# name = "OPPONENT BOT"
-# model_path = "../data/models/opponent.gltf"
-# class_id = 0
-# scale = 1.0
-# weight = 1.0
-# ground_roll_upright = 0.0
-# ground_roll_inverted = 0.0
-#
-# [robots.keypoints]
-# front = [0.08, 0.0, 0.0]
-# back = [-0.05, 0.0, 0.0]
-#
-# [[robots.color_mapping]]
-# color = [200, 200, 200]
-# tolerance = 25
-# material = "aluminum"
-
-# PBR properties per material type (shared across all robots).
-# cc_texture names refer to ambientCG / CC0 Textures asset IDs (tiling).
-# texture_dir points to a directory of PBR images (Color, Roughness, etc.)
-# that are applied using the model's UV mapping instead of tiling.
-
 
 [materials.aluminum]
 metallic = 1.0
@@ -658,13 +457,9 @@ cc_texture = "Paper001"
 [materials.tin_foil]
 metallic = 1.0
 roughness = 0.1
-cc_texture = "Foil002" # gold foil
-# cc_texture = "Foil003"  # silver foil
+cc_texture = "Foil002"
 
 [materials.housebot]
-# UV-mapped PBR textures loaded from a directory (Color, Roughness, Metalness,
-# NormalGL, Displacement).  Unlike cc_texture, this preserves the model's UV
-# layout instead of tiling with generated coordinates.
 texture_dir = "../data/environments/nhrl_3lb_cage/house_bot"
 
 [materials.mrs_buff_mk3_top_sticker]
@@ -674,43 +469,17 @@ texture_dir = "../data/cc_textures/mrs_buff_mk3_top_sticker"
 texture_dir = "../data/cc_textures/mrs_buff_mk3_bottom_sticker"
 
 [distractors]
-# Each source has a path and a weight controlling how often its models are
-# picked when filling the pool.  Weights are relative (they don't need to
-# sum to 1).  A source with weight 3.0 is three times as likely to
-# contribute a model as one with weight 1.0.
 min_per_scene = 1
-# Also controls how many distractor models are loaded into memory at once.
 max_per_scene = 5
-# Optional approximate VRAM budget (MB) across the whole loaded distractor pool.
-# Set to 0 or remove to disable budget enforcement.
 vram_budget_mb = 3500
-# Precomputed per-model VRAM estimates used for pre-import budget checks.
 vram_audit_csv = "training/data/distractor_models/distractor_gpu_audit.csv"
-# Reference largest dimension (meters) that distractor robots are scaled to.
-# All distractor robots are treated as 3 lb (beetleweight) regardless of their
-# real weight class, so this is the 3 lb base size. Decoupled from the robots
-# actually in the scene (previously keyed off the largest robot present).
 base_dimension_m = 0.25
-# Scale range as multiples of base_dimension_m.
-# [0.5, 2.0] means distractors will be 0.5x to 2x the 3 lb base size.
 scale_range = [0.5, 2.0]
-# Re-roll the distractor pool every N images (0 to keep the same pool all run).
 shuffle_interval = 100
 
-# Pose randomization for CAD (kind = "cad") robot distractors. Grounded robots
-# sit flat on the field with a random yaw and a 50% chance of being inverted;
-# airborne ones tumble with a fully random orientation. Objaverse distractors
-# keep the global [randomization] air settings instead.
 robot_air_probability = 0.1
 robot_air_height_range = [0.02, 0.6]
-# Per-frame motion-blur probability for distractor categories (defaults to the
-# [randomization] motion_blur_probability when omitted).
 motion_blur_probability = 0.3
-
-# [[distractors.sources]]
-# path = "../data/distractor_models/objaverse"
-# weight = 0.5
-# kind = "objaverse"
 
 [[distractors.sources]]
 path = "../data/distractor_models/robots"
@@ -720,8 +489,6 @@ kind = "cad"
 [environment]
 hdri_dir = "../data/hdris"
 cc_textures_dir = "../data/cc_textures"
-# Extra ambientCG assets used for ground plane randomization.
-# `download_ambientcg.py --from-config` downloads these alongside the robot materials.
 ground_textures = [
   "Road013C",
   "ChristmasTreeOrnament003",
@@ -1229,25 +996,13 @@ ground_textures = [
 min_distance = 0.3
 max_distance = 6.0
 height_range = [0.1, 4.0]
-# Gaussian noise added to the camera look-at target (meters)
 look_at_noise = 0.4
-# Largest fraction of the narrower image dimension the robots' bounding sphere
-# may fill. The camera is pushed back past min_distance whenever needed so a
-# robot can never completely dominate the frame (which yields confusing,
-# near-full-frame annotations). Range 0-1; lower = robots kept smaller.
 max_frame_fraction = 0.85
 
 [scene]
-# Randomized range for the ground plane half-extent (meters).
 ground_size_range = [0.5, 10.0]
-# Randomized range for the radius within which objects are placed (meters).
 arena_radius_range = [0.5, 3.5]
-# Fraction of scenes that include a visible ground plane (0.0–1.0).
-# The remainder show only the HDRI background behind the robots.
 ground_visibility = 0.9
-# Maximum number of robots rendered simultaneously per scene (1 = always one).
-# Each scene randomly picks between 1 and this value, weighted by each robot's
-# `weight` field.  Clamped to the number of [[robots]] entries.
 max_robots_per_scene = 10
 
 [randomization]
@@ -1256,70 +1011,22 @@ light_count_range = [1, 3]
 light_intensity_range = [10, 2000]
 light_color_temp_range = [3500, 6500]
 
-# Probability the robot is airborne with a fully random tumbling orientation.
-# The remainder of images place the robot on the ground in a ground_pitch pose.
 air_probability = 0.1
-# Height range (meters) above ground when airborne
 air_height_range = [0.02, 0.6]
 
-# Ground orientation: pitch (X-rotation) is fixed at +90° for right-side-up
-# and -90° for upside-down.  Roll (Y-rotation, degrees) is configurable per
-# orientation to compensate for the model not sitting perfectly flat after
-# the GLTF axis conversion, configured per `[[robots]]` entry.
-# Yaw (Z-rotation) is always fully random.
-
-# Directional motion blur applied to robot and distractor objects.
-# Probability that a frame receives motion blur (0.0–1.0).
 motion_blur_probability = 0.3
-# Blur kernel size range in pixels (randomly chosen per frame).
 motion_blur_strength_range = [5, 15]
 
-# Battle damage, drawn per robot instance per scene. A real robot two minutes into a match
-# is missing parts; every synthetic robot before this was factory fresh. Drawn by
-# synthgen/damage.py, applied and reverted by synthgen/damage_scene.py, and recorded per
-# instance in manifest.jsonl beside images/ and labels/.
-#
-# The manifest is what makes this free: damage-on and damage-off arms are two filters over
-# one render, not two renders. A damage-off arm keeps the frames whose every instance
-# reports damage == 0, and scene_probability is what sizes that pool.
-#
-# Annotations need no special handling. Damage is applied before both render passes, so
-# bboxes and keypoint visibility are computed from the damaged silhouette.
 [damage]
 enabled = true
-# Chance a scene is a damaged scene at all, which fixes the fully clean pool at 1 minus
-# this. Damage has to be drawn per scene, since one render call covers every camera pose in
-# the scene, and that is why this gate exists: a 100-frame probe on 2026-09-12 rolled 4.33
-# robot-like instances per frame, so rolling only per instance at 0.35 left 15 percent of
-# frames fully clean, not the half the damage-off arm needs. At 0.5 the split is exact.
 scene_probability = 0.5
-# Chance each robot instance inside a damaged scene is damaged. Robot-like distractors (the
-# Meshy opponent pool) are rolled for too; scenery distractors are not, since a cut-up
-# traffic cone teaches the detector nothing about a battlebot.
 probability = 0.35
-# CAD robots arrive split into parts, so damage hides a fraction of the removable ones.
 part_severity = [0.05, 0.30]
-# Robots with [[robots.damage_parts]] (Mrs Buff) lose named assemblies instead. This is the
-# batch's pre-selection of which parts may go; empty allows every part a robot names, and
-# --damage-parts overrides it per run.
 removable_parts = []
-# How many of the allowed parts one damaged instance loses.
 part_count = [1, 3]
-# Fused Meshy meshes have no parts to hide, so a cutter primitive seeded on the surface
-# takes this fraction of the bounding volume instead.
 chunk_volume_fraction = [0.03, 0.20]
-# A part holding more than this share of the summed part bounding volumes never goes, so
-# one draw cannot remove most of the robot.
 max_part_volume_fraction = 0.45
-# Keypoint anchors are protected with this much clearance. [robots.keypoints] are
-# model-frame offsets, so removing the part a keypoint sits on would leave the label
-# pointing at thin air.
 keypoint_clearance_m = 0.02
-# Blender object-name substrings that must survive, for anything the geometry test misses.
-# Empty means the geometric protection above is the only rule.
 protected_name_patterns = []
 cutter_shapes = ["cube", "icosphere"]
-# Cutters pre-built at startup, before the segmentation pass is armed. One scene needs at
-# most one per robot-like instance: [scene].max_robots_per_scene plus the distractor pool's
-# robot-like share.
 cutter_pool_size = 16
