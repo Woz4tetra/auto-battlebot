@@ -26,7 +26,10 @@ with the key. Probing needs key auth; with no key it uses the first candidate.
 
 Options:
   --skip-service-restart  Build/install but do not restart systemd service
-  --sync-only             Sync code and models only: no build, no service restart
+  --sync-only             Sync code and models only: no build, no service restart.
+                          Use it for a first deploy too: on a box with no build/ yet the
+                          camera profile step is skipped and the box's install script is named
+                          (e.g. scripts/install_zed_box.sh or scripts/install_jetson_ci.sh)
 
 Examples:
   scripts/deploy_to_jetson.sh
@@ -164,83 +167,111 @@ toml_string() {
     sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"\(.*\)\".*/\1/p" \
         "$PROJECT_ROOT/config/profiles.toml" | head -n 1
 }
-PROFILE_PATTERN="$(toml_string pattern)"
-SELECTION_FILE="$(toml_string selection_file)"
-SELECTION_FILE="${SELECTION_FILE:-\$HOME/.local/state/auto_battlebot/selected_profile}"
-REMOTE_SELECTION_FILE="${SELECTION_FILE/#\~/\$HOME}"
-if [ -n "$PROFILE_PATTERN" ]; then
-    mapfile -t AVAILABLE_PROFILES < <(
-        "$PROJECT_ROOT/scripts/list_deployable_profiles.sh" "$PROJECT_ROOT/config" "$PROFILE_PATTERN"
-    )
-    SELECTED_PROFILE="$(ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
-        "head -n 1 \"${REMOTE_SELECTION_FILE}\" 2>/dev/null" | tr -d '[:space:]')"
-    if [ -n "$SELECTED_PROFILE" ] \
-        && ! printf '%s\n' "${AVAILABLE_PROFILES[@]}" | grep -qxF "$SELECTED_PROFILE"; then
-        DEFAULT_PROFILE="$(head -n 1 "$PROJECT_ROOT/config/default_profile" 2>/dev/null)"
-        echo "Selected profile '${SELECTED_PROFILE}' on ${JETSON_HOST} no longer exists."
-        if [ ! -t 0 ]; then
-            echo "Not a terminal: leaving it. The app will fall back to '${DEFAULT_PROFILE}'."
-        elif [ "${#AVAILABLE_PROFILES[@]}" -eq 0 ]; then
-            echo "No profiles match '${PROFILE_PATTERN}'. The app will fall back to '${DEFAULT_PROFILE}'."
-        else
-            echo "Choose a new profile (default_profile is '${DEFAULT_PROFILE}'):"
-            PS3="Profile number: "
-            select NEW_PROFILE in "${AVAILABLE_PROFILES[@]}"; do
-                [ -n "$NEW_PROFILE" ] && break
-                echo "Pick a number from 1 to ${#AVAILABLE_PROFILES[@]}."
-            done
-            if [ -n "${NEW_PROFILE:-}" ]; then
-                ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
-                    "mkdir -p \"${REMOTE_SELECTION_FILE%/*}\" && printf '%s\n' '${NEW_PROFILE}' > \"${REMOTE_SELECTION_FILE}\""
-                echo "Selected profile set to '${NEW_PROFILE}'."
+select_remote_profile() {
+    PROFILE_PATTERN="$(toml_string pattern)"
+    SELECTION_FILE="$(toml_string selection_file)"
+    SELECTION_FILE="${SELECTION_FILE:-\$HOME/.local/state/auto_battlebot/selected_profile}"
+    REMOTE_SELECTION_FILE="${SELECTION_FILE/#\~/\$HOME}"
+    if [ -n "$PROFILE_PATTERN" ]; then
+        mapfile -t AVAILABLE_PROFILES < <(
+            "$PROJECT_ROOT/scripts/list_deployable_profiles.sh" "$PROJECT_ROOT/config" "$PROFILE_PATTERN"
+        )
+        SELECTED_PROFILE="$(ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
+            "head -n 1 \"${REMOTE_SELECTION_FILE}\" 2>/dev/null" | tr -d '[:space:]')"
+        if [ -n "$SELECTED_PROFILE" ] \
+            && ! printf '%s\n' "${AVAILABLE_PROFILES[@]}" | grep -qxF "$SELECTED_PROFILE"; then
+            DEFAULT_PROFILE="$(head -n 1 "$PROJECT_ROOT/config/default_profile" 2>/dev/null)"
+            echo "Selected profile '${SELECTED_PROFILE}' on ${JETSON_HOST} no longer exists."
+            if [ ! -t 0 ]; then
+                echo "Not a terminal: leaving it. The app will fall back to '${DEFAULT_PROFILE}'."
+            elif [ "${#AVAILABLE_PROFILES[@]}" -eq 0 ]; then
+                echo "No profiles match '${PROFILE_PATTERN}'. The app will fall back to '${DEFAULT_PROFILE}'."
             else
-                echo "No profile chosen. The app will fall back to '${DEFAULT_PROFILE}'."
+                echo "Choose a new profile (default_profile is '${DEFAULT_PROFILE}'):"
+                PS3="Profile number: "
+                select NEW_PROFILE in "${AVAILABLE_PROFILES[@]}"; do
+                    [ -n "$NEW_PROFILE" ] && break
+                    echo "Pick a number from 1 to ${#AVAILABLE_PROFILES[@]}."
+                done
+                if [ -n "${NEW_PROFILE:-}" ]; then
+                    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
+                        "mkdir -p \"${REMOTE_SELECTION_FILE%/*}\" && printf '%s\n' '${NEW_PROFILE}' > \"${REMOTE_SELECTION_FILE}\""
+                    echo "Selected profile set to '${NEW_PROFILE}'."
+                else
+                    echo "No profile chosen. The app will fall back to '${DEFAULT_PROFILE}'."
+                fi
             fi
         fi
     fi
-fi
+}
 
-CAMERA_PROFILES_REMOTE='$HOME/.local/state/auto_battlebot/camera_profiles.toml'
-CAMERA_BACKUP_DIR="$PROJECT_ROOT/data/camera_profiles"
-REMOTE_HOSTNAME="$(ssh "${SSH_OPTS[@]}" "$SSH_TARGET" hostname 2>/dev/null | tr -d '[:space:]')"
-REMOTE_HOSTNAME="${REMOTE_HOSTNAME:-${JETSON_HOST%%.*}}"
-CAMERA_BACKUP="$CAMERA_BACKUP_DIR/${REMOTE_HOSTNAME}.toml"
-mkdir -p "$CAMERA_BACKUP_DIR"
-CAMERA_TMP="$(mktemp)"
-if ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "cat \"${CAMERA_PROFILES_REMOTE}\" 2>/dev/null" > "$CAMERA_TMP" \
-    && [ -s "$CAMERA_TMP" ]; then
-    if cmp -s "$CAMERA_TMP" "$CAMERA_BACKUP"; then
-        echo "Camera profiles on ${REMOTE_HOSTNAME} match ${CAMERA_BACKUP#$PROJECT_ROOT/}."
+sync_camera_profiles() {
+    CAMERA_PROFILES_REMOTE='$HOME/.local/state/auto_battlebot/camera_profiles.toml'
+    CAMERA_BACKUP_DIR="$PROJECT_ROOT/data/camera_profiles"
+    REMOTE_HOSTNAME="$(ssh "${SSH_OPTS[@]}" "$SSH_TARGET" hostname 2>/dev/null | tr -d '[:space:]')"
+    REMOTE_HOSTNAME="${REMOTE_HOSTNAME:-${JETSON_HOST%%.*}}"
+    CAMERA_BACKUP="$CAMERA_BACKUP_DIR/${REMOTE_HOSTNAME}.toml"
+    mkdir -p "$CAMERA_BACKUP_DIR"
+    CAMERA_TMP="$(mktemp)"
+    if ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "cat \"${CAMERA_PROFILES_REMOTE}\" 2>/dev/null" > "$CAMERA_TMP" \
+        && [ -s "$CAMERA_TMP" ]; then
+        if cmp -s "$CAMERA_TMP" "$CAMERA_BACKUP"; then
+            echo "Camera profiles on ${REMOTE_HOSTNAME} match ${CAMERA_BACKUP#$PROJECT_ROOT/}."
+        else
+            mv "$CAMERA_TMP" "$CAMERA_BACKUP"
+            CAMERA_TMP=""
+            echo "Backed up camera profiles from ${REMOTE_HOSTNAME} to ${CAMERA_BACKUP#$PROJECT_ROOT/}."
+            git -C "$PROJECT_ROOT" add -f "${CAMERA_BACKUP#$PROJECT_ROOT/}" \
+                && echo "Staged it; commit it to keep the backup." \
+                || echo "Could not stage it; run: git add -f ${CAMERA_BACKUP#$PROJECT_ROOT/}"
+        fi
     else
-        mv "$CAMERA_TMP" "$CAMERA_BACKUP"
-        CAMERA_TMP=""
-        echo "Backed up camera profiles from ${REMOTE_HOSTNAME} to ${CAMERA_BACKUP#$PROJECT_ROOT/}."
-        git -C "$PROJECT_ROOT" add -f "${CAMERA_BACKUP#$PROJECT_ROOT/}" \
-            && echo "Staged it; commit it to keep the backup." \
-            || echo "Could not stage it; run: git add -f ${CAMERA_BACKUP#$PROJECT_ROOT/}"
-    fi
-else
-    mapfile -t CAMERA_BACKUPS < <(cd "$CAMERA_BACKUP_DIR" && ls -1 -- *.toml 2>/dev/null)
-    if [ "${#CAMERA_BACKUPS[@]}" -gt 0 ] && [ -t 0 ]; then
-        echo "No camera profiles on ${REMOTE_HOSTNAME}. Install a backup? (it starts on DEFAULT either way)"
-        PS3="Backup number: "
-        select CAMERA_CHOICE in "${CAMERA_BACKUPS[@]}" "skip"; do
-            [ -n "$CAMERA_CHOICE" ] && break
-            echo "Pick a number from 1 to $(( ${#CAMERA_BACKUPS[@]} + 1 ))."
-        done
-        if [ -n "${CAMERA_CHOICE:-}" ] && [ "$CAMERA_CHOICE" != "skip" ]; then
-            ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
-                "mkdir -p \"\$(dirname ${CAMERA_PROFILES_REMOTE})\" && cat > \"${CAMERA_PROFILES_REMOTE}\"" \
-                < "$CAMERA_BACKUP_DIR/$CAMERA_CHOICE"
-            echo "Installed ${CAMERA_CHOICE} on ${REMOTE_HOSTNAME}. It loads when the app restarts."
+        mapfile -t CAMERA_BACKUPS < <(cd "$CAMERA_BACKUP_DIR" && ls -1 -- *.toml 2>/dev/null)
+        if [ "${#CAMERA_BACKUPS[@]}" -gt 0 ] && [ -t 0 ]; then
+            echo "No camera profiles on ${REMOTE_HOSTNAME}. Install a backup? (it starts on DEFAULT either way)"
+            PS3="Backup number: "
+            select CAMERA_CHOICE in "${CAMERA_BACKUPS[@]}" "skip"; do
+                [ -n "$CAMERA_CHOICE" ] && break
+                echo "Pick a number from 1 to $(( ${#CAMERA_BACKUPS[@]} + 1 ))."
+            done
+            if [ -n "${CAMERA_CHOICE:-}" ] && [ "$CAMERA_CHOICE" != "skip" ]; then
+                ssh "${SSH_OPTS[@]}" "$SSH_TARGET" \
+                    "mkdir -p \"\$(dirname ${CAMERA_PROFILES_REMOTE})\" && cat > \"${CAMERA_PROFILES_REMOTE}\"" \
+                    < "$CAMERA_BACKUP_DIR/$CAMERA_CHOICE"
+                echo "Installed ${CAMERA_CHOICE} on ${REMOTE_HOSTNAME}. It loads when the app restarts."
+            fi
         fi
     fi
+    if [ -n "$CAMERA_TMP" ]; then rm -f "$CAMERA_TMP"; fi
+}
+
+remote_has_build() {
+    ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "test -d ${JETSON_PATH}/build"
+}
+
+select_remote_profile
+if remote_has_build; then
+    REMOTE_INSTALLED=1
+    sync_camera_profiles
+else
+    REMOTE_INSTALLED=0
+    echo "No ${JETSON_PATH}/build on ${JETSON_HOST}: first deploy, skipping camera profile sync."
 fi
-[ -n "$CAMERA_TMP" ] && rm -f "$CAMERA_TMP"
 
 if [ "$SYNC_ONLY" -eq 1 ]; then
     echo "Sync complete. Skipping remote build and service restart as requested."
+    if [ "$REMOTE_INSTALLED" -eq 0 ]; then
+        echo "First deploy: run the box's install script before a full deploy, e.g."
+        echo "  ssh -t ${SSH_TARGET} 'cd ${JETSON_PATH} && scripts/install_jetson_ci.sh'"
+    fi
     exit 0
+fi
+
+if [ "$REMOTE_INSTALLED" -eq 0 ]; then
+    echo "Code synced, but ${JETSON_HOST} has no install yet, so the remote build would fail."
+    echo "Run the box's install script first, e.g."
+    echo "  ssh -t ${SSH_TARGET} 'cd ${JETSON_PATH} && scripts/install_jetson_ci.sh'"
+    exit 1
 fi
 
 remote_build_and_install() {
