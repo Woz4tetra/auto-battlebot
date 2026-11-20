@@ -226,7 +226,7 @@ Fit stages, plant details, and distillation: `docs/reference/calibration/plant_f
   matching `Plant.command_at` in `plant.py`.
 - `CommandRingBuffer` is a fixed ring of 256 `TimedCommand`s, oldest overwritten first. At 30 Hz
   that is 8 s, far past any transport delay or retrodiction window. `push()` never allocates, so
-  it is safe on the control path, and it requires nondecreasing stamps: `latest_at` and `gather`
+  it is safe on the control path, and it rejects a stamp older than the newest entry (returns false), so stamps never decrease: `latest_at` and `gather`
   stop at the first entry newer than the query. `latest_at(stamp)` returns the newest entry at or
   before `stamp`, or null when the buffer is empty or every entry is newer. `gather(start, end,
   out)` clears `out`, then copies, oldest first, the entry active at `start` (the newest at or

@@ -19,7 +19,8 @@ class CommandRingBuffer {
 
     size_t size() const { return size_; }
 
-    void push(const TimedCommand &command) {
+    bool push(const TimedCommand &command) {
+        if (size_ > 0 && command.stamp < at(size_ - 1).stamp) return false;
         if (size_ == kCapacity) {
             buffer_[start_] = command;
             start_ = (start_ + 1) % kCapacity;
@@ -27,6 +28,7 @@ class CommandRingBuffer {
             buffer_[(start_ + size_) % kCapacity] = command;
             ++size_;
         }
+        return true;
     }
 
     const TimedCommand *latest_at(double stamp) const {

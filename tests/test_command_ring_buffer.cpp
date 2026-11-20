@@ -86,5 +86,22 @@ TEST(CommandRingBufferTest, ClearEmptiesBuffer) {
     EXPECT_EQ(buffer.latest_at(2.0), nullptr);
 }
 
+TEST(CommandRingBufferTest, DecreasingStampIsRejected) {
+    CommandRingBuffer buffer;
+    EXPECT_TRUE(buffer.push(make_command(2.0, 0.2)));
+    EXPECT_FALSE(buffer.push(make_command(1.0, 0.1)));
+    EXPECT_EQ(buffer.size(), 1u);
+    const TimedCommand *latest = buffer.latest_at(3.0);
+    ASSERT_NE(latest, nullptr);
+    EXPECT_DOUBLE_EQ(latest->stamp, 2.0);
+}
+
+TEST(CommandRingBufferTest, EqualStampIsAccepted) {
+    CommandRingBuffer buffer;
+    EXPECT_TRUE(buffer.push(make_command(2.0, 0.2)));
+    EXPECT_TRUE(buffer.push(make_command(2.0, 0.3)));
+    EXPECT_EQ(buffer.size(), 2u);
+}
+
 }  // namespace
 }  // namespace auto_battlebot
