@@ -374,7 +374,7 @@ def main() -> None:
         "--sample-dir",
         type=Path,
         default=None,
-        help="Where to write comparison renders (default: <output>_hull_samples)",
+        help="Where to write comparison renders (default: <output>_samples)",
     )
     parser.add_argument("--seed", type=int, default=0, help="Seed for sample selection")
     parser.add_argument(

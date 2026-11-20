@@ -140,3 +140,53 @@ Projects eval-dataset pixels onto the arena floor from the geometry that `export
 Plane heights come from `[robot_filter] keypoint_height_meters*` in `config/_common.toml`: our robots' keypoints are labeled on the floor, house bots ride 0.12 m up, everything else takes the 0.03 m default. Projecting a robot onto the wrong plane biases its range. `tests/python/test_camera_geometry.py` pins the table against the TOML.
 
 Only `exact` and `interpolated` transforms are usable. `unavailable` has no pose at all and `ambiguous` has two frames claiming the index, so both are dropped by default.
+
+## Confidence threshold sweep
+
+`training/model_eval/conf_sweep.py` finds the confidence threshold whose detection count matches what a dataset should hold. A pre-label run at a fixed confidence over-detects on purpose, so the box count says as much about the threshold as about the model. The script runs each candidate once at a low floor, keeps every detection's confidence, and sweeps thresholds offline. One inference pass answers "what threshold would have produced the expected count" for every threshold at once.
+
+- The expectation is a per-frame box rate measured from a labelled set. For NHRL cage footage it is 2.81 (see `docs/experiments/perception/2026-11-15_model_eval_notes.md`).
+- Matching the count is necessary, not sufficient. An arm can hit the right count with the boxes in the wrong places, and a class the footage never contains (Mr Stabs in Mrs Buff's matches) is a false positive at every threshold. The per-class table is printed for that reason.
+- Detections are cached per candidate under `--cache`, so re-sweeping against a different expectation costs nothing.
+
+## Field size in camera transforms
+
+`export_sub_dataset` in `training/model_eval/export_camera_transforms.py` writes the extents the RANSAC plane fit measured at that field init, centred on the field origin. They locate the arena edges, which the transform alone does not. Estimates vary per init and some are plainly bad fits, so the value is reported as measured and not snapped to a nominal arena size.
+
+## Field projection check
+
+`training/model_eval/make_field_projection_check.py` draws the arena floor onto eval frames so the exported `tf_field_from_camera` can be checked by eye. Floor distances and range bands downstream are only as good as that transform.
+
+- The nominal 8 ft arena square and a 0.5 m grid are drawn on the floor plane. The square should sit on the cage walls. `field_size_m` from the RANSAC fit is not used, since it reads undersized and sometimes fails outright.
+- Range rings at 1, 2 and 3 m from the camera's nadir should look like concentric ellipses hugging the floor.
+- Each labelled robot's keypoint midpoint is round-tripped pixel to floor to pixel. The marker must land back on the original, and the printed residual says by how much. This catches a broken transform even when the grid looks plausible.
+
+## Robot capture mosaic
+
+`training/model_eval/make_robot_capture_mosaic.py` builds a mosaic of the sharpest real captures of each robot in an eval dataset. It supports the Meshy fidelity grades (`meshy_grade_*.md`), which ask whether a Meshy mesh built from a stale thumbnail still looks like the robot the camera sees at fight time. One row per robot, the N best crops from its ground-truth boxes.
+
+- Our robots are read from their own GT label. The eval GT labels every opponent as a generic `opponent`, so each opponent is named by the recording it fought in (`--opponent name=recording_prefix`), the same map the grade uses.
+- "Best" is the variance of the Laplacian over the crop after it is resized to a fixed edge. It prefers sharp, large boxes and penalizes motion blur and small robots alike, since a small crop is upsampled and reads as soft.
+- Boxes touching the frame edge are skipped because they are partly out of view.
+- Picks from one recording stay at least `--min-gap` seconds apart. Otherwise a robot that sits still for ten seconds fills its row with the same view.
+
+## Mask centroid vs box center
+
+`training/model_eval/mask_centroid_vs_box.py` measures how far a YOLO-seg mask centroid sits from its own box center. The pipeline consumes only a position, so the question is whether the centroid carries position information the box center does not.
+
+1. Per detection, the offset between mask centroid and box center, in pixels and as a fraction of the box's longer side (the normalization `score.py` uses for keypoint PCK).
+2. Over IoU-matched detections, how far each position estimate lands from the ground-truth box center. A detect-only model can be passed as a third estimator, so the mask centroid, the seg box center and a bbox-only model are graded on one scale.
+
+- Inference runs through ultralytics on the `.pt` weights, not the TensorRT engine, because `TrtYoloModel` discards the mask coefficients. Detection metrics from this path differ slightly from `score.py`'s engine numbers. The offsets are self-consistent because centroid and box come from the same forward pass.
+- `floor_errors` repeats the errors in millimetres on the arena floor. Each estimate's pixel is projected onto the plane the robot sits on and the distance is taken between floor points. Perspective makes a pixel worth far more at the far wall than at the camera, so a single mm-per-pixel factor would misstate both ends.
+
+## Context vs appearance probes
+
+`training/model_eval/interpret_context_vs_appearance.py` tests the claim that the synthetic+bbox opponent detector keys on context (arena, "not us, not house bot, on the floor") rather than the opponent's own appearance. It runs four probes on two models (`real_bbox` baseline and `mix_all`) over the independent eval, prints metrics and saves figures.
+
+1. RISE occlusion saliency: whether the evidence for an opponent box lives inside the box or in the surrounding context. The metric is saliency concentration inside the box vs a context ring vs background, normalized by area.
+2. Cut-paste context swap: the opponent crop on a neutral gray canvas (appearance only), on a different frame's real arena (appearance plus swapped context), and original. If the score collapses without arena context, the model needs context, not the robot's pixels.
+3. Feature-space check: whether real-opponent and synthetic-opponent crops are separable in backbone-embedding space (domain gap), by linear-probe accuracy and centroid cosine distance per model, and whether `mix_all` pulls the two closer.
+4. Grad-CAM: gradient saliency at the P3 neck layer for the opponent score at each GT box, which corroborates RISE with the inside-box mass fraction.
+
+All probes define the target as the max opponent class score (channels object and robot) among head anchors whose center falls inside the target box.
