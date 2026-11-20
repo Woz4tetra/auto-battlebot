@@ -274,7 +274,6 @@
   "training/synthetic/synthgen/cage_mount.py": 6,
   "training/synthetic/synthgen/cage_scene.py": 9,
   "training/synthetic/synthgen/cage_spec.py": 57,
-  "training/synthetic/synthgen/configuration.py": 49,
   "training/synthetic/synthgen/damage_scene.py": 6,
   "training/synthetic/synthgen/distractors.py": 13,
   "training/synthetic/synthgen/materials.py": 1,

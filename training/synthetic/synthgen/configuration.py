@@ -79,27 +79,15 @@ class KeypointPair:
 
 @dataclass(frozen=True)
 class DamagePartConfig:
-    """One ``[[robots.damage_parts]]`` entry: a named assembly battle damage can remove.
-
-    Faces whose centres fall in ``boxes`` are split off into their own objects at load, so
-    a draw can hide the assembly whole. Entries are matched in config order and the first
-    one to claim a face keeps it.
-    """
+    """One ``[[robots.damage_parts]]`` entry."""
 
     name: str
-    # Each piece is boxes, [x_min, y_min, z_min, x_max, y_max, z_max] in the model's native
-    # frame like keypoints. A plain part is one piece; a subset part loses 1..n of them.
     pieces: tuple[tuple[Aabb, ...], ...]
-    # Only faces of these Blender objects (``.001`` suffix ignored). Empty means any object.
     objects: tuple[str, ...] = ()
     exclude_objects: tuple[str, ...] = ()
-    # A draw removes 1..len(pieces) of the pieces rather than all of them (the wheels).
     subset: bool = False
-    # Other parts of the same robot that go whenever this one does.
     includes: tuple[str, ...] = ()
-    # Subset parts: relative odds of removing 1, 2, ... pieces. Empty means uniform.
     count_weights: tuple[float, ...] = ()
-    # False for a part that only goes through another's ``includes``, such as a decal.
     selectable: bool = True
 
 
@@ -116,8 +104,6 @@ class RobotConfig:
     weight: float = 1.0
     ground_roll_upright: float = 0.0
     ground_roll_inverted: float = 0.0
-    # True for Z-up GLBs (e.g. Meshy models): sit flat at identity pitch, like distractor CAD
-    # robots, instead of the +/-90 deg pitch the OnShape .gltf (Y-up) robots need.
     flat_ground: bool = False
     damage_parts: tuple[DamagePartConfig, ...] = ()
 
@@ -161,7 +147,6 @@ class DistractorsConfig:
     base_dimension_m: float = 0.25
     scale_range: tuple[float, float] = (0.5, 3.0)
     shuffle_interval: int = 100
-    # None means: fall back to the [randomization] value at the use site.
     robot_air_probability: float | None = None
     robot_air_height_range: tuple[float, float] | None = None
     motion_blur_probability: float | None = None
@@ -209,23 +194,14 @@ class CageConfig:
     probability: float = 0.5
     spec: Path = Path("cage/cage2_overhead_high.toml")
     camera_calibration: Path = Path("config/cameras/brettzone_cage_high.toml")
-    # None keeps the run's --render-samples; a cage is darker and has glass, so it usually
-    # wants more.
     render_samples: int | None = None
     tube_jitter: float = 0.25
     mat_margin_m: float = 0.20
     mount: CageMountRanges = CageMountRanges()
-    # The frame this cage writes: `pinhole` at the rectified matrix, `distorted` as the sensor
-    # sees it, or `rectified` through the C++ Rectifier's maps. See synthgen.lens.
     view: View = View.PINHOLE
-    # getOptimalNewCameraMatrix alpha behind the rectified matrix; 1.0 keeps every sensor pixel.
     rectify_alpha: float = 1.0
-    # Draw a new house bot position and heading every scene (synthgen.house_bot_pose). False
-    # leaves it where the spec's [house_bot_box] put it. No effect on a cage without one.
     randomize_house_bot: bool = False
-    # Gap kept between the house bot's footprint circle and each robot's, metres.
     house_bot_clearance_m: float = 0.05
-    # Footprint radius assumed for a robot when keeping the house bot clear of it, metres.
     house_bot_robot_radius_m: float = 0.20
 
     @property
@@ -266,36 +242,19 @@ class RandomizationConfig:
 
 @dataclass(frozen=True)
 class DamageConfig:
-    """``[damage]`` section: battle damage drawn per robot instance per scene.
-
-    Applied by ``synthgen.damage_scene`` and reverted when the scene's frames are written,
-    then recorded per instance in ``manifest.jsonl`` so damage-on and damage-off arms are
-    two filters over one render rather than two renders.
-    """
+    """``[damage]`` section."""
 
     enabled: bool = False
-    # Chance a scene is a damaged scene at all. Damage is drawn per scene, because one
-    # render call covers all of a scene's camera poses, so this is what sets the size of
-    # the fully clean pool: it is exactly 1 - scene_probability, whatever a scene holds.
     scene_probability: float = 0.5
-    # Chance each robot instance inside a damaged scene is damaged.
     probability: float = 0.35
-    # Fraction of a part robot's removable parts to hide.
     part_severity: tuple[float, float] = (0.05, 0.30)
-    # Fraction of a fused mesh's bounding volume the cutter is sized to take.
     chunk_volume_fraction: tuple[float, float] = (0.03, 0.20)
-    # Parts holding more than this share of the summed part bounding volumes never go.
     max_part_volume_fraction: float = 0.45
-    # Keypoint anchors are protected with this much clearance.
     keypoint_clearance_m: float = 0.02
-    # Lowercase substrings of Blender object names that must survive.
     protected_name_patterns: tuple[str, ...] = ()
-    # Named parts ([[robots.damage_parts]]) this batch may remove. Empty allows every part.
     removable_parts: tuple[str, ...] = ()
-    # How many distinct named parts one damaged instance loses, clamped to what is allowed.
     part_count: tuple[int, int] = (1, 2)
     cutter_shapes: tuple[str, ...] = CUTTER_SHAPES
-    # Cutters pre-built at startup. One scene can need one per robot-like instance.
     cutter_pool_size: int = 16
 
 
@@ -464,12 +423,7 @@ def _as_count_weights(entry: dict[str, Any], piece_count: int, context: str) -> 
 
 
 def _parse_part_pieces(entry: dict[str, Any], context: str) -> tuple[tuple[Aabb, ...], ...]:
-    """A part's pieces: ``pieces`` as given, or ``boxes`` as one piece or one per box.
-
-    ``boxes`` on a subset part makes each box its own piece, which suits a wheel. A piece
-    that needs several boxes, such as a guard with a side wall and a front arm, uses
-    ``pieces``, which only a subset part may.
-    """
+    """A part's pieces from ``pieces`` or ``boxes``."""
     boxes = entry.get("boxes")
     pieces = entry.get("pieces")
     if (boxes is None) == (pieces is None):
