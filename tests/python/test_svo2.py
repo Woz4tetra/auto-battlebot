@@ -65,3 +65,16 @@ def test_iter_jpegs_survives_tiny_reads(monkeypatch: pytest.MonkeyPatch) -> None
     images = [_jpeg(seed) for seed in range(3)]
     monkeypatch.setattr(svo2, "_READ_CHUNK", 7)
     assert list(svo2._iter_jpegs(io.BytesIO(b"".join(images)))) == images
+
+
+def test_ffmpeg_gets_vsync_not_fps_mode_for_ffmpeg_4_4(
+    svo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    argv_file = tmp_path / "argv.txt"
+    fake = tmp_path / "ffmpeg"
+    fake.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > {argv_file}\ncat > /dev/null\n')
+    fake.chmod(0o755)
+    list(svo2.iter_left_jpegs(svo, TOPIC, 30.0, ffmpeg_bin=str(fake)))
+    argv = argv_file.read_text().split("\n")
+    assert argv[argv.index("-vsync") + 1] == "passthrough"
+    assert "-fps_mode" not in argv

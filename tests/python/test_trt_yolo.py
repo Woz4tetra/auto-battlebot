@@ -157,3 +157,24 @@ def test_nms_applies_sigmoid_to_raw_logits() -> None:
     assert [d[2] for d in found] == [0, 1]
     assert found[0][1] == pytest.approx(0.9, abs=1e-3)
     assert found[0][3][0, 2] == pytest.approx(1 / (1 + np.exp(-5.0)), abs=1e-4)
+
+
+def test_engine_host_code_allowed_on_property_and_setter_runtimes() -> None:
+    from auto_battlebot.perception import trt_yolo
+
+    class PropertyRuntime:
+        engine_host_code_allowed = False
+
+    class SetterRuntime:
+        def __init__(self) -> None:
+            self.calls: list[bool] = []
+
+        def set_engine_host_code_allowed(self, value: bool) -> None:
+            self.calls.append(value)
+
+    prop = PropertyRuntime()
+    trt_yolo._allow_engine_host_code(prop)
+    assert prop.engine_host_code_allowed is True
+    setter = SetterRuntime()
+    trt_yolo._allow_engine_host_code(setter)
+    assert setter.calls == [True]

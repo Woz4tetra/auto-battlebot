@@ -53,7 +53,6 @@ from auto_battlebot.rl.envs.replay_tracks import ReplayTracks
 from auto_battlebot.rl.torch_plant import saturate
 
 REPO = Path(__file__).resolve().parents[3]
-MJ_MINMU = 1e-5
 DEFAULT_FIT = "playground/calibration/out/mujoco_sysid/fit_2026-10-15_yolo_brake/fit.json"
 PROVISIONAL_RL_SENSING = "simulation/sensing_models/provisional_rl.toml"
 MK3_SENSING = "simulation/sensing_models/provisional_rl_mrs_buff_mk3.toml"
@@ -282,7 +281,7 @@ def build_model(
     common = {
         "contype": FLOOR_CONTYPE,
         "conaffinity": ROBOT_CONTYPE,
-        "friction": [MJ_MINMU, MJ_MINMU, MJ_MINMU],
+        "friction": [0.0, 0.0, 0.0],
     }
     for i in range(WALL_MOCAPS):
         body = spec.worldbody.add_body(
@@ -376,7 +375,6 @@ class WarpNavEnv:
         if self.profile.weapon == Weapon.DISK_SWEEP_CYLINDER and self.mp.weapon is None:
             raise ValueError(f"{cfg.robot} scores a disk weapon but has no [weapon] sweep")
         self.fit = load_fit_params(REPO / resolved_fit_file(cfg))
-        self.fit = self.fit.replace(wheel_mu_roll=max(self.fit.wheel_mu_roll, MJ_MINMU))
         self.motor = MotorConstants(gear_ratio=self.mp.gear_ratio, kt_nm_per_a=self.mp.motor_kt)
         self.mjm = build_model(self.mp, self.fit, self.collision, cfg.timestep_s, cfg.robot)
         mjd = mujoco.MjData(self.mjm)
@@ -899,7 +897,6 @@ class WarpNavEnv:
         for g in (*self.wheel_geoms, *self.skid_geoms):
             fr[:, g, 0] = fr[:, g, 0] * mu
             fr[:, g, 1] = fr[:, g, 1] * mu
-        fr = fr.clamp(min=MJ_MINMU)
         self.geom_friction[:] = torch.where(mask[:, None, None], fr, self.geom_friction)
 
         track = self._uniform(*_scaled((0.9, 1.1), s))
@@ -1106,9 +1103,6 @@ class WarpNavEnv:
         )
         return tr
 
-    def _compile_kernels_before_capture(self) -> None:
-        self._substeps()
-
     def _substeps(self) -> None:
         wp, mjw, kern = self._wp, self._mjw, self._k
         d = self.d
@@ -1172,7 +1166,6 @@ class WarpNavEnv:
     def _physics(self) -> None:
         wp = self._wp
         if self._graph is None:
-            self._compile_kernels_before_capture()
             with wp.ScopedCapture() as capture:
                 self._substeps()
             self._graph = capture.graph

@@ -29,4 +29,3 @@ A 16:9 source letterboxed into a square 640x640 tensor wastes 44% of it on grey 
 
 ## Workarounds
 
-- **`_allow_engine_host_code`.** `load_engine` sets `engine_host_code_allowed` (or calls `set_engine_host_code_allowed` on older bindings) on the runtime. Engines built with lean runtime or host code need it, and C++ `TrtEngine::load` does the same.

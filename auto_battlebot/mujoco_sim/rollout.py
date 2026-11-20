@@ -337,8 +337,6 @@ class WarpRollout:
         self.d.qvel.assign(qvel.astype(np.float32))
         self.step_counter.zero_()
         if self._graph is None:
-            self._compile_kernels_before_capture()
-            self.step_counter.zero_()
             with wp.ScopedCapture() as capture:
                 self._one_step()
             self._graph = capture.graph
@@ -346,9 +344,6 @@ class WarpRollout:
             wp.capture_launch(self._graph)
         wp.synchronize()
         return np.asarray(self.record.numpy(), dtype=float)
-
-    def _compile_kernels_before_capture(self) -> None:
-        self._one_step()
 
     def _one_step(self) -> None:
         from auto_battlebot.mujoco_sim.warp_kernels import advance, control, record
