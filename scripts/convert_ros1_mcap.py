@@ -282,9 +282,11 @@ class TopicSpan:
     count: int = 0
     first: int | None = None
     last: int | None = None
+    times: set[int] = field(default_factory=set)
 
     def add(self, log_time: int) -> None:
         self.count += 1
+        self.times.add(log_time)
         self.first = log_time if self.first is None else min(self.first, log_time)
         self.last = log_time if self.last is None else max(self.last, log_time)
 
@@ -324,6 +326,16 @@ def _split_diagnostics_problems(
     problems = []
     if merged.count > span.count:
         problems.append(f"{topic}: {span.count} arrays in, {merged.count} on one module out")
+    out_times = set().union(
+        *(
+            out_span.times
+            for out_topic, out_span in dst_spans.items()
+            if out_topic.startswith(mcap_io.DIAGNOSTICS_TOPIC_PREFIX)
+        )
+    )
+    dropped = len(span.times - out_times)
+    if dropped:
+        problems.append(f"{topic}: {dropped} of {len(span.times)} arrays reached no module topic")
     if (merged.first, merged.last) != (span.first, span.last):
         problems.append(
             f"{topic}: log time span {span.first}..{span.last} in, "

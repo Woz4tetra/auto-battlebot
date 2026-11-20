@@ -384,3 +384,23 @@ def test_nhrl_rerun_gives_new_clips_the_stamps_a_full_run_would(
     _, converted = nhrl.convert_clips(videos, rerun_dir, args)
     assert converted == 2
     assert starts == {"b": full["b"], "c": full["c"]}
+
+
+def test_split_diagnostics_flags_an_array_that_reached_no_module(convert: ModuleType) -> None:
+    prefix = convert.mcap_io.DIAGNOSTICS_TOPIC_PREFIX
+    span = convert.TopicSpan()
+    for log_time in (10, 30, 50, 70, 90):
+        span.add(log_time)
+    module_a = convert.TopicSpan()
+    module_b = convert.TopicSpan()
+    for log_time in (10, 50, 90):
+        module_a.add(log_time)
+    for log_time in (10, 90):
+        module_b.add(log_time)
+    out = {prefix + "a": module_a, prefix + "b": module_b}
+    problems = convert._split_diagnostics_problems("/diagnostics", span, out)
+    assert problems == ["/diagnostics: 2 of 5 arrays reached no module topic"]
+
+    module_b.add(30)
+    module_b.add(70)
+    assert convert._split_diagnostics_problems("/diagnostics", span, out) == []

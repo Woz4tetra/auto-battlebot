@@ -107,6 +107,9 @@ Fixed 2026-11-19, found during phase 2:
 - `scripts/nhrl_to_recordings.py`: a clip skipped as already converted now advances the start
   stamp, so a re-run gives new clips the stamps a full run would. The one converted set on disk,
   `BrettZone_2026-05` (6 clips), had no overlapping stamps.
+- `scripts/convert_ros1_mcap.py`: `--check` now flags a `/diagnostics` array whose log time
+  reaches no per-module topic, so a dropped array fails the check; before, only a module with more
+  messages than the source failed it.
 
 Open, found during phase 2 (2026-11-19):
 
@@ -115,7 +118,6 @@ Open, found during phase 2 (2026-11-19):
   (`training/deeplab/score_masks.py`) use the `common_transforms` defaults
   (0.4611/0.4359/0.3905, 0.2193/0.2150/0.2109). Fixing it changes the deployed field mask, so it
   needs a mask eval first.
-- `scripts/convert_ros1_mcap.py`: the diagnostics count check only flags the output having more messages than the source; it does not catch dropped messages, though the old comment claimed it bounds the count from below. Found by batch b49, 2026-11-19.
 
 ## Ledger
 
