@@ -562,8 +562,6 @@ for (const id of ["sliderA", "sliderB"]) {
 }
 $("neutralBtn").onclick = setNeutral;
 
-// Space is neutral wherever focus is. Capture phase, and both key events, so a focused button or
-// slider never also acts on it.
 window.addEventListener(
   "keydown",
   (e) => {
@@ -574,7 +572,6 @@ window.addEventListener(
   true,
 );
 window.addEventListener("keyup", (e) => e.code === "Space" && e.preventDefault(), true);
-// A hidden tab may stop running timers; drop to neutral rather than rely on the server deadman.
 document.addEventListener("visibilitychange", () => document.hidden && setNeutral());
 
 setInterval(pushValues, HEARTBEAT_PERIOD_MS);

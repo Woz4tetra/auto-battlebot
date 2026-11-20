@@ -42,9 +42,6 @@ esc_config::EscConfig esc_tuning;
 updown_sensor::UpdownSensor *accel;
 vbat_sensor::VbatSensor vbat_sensor_ina238;
 
-// Stall protection (docs/plans/motor_stall_protection_plan.md): scales both drive commands down
-// when a motor's estimated heat says it is cooking. Updated once per INA238 sample, or every
-// GUARD_PERIOD_US without one, armed or not, so disarming does not hand back a cold budget.
 motor_guard::MotorGuard guard{motor_guard::Config()};
 const uint32_t GUARD_PERIOD_US = 10000;
 uint32_t last_guard_us = 0;
@@ -95,11 +92,6 @@ espnow_link::EspNowLink espnow;
 
 const bool ESPNOW_ENABLED = true;
 
-// With SA on and a fresh ESP-NOW command, drive from it instead of the handset sticks; stale
-// ESP-NOW falls back to the sticks. False is shadow mode: commands are received and reported but
-// never drive. The ZED Box sends over ESP-NOW alone, so with this false the Jetson cannot drive.
-// Nothing rate-limits the arbitrated output: a source switch, an ESP-NOW dropout, or an
-// orientation flip steps the wheels in one tick.
 const bool ESPNOW_COMMAND_SUBSTITUTION = true;
 
 void set_builtin_led(int value) {
@@ -285,7 +277,6 @@ void setup_ota() {
         .onStart([]() {
             is_loading_firmware = true;
             stop_escs();
-            // handle() runs the whole upload inside one loop() pass.
             disableLoopWDT();
         })
         .onEnd([]() {})
@@ -328,8 +319,6 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle
                        float &left_command, float &right_command) {
     float a_percent = radio_data->a_percent;
     float b_percent = radio_data->b_percent;
-    // a_percent is the negated throttle channel, so pulling the stick back reads positive, and
-    // loop() negates it again when inverted. Either way, stick back drives tail-first.
     float tail_first_throttle = is_upside_down ? -a_percent : a_percent;
 
     uint32_t sample_us = accel->get_sample_us();
@@ -379,7 +368,7 @@ void start_setup_frames() {
 
 void stop_setup_frames() {
     esp_timer_stop(setup_frames_timer);
-    delay(10);  // a callback already running finishes before loop() sends its own frames
+    delay(10);
     esp_timer_delete(setup_frames_timer);
     setup_frames_timer = nullptr;
 }
@@ -416,8 +405,6 @@ void setup() {
     if (!accel->begin()) {
         for (int count = 0; count < 10; count++) pulse_led();
     }
-    // INA238 pack voltage and current on the same bus. If it is missing, vbat and ibat report
-    // NaN and the robot runs normally.
     vbat_sensor_ina238.begin(&Wire1);
     set_builtin_led(255);
 
@@ -457,7 +444,6 @@ void loop() {
     uint32_t loop_us = now_us - prev_loop_us;
     prev_loop_us = now_us;
 
-    // No firmware upload in tuning mode: the ESC pins belong to the bootloader link.
     if (!esc_tuning.owns_escs()) ArduinoOTA.handle();
     if (is_loading_firmware) {
         return;
@@ -471,9 +457,6 @@ void loop() {
     float ibat = vbat_sensor_ina238.get_pack_amps_discharge();
     update_motor_guard(micros());
 
-    // An ESP-NOW firmware transfer owns the loop: motors stopped, no control, same as ArduinoOTA.
-    // It only starts disarmed, and arming aborts it inside update(). Tuning mode counts as armed
-    // here, so no transfer starts while the ESC pins belong to the bootloader link.
     if (ESPNOW_ENABLED) {
         espnow.update(now_ms, (radio_ok && radio_data->armed) || esc_tuning.owns_escs());
         if (espnow.ota_in_progress()) {
@@ -482,7 +465,6 @@ void loop() {
         }
     }
     pair_request_t pair_request;
-    // Erasing the core dump writes flash, so it waits for the loop and refuses while armed.
     if (diag_server.take_erase_dump_request() && !(radio_ok && radio_data->armed)) {
         if (crash_report::erase_dump()) {
             boot_reset_report.has_dump = false;
@@ -561,7 +543,6 @@ void loop() {
     }
 
     if (!radio_data->armed || esc_tuning.owns_escs()) {
-        // Disarm is the only way out of a thermal trip. A link loss keeps it latched.
         if (!radio_data->armed) guard.clear_trip();
         stop_escs();
         reset_steering(accel->get_orientation()->x);
@@ -598,9 +579,6 @@ void loop() {
         return;
     }
 
-    // ESP-NOW command substitution. Runs only after every CRSF gate has passed, so ESP-NOW can
-    // never arm the robot or extend its armed window. SA (ch5) down is the pilot's "accept
-    // autonomous commands" position; SA up forces the stick values on ch0/ch1.
     bool espnow_active = false;
     if (ESPNOW_ENABLED && ESPNOW_COMMAND_SUBSTITUTION && radio_data->autonomy_enabled &&
         espnow.fresh(now_ms)) {
@@ -638,7 +616,6 @@ void loop() {
     mix_motor_outputs(radio_data, sensed_angle_z, auto_steer_enabled, is_upside_down, micros(),
                       left_command, right_command);
 
-    // After the mixer, so it covers both the trainer and ESP-NOW command sources.
     guard.apply(left_command, right_command);
     esc::Esc::write_pair(*left_esc, left_command, *right_esc, right_command);
     last_left_scaled_duty = left_esc->duty(left_command);

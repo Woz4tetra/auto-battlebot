@@ -23,8 +23,6 @@ static constexpr uint8_t PIN_SD_CS = 23;
 static constexpr uint8_t PIN_ENC_A = 26;
 static constexpr uint8_t PIN_ENC_B = 27;
 
-// Onboard LED (status/error blink). Not named PIN_LED: the arduino-pico variant
-// already defines that as a macro.
 static constexpr uint8_t PIN_STATUS_LED = 13;
 
 static constexpr uint32_t SAMPLE_RATE_HZ = 1000;

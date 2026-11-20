@@ -440,7 +440,7 @@ static void runDiagnostics() {
             last = millis();
             drawDiagnostics();
         }
-        delay(2);  // services USB while idling between refreshes
+        delay(2);
     }
     Serial.println("diagnostics end");
     drawMenu(g_showLastRunSummary);
@@ -574,9 +574,6 @@ static void handleCommand() {
     }
 }
 
-// Pump the USB stack and wait (bounded) for the serial monitor to attach. This
-// is the key fix: delay() services USB, so the CDC port enumerates here even if
-// a later init call hangs. Blinks the LED while waiting.
 static void dbgWaitForHost(uint32_t timeout_ms) {
 #if VJIG_DEBUG
     uint32_t t0 = millis();

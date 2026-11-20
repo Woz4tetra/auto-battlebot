@@ -31,13 +31,10 @@ class EscConfig {
    public:
     EscConfig();
     void begin(esc::Esc *esc0_right, esc::Esc *esc1_left, uint8_t esc0_pin, uint8_t esc1_pin);
-    // Called by loop() every pass. armed and driving refuse entry; a radio button press exits.
-    // Runs at most one queued frame, which blocks for up to about 3 s (a write).
     void update(uint32_t now_ms, bool armed, bool driving, bool button_pressed);
     bool owns_escs() const { return _state != State::COMBAT; }
     State state() const { return _state; }
 
-    // HTTP side, safe from the network task.
     void request(bool enter);
     bool submit(const uint8_t *frame, size_t size, uint32_t &id, const char *&reason);
     Poll poll(uint32_t &id, uint8_t (&out)[blheli_boot::MAX_RESPONSE], size_t &size);

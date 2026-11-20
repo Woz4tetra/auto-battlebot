@@ -13,8 +13,6 @@ namespace {
 const uint32_t REPEAT_PERIOD_US = 4000;
 const uint32_t COMMAND_SILENCE_MS = 100;
 const uint32_t LINK_STATS_PERIOD_MS = 100;
-// A send whose callback never arrives would wedge the queue. ESP-NOW reports every send within
-// a few ms; this only covers a driver hiccup.
 const uint32_t SEND_CALLBACK_TIMEOUT_MS = 50;
 const uint32_t SCAN_DWELL_MS = 150;
 const uint32_t ROBOT_SILENCE_LED_RED_MS = 500;
@@ -148,10 +146,6 @@ void write_serial_frame(uint8_t type, const uint8_t *payload, uint8_t length) {
         Serial.write(out, size);
         return;
     }
-    // HWCDC's ISR disables the IN_EMPTY interrupt each time it fires and only Serial.write()
-    // turns it back on. Skipping write() while the buffer is full leaves it off for good once
-    // the host stops reading, and after a USB reset nothing drains the buffer again: the dongle
-    // goes silent until it is power cycled. Re-arm it the way write() does.
     usb_serial_jtag_ll_txfifo_flush();
     usb_serial_jtag_ll_ena_intr_mask(USB_SERIAL_JTAG_INTR_SERIAL_IN_EMPTY);
 }

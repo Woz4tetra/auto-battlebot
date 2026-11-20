@@ -97,7 +97,6 @@ bool EspNowLink::begin(wifi_interface_t ifidx, uint8_t pinned_channel, TuningSto
 void EspNowLink::set_channel(uint8_t channel) {
     esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
     channel_ = channel;
-    // Peers and the rate do not survive a channel change, so redo both every time.
     const uint8_t count = allowed_count.load(std::memory_order_acquire);
     for (uint8_t i = 0; i < count; i++) add_or_update_peer(allowed_macs[i], ifidx_, channel);
     esp_wifi_config_espnow_rate(ifidx_, WIFI_PHY_RATE_6M);

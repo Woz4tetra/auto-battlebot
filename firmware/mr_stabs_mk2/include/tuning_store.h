@@ -4,8 +4,6 @@
 
 class TuningStore {
    public:
-    // Loads saved values over the defaults. A saved value outside its field's range keeps the
-    // default.
     void begin();
 
     tuning::Settings get();

@@ -20,7 +20,6 @@ if [ -z "${JETSON_KEY:-}" ] && [ -f "$HOME/.ssh/${JETSON_HOST%%.*}" ]; then
 fi
 SSH_OPTS=()
 if [ -n "${JETSON_KEY:-}" ]; then
-    # Only this key: the agent's full set exhausts sshd's MaxAuthTries.
     SSH_OPTS+=(-i "$JETSON_KEY" -o IdentitiesOnly=yes)
 fi
 TARGET="${JETSON_USER:+${JETSON_USER}@}${JETSON_HOST}"

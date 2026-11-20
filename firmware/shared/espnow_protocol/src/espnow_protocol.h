@@ -8,7 +8,6 @@ namespace espnow_protocol {
 const uint16_t SERIAL_MAGIC = 0xB07B;
 const uint8_t AIR_MAGIC[4] = {'B', 'W', 'B', 0x01};
 const size_t AIR_HEADER_SIZE = sizeof(AIR_MAGIC) + 1;
-// ESP_NOW_MAX_DATA_LEN on IDF 4.4. ESP-NOW v2 needs IDF 5.4.
 const size_t AIR_MAX_FRAME = 250;
 const size_t AIR_MAX_PAYLOAD = AIR_MAX_FRAME - AIR_HEADER_SIZE;
 const size_t SERIAL_OVERHEAD = 6;

@@ -18,9 +18,6 @@ from auto_battlebot.robot_link.esp32_serial import open_esp32_serial
 
 FRAME_START = b"\x1e"
 RESPONSE_TIMEOUT_S = 15.0
-# A GET waits this long before it is sent again. The robot replays requests over loopback TCP, which
-# now and then stalls a response for 10 s (a dropped segment waiting out its retransmit timer).
-# Answers are held for at most about 3 s while an ESC exchange runs.
 GET_TIMEOUT_S = 4.5
 GET_TRIES = 3
 SLOW_REQUEST_LOG_S = 2.0
@@ -128,11 +125,7 @@ class Bridge:
 
 
 def response_size(received: bytes) -> int | None:
-    """Total bytes of a response with a Content-Length, once its head has arrived, else None.
-
-    The robot closes each connection after the response, but its side notices the close late, so
-    the bridge closes it as soon as the body is complete instead.
-    """
+    """Total bytes of a response with a Content-Length, once its head has arrived, else None."""
     end = received.find(b"\r\n\r\n")
     if end < 0:
         return None

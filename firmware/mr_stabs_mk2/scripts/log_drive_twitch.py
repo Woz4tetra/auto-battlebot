@@ -92,9 +92,6 @@ def capture(host: str, seconds: float, out: Path) -> None:
                 if not line.startswith("data:"):
                     continue
                 data = line[len("data:") :].strip()
-                # Older firmware sends a shorter row without the yaw, guard, or seq columns; pad
-                # it so every row matches the header. The firmware just before the guard ends
-                # in seq, so its padding goes in front of seq.
                 fields = data.count(",") + 1
                 if not len(COLUMNS) - len(OPTIONAL_COLUMNS) <= fields <= len(COLUMNS):
                     continue

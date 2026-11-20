@@ -1,8 +1,5 @@
 #pragma once
 
-// ESP-NOW link to the Jetson's USB dongle: command shortcut, telemetry, and firmware updates.
-// Holds no authority. main.cpp substitutes the drive command only after every CRSF gate passes.
-// See firmware/mr_stabs_mk2/README.md.
 
 #include <Arduino.h>
 #include <command_tracker.h>
@@ -40,12 +37,8 @@ class EspNowLink {
 
     void send_telemetry(espnow_protocol::TelemetryPayload &telemetry, uint32_t now_ms);
 
-    /** Link health for the diagnostics page. Leaves enabled, substitution, and driving to the
-     *  caller, which owns those flags. */
     void fill_status(espnow_status_t &out, uint32_t now_ms) const;
 
-    /** Adds a dongle to the paired list in NVS. Disarmed only: the NVS write stalls both cores
-     *  for a few ms. Returns a pair_result_t. */
     uint8_t pair(const uint8_t *mac, bool armed);
     uint8_t unpair(const uint8_t *mac, bool armed);
 
@@ -83,7 +76,6 @@ class EspNowLink {
     uint8_t reply_mac_[6] = {0};
     bool heard_dongle_ = false;
 
-    // Receive counters for fill_status(), from loop() context.
     uint32_t rx_frames_ = 0;
     uint32_t rx_commands_new_ = 0;
     uint32_t rx_commands_repeat_ = 0;

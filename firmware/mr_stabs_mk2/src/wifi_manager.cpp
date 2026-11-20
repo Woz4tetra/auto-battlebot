@@ -27,8 +27,6 @@ void WifiManager::begin(const char *hostname, const char *ap_ssid, const char *a
     _force_ap = force_ap;
     load();
 
-    // The core otherwise writes the station config to flash on every WiFi.begin(), and a flash
-    // write stalls the control loop. The settings live in our own NVS namespace instead.
     WiFi.persistent(false);
     WiFi.setHostname(_hostname);
     start_from_saved();

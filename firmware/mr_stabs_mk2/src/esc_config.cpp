@@ -37,17 +37,12 @@ class EscConfig::SerialLink : public blheli_boot::EscLink {
             config.source_clk = UART_SCLK_APB;
             uart_driver_install(PORT, 1024, 0, 0, nullptr, 0);
             uart_param_config(PORT, &config);
-            // Hand each byte over as it lands. The default 120-byte threshold holds a reply back
-            // for 62 ms at a time, longer than the 10 ms gap that ends it.
             uart_set_rx_full_threshold(PORT, 1);
             _installed = true;
         }
         if (_current >= 0 && _current != esc) drive(_pins[_current], 1);
         _current = esc;
         const gpio_num_t pin = static_cast<gpio_num_t>(_pins[esc]);
-        // uart_set_pin() leaves the shared pin input only. Open drain gives the UART the line
-        // back, and since gpio_set_direction() reconnects the pin to plain GPIO output, the
-        // UART's TX signal is routed to it again last.
         uart_set_pin(PORT, pin, pin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
         gpio_set_pull_mode(pin, GPIO_PULLUP_ONLY);
         gpio_set_direction(pin, GPIO_MODE_INPUT_OUTPUT_OD);
@@ -308,7 +303,6 @@ void EscConfig::update(uint32_t now_ms, bool armed, bool driving, bool button_pr
                 _last_activity_ms = millis();
                 _released = false;
             }
-            // Checked after the frame, so a write always finishes before the pins change hands.
             if (requested == Request::EXIT || button_edge) {
                 start_exit(now_ms);
             } else if (!_released && millis() - _last_activity_ms >= IDLE_BOOTLOADER_RELEASE_MS) {

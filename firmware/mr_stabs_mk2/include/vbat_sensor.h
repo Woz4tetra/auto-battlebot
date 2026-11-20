@@ -22,9 +22,6 @@ struct status_t {
 
 class VbatSensor {
    public:
-    // Checks the device ID and writes the ADC config. Returns false and reports NaN from
-    // then on if the chip does not ACK or is not an INA238. Never blocks beyond two I2C
-    // transactions.
     bool begin(TwoWire *wire = &Wire1);
 
     void update();

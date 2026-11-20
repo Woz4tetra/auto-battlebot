@@ -115,9 +115,6 @@ void Server::send_boot(const uint8_t *data, size_t size) {
     _link.send(buf, size + 2);
 }
 
-// Replies are read until the line goes quiet and checked from their end. Switching the pin from
-// transmit to receive sometimes decodes as a stray byte (0xfe) ahead of the reply, seen on the
-// robot on 2026-10-23; the passthrough's first-byte checks would fail on it the same way.
 bool Server::boot_ack(uint32_t first_ms, const char *step) {
     const size_t n = _link.receive(_rx, sizeof(_rx), 0, first_ms);
     if (n >= 1 && _rx[n - 1] == BOOT_SUCCESS) return true;
@@ -189,9 +186,6 @@ uint8_t Server::read_once(uint16_t address, size_t length, uint8_t *data) {
     return ACK_OK;
 }
 
-// A read changes nothing, so it repeats. On the robot a session's first 256-byte read has failed
-// its CRC three times running and taken the session down (2 CLI runs in 9 on 2026-10-23), so the
-// last resort redoes the handshake before trying again.
 uint8_t Server::read(uint16_t address, size_t length, uint8_t *data) {
     _first_read_failure[0] = '\0';
     for (uint8_t attempt = 0; attempt < READ_TRIES; attempt++) {
@@ -280,12 +274,6 @@ size_t Server::handle(const uint8_t *frame, size_t size, uint8_t *out) {
             return build_response(req.cmd, req.address, &zero, 1, ACK_OK, out);
         }
         case DEVICE_RESET:
-            // BLHeliSuite and the clients send this before each DeviceInitFlash and after each
-            // session. A real restart holds the line low, so the ESC boots its application and
-            // has to fall back into the bootloader through its lost-signal check; a handshake
-            // landing on that check left the ESC unreachable in 1 session in 10 on 2026-10-23.
-            // The ESC is already in its bootloader, so only select it. Leaving tuning mode, the
-            // idle timeout, and a failed handshake still restart it with reset_esc().
             if (param >= _link.count()) {
                 return build_response(req.cmd, req.address, &zero, 1, ACK_INVALID_CHANNEL, out);
             }

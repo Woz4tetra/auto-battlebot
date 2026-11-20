@@ -22,8 +22,6 @@ struct Connection {
 
 static Connection connections[MAX_CONNECTIONS];
 
-// Writes a frame in one call once the USB ring buffer has room for all of it, so log lines and
-// frames never split each other. False when the laptop stopped reading.
 static bool write_whole(const char *data, size_t size) {
     const uint32_t start = millis();
     while (static_cast<size_t>(Serial.availableForWrite()) < size) {
@@ -34,9 +32,6 @@ static bool write_whole(const char *data, size_t size) {
     return true;
 }
 
-// Arduino's log_e() and friends write one character at a time through the ROM putc hook, from any
-// task or core, with no lock, so they would land in the middle of a frame. Collect them here and
-// let the bridge task write whole lines between frames.
 static const size_t LOG_RING = 2048;
 static char log_ring[LOG_RING];
 static size_t log_write_index = 0;
@@ -79,8 +74,6 @@ static void close(Connection &c) {
     c.open = false;
 }
 
-// WiFiClient::connected() probes with a zero-length recv, which never reports an orderly close,
-// so a finished response would hold its slot forever. Peek one byte instead: 0 means EOF.
 static bool peer_closed(WiFiClient &client) {
     const int fd = client.fd();
     if (fd < 0) return true;
@@ -203,9 +196,6 @@ static void task(void *) {
 
 void begin() {
     ets_install_putc2(log_putc);
-    // Core 1, where Serial.begin() put the USB-Serial/JTAG interrupt. Writing from core 0 raced it
-    // and lost whole 64-byte packets: 2 to 5 damaged frames per 10 kB file, none on core 1 (236
-    // frames checked on 2026-10-23).
     xTaskCreatePinnedToCore(task, "usb_bridge", 6144, nullptr, 1, nullptr, 1);
 }
 

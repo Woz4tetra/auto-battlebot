@@ -163,8 +163,6 @@ static String status_json(const sensor_status_t &s, bool scan_pending) {
              n.device_id, n.last_error, (unsigned long)n.reads, (unsigned long)n.read_failures,
              age_or_null(n.last_ok_ms != 0, n.last_ok_ms, s.snapshot_taken_ms).c_str());
 
-    // The ESP-NOW block goes in through ArduinoJson and is spliced in before the closing brace.
-    // Serialized into its own String: ArduinoJson 7 clears a String before writing to it.
     JsonDocument doc;
     espnow_json(doc.to<JsonObject>(), s.espnow, s.snapshot_taken_ms);
     String espnow;

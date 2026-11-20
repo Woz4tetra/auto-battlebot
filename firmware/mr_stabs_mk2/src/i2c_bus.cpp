@@ -7,7 +7,6 @@ bool scan(TwoWire *wire, scan_t *result, bool armed) {
     if (armed) return false;
     result->count = 0;
     for (uint8_t address = 0x08; address < 0x78; address++) {
-        // A stuck bus times out every address; 112 of them can outlast the loop watchdog.
         esp_task_wdt_reset();
         wire->beginTransmission(address);
         if (wire->endTransmission() == 0 && result->count < MAX_FOUND) {

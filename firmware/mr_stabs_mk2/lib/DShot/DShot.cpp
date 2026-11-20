@@ -5,8 +5,6 @@
 #include <soc/gpio_reg.h>
 #include <soc/gpio_sig_map.h>
 
-// Declared by Adafruit NeoPixel esp.c on IDF <5.
-// Mark our channels so NeoPixel skips them.
 extern bool rmt_reserved_channels[];
 
 static uint32_t dshot_bit_ns(dshot_mode_t mode) {
@@ -174,10 +172,6 @@ void DShot::collect_reply() {
         }
         if (last_level == 0 && count < MAX_RUNS) runs[count++] = 0;
         vRingbufferReturnItem(_rx_ring, items);
-        // The reply starts on a low run, but the capture can open with a stray edge or two:
-        // the neighbouring ESC's frame is often still on the wire when this receiver arms, and
-        // a reception that began before our own frame holds it ahead of a long gap. Try the
-        // first few low runs after any gap; the GCR and CRC reject a wrong start.
         size_t from = 0;
         for (size_t i = starts_low ? 1 : 0; i < count; i += 2) {
             if (runs[i] >= GAP_TICKS && i + 1 < count) {

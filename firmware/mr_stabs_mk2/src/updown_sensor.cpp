@@ -25,14 +25,12 @@ const uint8_t REG_OPR_MODE = 0x3D;
 bool UpdownSensor::begin() {
     if (initialized) return true;
     status.begin_attempts++;
-    // Read before the library's begin(), which hides why it failed.
     check_chip_id();
     if (sensor->begin(OPERATION_MODE_IMUPLUS)) {
         delay(1000);
         initialized = true;
         status.initialized = true;
         has_prev_heading = false;
-        // The gyro unwrap tracks from the previous sample, which a reconnect leaves stale.
         gyro_vec->x = gyro_vec->y = gyro_vec->z = 0.0f;
         sensor->setAxisRemap(Adafruit_BNO055::REMAP_CONFIG_P4);
         sensor->setAxisSign(Adafruit_BNO055::REMAP_SIGN_P4);
@@ -142,8 +140,6 @@ bool UpdownSensor::update_sensor(bool allow_blocking_reconnect) {
     }
     sample_timer = now;
 
-    // The Adafruit reads ignore I2C errors and return zeros, so check the sensor still answers.
-    // One failed check costs a single transaction; then reads stop until begin() succeeds.
     if (!check_chip_id()) {
         initialized = false;
         status.initialized = false;

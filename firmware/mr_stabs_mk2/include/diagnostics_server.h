@@ -161,8 +161,6 @@ class DiagnosticsServer {
     LoopFlag _scan_request;
     pair_request_t _pair_request = {};
     LoopFlag _erase_dump_request;
-    // From the latest update(). WiFi settings writes go to flash, which stalls the loop, so
-    // the page can only change them disarmed.
     volatile bool _armed = false;
     wifi_manager::WifiManager *_wifi = nullptr;
     const telemetry_ring_t *_ring = nullptr;

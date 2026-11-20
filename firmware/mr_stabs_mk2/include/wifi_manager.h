@@ -33,7 +33,6 @@ struct settings_t {
     network_t networks[MAX_NETWORKS];
 };
 
-// What the diagnostics page shows. Passwords never leave the manager.
 struct snapshot_t {
     link_mode_t mode;
     link_state_t state;
@@ -81,7 +80,6 @@ class WifiManager {
     uint8_t _ap_channel = 1;
     bool _force_ap = false;
 
-    // Owned by the task once begin() returns; read by snapshot() under _lock.
     link_state_t _state = link_state_t::AP;
     char _joining[SSID_LEN + 1] = "";
     uint32_t _connect_start_ms = 0;
