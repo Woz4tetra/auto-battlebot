@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+link_baked_blender_into_home() {
+  chmod o+rx /root
+  [ -e /home/bot/blender ] || ln -s /root/blender /home/bot/blender
+}
+
+hand_hf_cache_to_host_user() {
+  mkdir -p "$1"
+  chown "$HOST_UID:$HOST_GID" "$1"
+}
+
 if [ "$(id -u)" = "0" ] && [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "${HOST_UID}" != "0" ]; then
   getent group "$HOST_GID" >/dev/null 2>&1 || groupadd -g "$HOST_GID" bot
   getent passwd "$HOST_UID" >/dev/null 2>&1 || \
@@ -9,18 +19,9 @@ if [ "$(id -u)" = "0" ] && [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [
   mkdir -p /home/bot
   chown "$HOST_UID:$HOST_GID" /home/bot
 
-  # BlenderProc resolves Blender at $HOME/blender; the image bakes it under /root
-  # (0700). Make /root traversable and link the baked install into the new home so
-  # the dropped user reuses it instead of re-downloading.
-  chmod o+rx /root
-  [ -e /home/bot/blender ] || ln -s /root/blender /home/bot/blender
-
-  # HF_HOME is a baked, root-owned dir unless a host cache is mounted over it; give
-  # the target user ownership of the top level (a no-op for a host-owned mount) so
-  # the cache is writable after the privilege drop.
+  link_baked_blender_into_home
   hf_home="${HF_HOME:-/opt/hf}"
-  mkdir -p "$hf_home"
-  chown "$HOST_UID:$HOST_GID" "$hf_home"
+  hand_hf_cache_to_host_user "$hf_home"
 
   export HOME=/home/bot USER=bot
   exec setpriv --reuid "$HOST_UID" --regid "$HOST_GID" --clear-groups "$0" "$@"

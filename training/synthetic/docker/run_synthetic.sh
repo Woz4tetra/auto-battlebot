@@ -24,10 +24,6 @@ EOF
   exit 1
 fi
 
-# Docker does not forward the host's CUDA_VISIBLE_DEVICES into the container, and the driver
-# inside numbers the passed-through GPUs from 0, so the variable is translated into the
-# --gpus device list here rather than exported. Without this a render silently shared
-# whichever GPU vLLM or a training job was already on.
 gpu_selector="all"
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
   gpu_selector="\"device=${CUDA_VISIBLE_DEVICES}\""
@@ -88,9 +84,6 @@ docker_id_args=(-e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)")
 
 docker_env_args=(-e PYTHONPATH=/workspace/training/synthetic)
 
-# BlenderProc writes a scene's render passes to /dev/shm and reads them back after the render.
-# Docker's 64 MB default holds ten 1280x720 pinhole frames but not ten 2560x1442 frames for a
-# warped view: the 2026-09-13 rectified runs died reading depth_0004.exr. SYNTH_SHM_SIZE overrides.
 docker_shm_args=(--shm-size "${SYNTH_SHM_SIZE:-8g}")
 
 run_cmd=(
