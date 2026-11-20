@@ -125,7 +125,6 @@ Fixed 2026-11-19, found during phase 2:
 | `firmware/espnow_dongle/platformio.ini:8` | Pins platform = espressif32@6.13.0 (Arduino core on IDF 4.4). | An unpinned espressif32 resolves to the globally installed pioarduino 55.x (IDF 5), which changes ESP-NOW frame limits the wire format assumes. | unverified: matches project memory note pioarduino-shadows-espressif32; did not build unpinned. | Port to IDF 5 (ESP-NOW v2 frames, rmt_tx DShot on mr_stabs_mk2) and pin to that platform explicitly. |
 | `firmware/mr_stabs_mk2/platformio.ini:15` | Pins platform = espressif32@6.13.0 (Arduino core 2.x, IDF 4.4). | pioarduino 55.x (IDF 5) removes NeoPixel's rmt_reserved_channels and deprecates the legacy RMT driver DShot.cpp uses. | yes: DShot.cpp:10,62 use rmt_reserved_channels from .pio/libdeps/local/Adafruit NeoPixel/esp.c:154 and the legacy rmt_config/rmt_write_items API; did not build on IDF 5. | Port DShot to IDF 5 rmt_tx/rmt_rx with its channel allocator. |
 | `hardware/zed_box_mini_mount/zed_x_one_s_assembly.py:102` | Places the ZED Box Mini STEP at z = adapter thickness - 12.0. | out/step/zed_box_mini.step was exported on the old 12 mm adapter, so placed as-is it sits 5.3 mm above the current adapter. | yes: zed_mount.py docstring and cage_layout.ZED_STEP_BASE_Z = 12.0 both record the STEP base sheet at z 12. | Re-export zed_box_mini.step from assembly_page.py with its base sheet at z = 0 and drop the offset here, in zed_mount.py and in cage_layout.ZED_STEP_BASE_Z. |
-| `src/runner.cpp:289` | wait_for_frames_in_flight sleeps until three more ticks have started (or 500 ms) before the MCAP gate closes on a recording-off. | A tick holding a frame captured before the encoder stopped would publish its frame_meta, with the old video index, into the next file and point at the wrong packet. | unverified: frame_meta is logged from data.frame_identity in src/publisher/foxglove_publisher.cpp:220 with no file generation check, so the claim is consistent with the code; not reproduced. | Stamp each frame_identity with the recording generation and have the publisher drop frame_meta whose generation does not match the open file, then delete the tick-count wait. |
 | `training/synthetic/docker/entrypoint.sh:18` | Makes /root world-traversable and symlinks the baked Blender install into /home/bot before dropping privileges. | BlenderProc resolves Blender at $HOME/blender, so the dropped user would not find the baked install and would re-download Blender. | unverified: BlenderProc's default install path is $HOME/blender per its docs; not run here | Bake Blender at a shared path such as /opt/blender and launch with blenderproc run --custom-blender-path /opt/blender, then drop the chmod and symlink |
 | `training/synthetic/docker/entrypoint.sh:24` | chowns the top-level HF_HOME directory to HOST_UID before the privilege drop. | The baked HF cache is root-owned, so the dropped user cannot write to it. | unverified: follows from the Dockerfile baking HF_HOME as root; not run | Bake HF_HOME world-writable or always mount a host cache over it |
 | `training/synthetic/docker/warmup.py:1` | A no-op blenderproc run at image build so setup_pip writes a complete installed_packages_cache_v2.json. | blenderproc pip install records only the named package, so every runtime run re-checks the default packages with pip. | unverified: BlenderProc setup_pip internals not read | Upstream: have blenderproc pip install record default packages too; or pin the cache file in the Dockerfile |
@@ -146,15 +145,6 @@ Fixed 2026-11-19, found during phase 2:
 | `hardware/mr_stabs_mk2_pcb/pcba/gen_placement.py:448` | Adds a B.Cu track and via keep-out over the VBATT pour neck between the shunt and ESC_L+. | Two routing tries cut the neck with signal tracks, so 20 A ESC current flowed through a track. | unverified: needs a routing run. | Add a post-route check that the VBATT copper between shunt and ESC+ pads has a minimum width (rating_check.py), so any cut fails the flow instead of relying on a keep-out. |
 | `hardware/mr_stabs_mk2_pcb/pcba/gen_placement.py:458` | Adds a small B.Cu keep-out strip between R3 VBATT pad and ESC_L+. | SENSE_N and SENSE_P tracks boxed in R3 VBATT pad so the pour no longer joined the Kelvin tap. | unverified: needs a routing run. | Connectivity check that R3 pad 2 touches the VBATT pour, or route the Kelvin taps as fixed pre-routes. |
 
-## Found by the 2026-11-20 sanitizer runs
-
-| Location | Finding | Next step |
-| --- | --- | --- |
-| `src/rgbd_camera/zed_device.cpp` (`open`) | The production open lambda captures `this`, so a leaked wedged `zed_.open()` touches the destroyed `ZedDevice` (ASan showed the same pattern in the injected `open_call`, fixed in `3aebfe5b`) | Copy what the leaked thread needs into the lambda, test with the injected open |
-| `src/mcap_recorder/mcap_recorder.cpp:343` | TSan: data race on the spdlog default logger, `McapRecorder::handle(OpenOp&)` logs while the main thread replaces the default logger | Check whether production replaces the logger while a recorder runs; if not, make the tests set it once |
-| `tests/camera/test_video_encoder.cpp` | `VideoEncoder*` exits rc=66 under TSan with no report | Investigate under TSan |
-| `tests/test_zed_device_seams.cpp:224`, `:242` | LeakSanitizer: two 16-byte leaks | Fix the test fixtures |
-
 ## TEST rows deferred
 
 Rows from the `TEST` verdict batches that could not get a test in a headless build. The comment is
@@ -170,11 +160,8 @@ harness named in the last column exists.
 
 | Location | Claim | What blocks a test |
 | --- | --- | --- |
-| `include/control_loop/control_loop_interface.hpp` (forwarders) | Forwarders are thread-safe | No sanitizer build option in CMake for a TSan test |
 | `firmware/mr_stabs_mk2/include/espnow_link.h` (substitution gate) | Gate lives in `main.cpp` | Extract the gate into a pure function first |
 | `firmware/mr_stabs_mk2/include/espnow_link.h` (pairing) | `pair()` uses NVS | NVS does not run natively |
-| `auto_battlebot/perception/trt_yolo.py` (module docstring) | Python path matches the C++ detector | Parity needs a C++ golden output from a TensorRT engine and a frame |
-| `src/rgbd_camera/video_encoder.cpp:125` | `stopping_` read under lock | A test would be a nondeterministic timing race |
 | `web/src/lib/connection.ts:1-4` | Subscriptions survive reconnects | web/ has no test runner |
 
 ## Blocked on a decision or hardware
@@ -208,6 +195,8 @@ Rows a batch could not settle. Each needs the action in the last column first.
 | `tests/test_kalman_motion_estimator.cpp` (`make_our_pose_measurement`, `make_opponent_pose_measurement`) | Needs a `heading_measured` field on `RobotDescription` (today inferred from `keypoints.empty()` in `kalman_motion_estimator.cpp`), touching the tracker, estimator and scene adapter. A perception behaviour change: decide whether to make it |
 | `include/mcap_recorder/mcap_recorder.hpp` (start_file_locked, mutex_) | Clang `-Wthread-safety` rejects `std::mutex` under libstdc++ as a non-capability type. Decide whether to add an annotated Mutex wrapper and lock guard to these classes |
 | `include/rgbd_camera/video_encoder.hpp`, `zed_rgbd_camera.hpp` (lock discipline) | Clang `-Wthread-safety` rejects `std::mutex` under libstdc++ as a non-capability type. Decide whether to add an annotated Mutex wrapper and lock guard to these classes |
+| `src/rgbd_camera/video_encoder.cpp:125` | `stopping_` is atomic, so TSan sees no race; the lock prevents a lost wakeup between the predicate check and the wait, which no test can hit deterministically. Decide whether to keep it as the standard condition-variable rule |
+| `tests/camera/test_video_encoder.cpp` | Real-encoder tests now skip under TSan, but a full TSan run still SEGVs in a `libnvcuvid.so.1` thread (TSan calloc interceptor). Needs the earlier test that starts NVDEC found, or NVDEC excluded from TSan runs |
 
 ## Follow-up: purge the relocated comments from docs
 
