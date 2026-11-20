@@ -9,6 +9,9 @@
 
 using namespace espnow_protocol;
 
+static_assert(AIR_MAX_FRAME == ESP_NOW_MAX_DATA_LEN,
+              "air frame size must track the IDF ESP-NOW v1 limit");
+
 namespace {
 
 const uint32_t REPEAT_PERIOD_US = 4000;

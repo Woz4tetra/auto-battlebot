@@ -1,3 +1,4 @@
+#include <bno055_decode.h>
 #include <updown_sensor.h>
 #include <yaw_control.h>
 
@@ -147,11 +148,25 @@ bool UpdownSensor::update_sensor(bool allow_blocking_reconnect) {
         return false;
     }
     uint32_t start_time = now;
-    sensors_event_t gravity_data, orientation_data, gyro_data, linear_data;
-    sensor->getEvent(&gravity_data, Adafruit_BNO055::VECTOR_GRAVITY);
-    sensor->getEvent(&orientation_data, Adafruit_BNO055::VECTOR_EULER);
-    sensor->getEvent(&gyro_data, Adafruit_BNO055::VECTOR_GYROSCOPE);
-    sensor->getEvent(&linear_data, Adafruit_BNO055::VECTOR_LINEARACCEL);
+    uint8_t gyro_euler[bno055_decode::BLOCK_BYTES];
+    uint8_t linear_gravity[bno055_decode::BLOCK_BYTES];
+    I2cStatus read_error =
+        read_registers(bno055_decode::REG_GYRO_EULER, gyro_euler, sizeof(gyro_euler));
+    if (read_error == I2C_OK) {
+        read_error = read_registers(bno055_decode::REG_LINEAR_GRAVITY, linear_gravity,
+                                    sizeof(linear_gravity));
+    }
+    if (read_error != I2C_OK) {
+        status.chip_id_read_error = read_error;
+        initialized = false;
+        status.initialized = false;
+        status.samples_lost_after_begin++;
+        return false;
+    }
+    const bno055_decode::Vec3 gravity_sample = bno055_decode::gravity_mps2(linear_gravity);
+    const bno055_decode::Vec3 euler = bno055_decode::euler_deg(gyro_euler);
+    const bno055_decode::Vec3 gyro = bno055_decode::gyro_rad_s(gyro_euler);
+    const bno055_decode::Vec3 linear = bno055_decode::linear_mps2(linear_gravity);
     uint32_t end_time = millis();
 
     if (end_time - start_time > 250) {
@@ -161,9 +176,9 @@ bool UpdownSensor::update_sensor(bool allow_blocking_reconnect) {
         return false;
     }
 
-    grav_vec->x = gravity_data.acceleration.x;
-    grav_vec->y = gravity_data.acceleration.y;
-    grav_vec->z = gravity_data.acceleration.z;
+    grav_vec->x = gravity_sample.x;
+    grav_vec->y = gravity_sample.y;
+    grav_vec->z = gravity_sample.z;
 
     max_grav_vec->x = max(max_grav_vec->x, grav_vec->x);
     max_grav_vec->y = max(max_grav_vec->y, grav_vec->y);
@@ -173,17 +188,17 @@ bool UpdownSensor::update_sensor(bool allow_blocking_reconnect) {
     min_grav_vec->y = min(min_grav_vec->y, grav_vec->y);
     min_grav_vec->z = min(min_grav_vec->z, grav_vec->z);
 
-    orientation->x = orientation_data.orientation.x;
-    orientation->y = orientation_data.orientation.y;
-    orientation->z = orientation_data.orientation.z;
+    orientation->x = euler.x;
+    orientation->y = euler.y;
+    orientation->z = euler.z;
 
-    gyro_vec->x = yaw_control::unwrap_gyro_rate(gyro_data.gyro.x, gyro_vec->x);
-    gyro_vec->y = yaw_control::unwrap_gyro_rate(gyro_data.gyro.y, gyro_vec->y);
-    gyro_vec->z = yaw_control::unwrap_gyro_rate(gyro_data.gyro.z, gyro_vec->z);
+    gyro_vec->x = yaw_control::unwrap_gyro_rate(gyro.x, gyro_vec->x);
+    gyro_vec->y = yaw_control::unwrap_gyro_rate(gyro.y, gyro_vec->y);
+    gyro_vec->z = yaw_control::unwrap_gyro_rate(gyro.z, gyro_vec->z);
 
-    linear_accel->x = linear_data.acceleration.x;
-    linear_accel->y = linear_data.acceleration.y;
-    linear_accel->z = linear_data.acceleration.z;
+    linear_accel->x = linear.x;
+    linear_accel->y = linear.y;
+    linear_accel->z = linear.z;
     sample_us = micros();
     float gravity =
         sqrtf(grav_vec->x * grav_vec->x + grav_vec->y * grav_vec->y + grav_vec->z * grav_vec->z);

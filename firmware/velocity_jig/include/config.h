@@ -24,6 +24,7 @@ static constexpr uint8_t PIN_ENC_A = 26;
 static constexpr uint8_t PIN_ENC_B = 27;
 
 static constexpr uint8_t PIN_STATUS_LED = 13;
+static_assert(PIN_STATUS_LED == PIN_LED, "status LED pin must match the board variant LED");
 
 static constexpr uint32_t SAMPLE_RATE_HZ = 1000;
 static constexpr int64_t STRICT_SAMPLE_PERIOD_US = -(int64_t)(1000000UL / SAMPLE_RATE_HZ);

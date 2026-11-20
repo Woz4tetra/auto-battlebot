@@ -8,6 +8,9 @@
 
 using namespace espnow_protocol;
 
+static_assert(AIR_MAX_FRAME == ESP_NOW_MAX_DATA_LEN,
+              "air frame size must track the IDF ESP-NOW v1 limit");
+
 namespace espnow_link {
 namespace {
 

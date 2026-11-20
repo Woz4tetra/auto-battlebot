@@ -4,6 +4,7 @@
 #include <ESPAsyncWebServer.h>
 #include <WiFi.h>
 #include <armed_guard.h>
+#include <status_doc.h>
 #include <tuning_store.h>
 #include <web_assets.h>
 
@@ -33,10 +34,6 @@ static String tuning_json(TuningStore *store) {
     String out;
     serializeJson(doc, out);
     return out;
-}
-
-static String age_or_null(bool happened, uint32_t stamp_ms, uint32_t snapshot_ms) {
-    return happened ? String(snapshot_ms - stamp_ms) : String("null");
 }
 
 static String mac_string(const uint8_t *mac) {
@@ -126,59 +123,13 @@ static void boot_json(JsonObject out, const crash_report::report_t &b) {
 }
 
 static String status_json(const sensor_status_t &s, bool scan_pending) {
-    String found = "[";
-    for (uint8_t i = 0; i < s.scan.count; i++) {
-        if (i) found += ",";
-        found += String(s.scan.addresses[i]);
-    }
-    found += "]";
-
-    const updown_sensor::status_t &m = s.imu;
-    const vbat_sensor::status_t &n = s.ina;
-    char buf[900];
-    snprintf(buf, sizeof(buf),
-             "{\"snapshot_ms\":%lu,\"bus\":{\"sda_pin\":%u,\"scl_pin\":%u,\"sda_high\":%s,\"scl_"
-             "high\":%s,"
-             "\"scanned\":%s,\"scan_age_ms\":%s,\"scan_pending\":%s,\"found\":%s},"
-             "\"imu\":{\"initialized\":%s,\"begin_attempts\":%lu,\"begin_failures\":%lu,"
-             "\"chip_id\":%u,\"last_error\":%u,\"lost_count\":%lu,\"samples\":%lu,"
-             "\"sample_age_ms\":%s,\"details_age_ms\":%s,\"details_error\":%u,"
-             "\"operation_mode\":%u,\"sys_status\":%u,\"self_test\":%u,\"sys_error\":%u,"
-             "\"calibration\":%u,\"gyro_agree\":%lu,\"gyro_disagree\":%lu,\"yaw_rate\":%.1f,"
-             "\"heading_rate\":%.1f,\"gyro_sign_suspect\":%s},"
-             "\"ina\":{\"present\":%s,\"device_id\":%u,\"last_error\":%u,\"reads\":%lu,"
-             "\"read_failures\":%lu,\"last_ok_age_ms\":%s}}",
-             (unsigned long)s.snapshot_taken_ms, s.sda_pin, s.scl_pin,
-             s.lines.sda_high ? "true" : "false", s.lines.scl_high ? "true" : "false",
-             s.scan.scanned ? "true" : "false",
-             age_or_null(s.scan.scanned, s.scan.scanned_at_ms, s.snapshot_taken_ms).c_str(),
-             scan_pending ? "true" : "false", found.c_str(), m.initialized ? "true" : "false",
-             (unsigned long)m.begin_attempts, (unsigned long)m.begin_failures, m.last_chip_id,
-             m.chip_id_read_error, (unsigned long)m.samples_lost_after_begin,
-             (unsigned long)m.samples,
-             age_or_null(m.samples > 0, m.last_sample_ms, s.snapshot_taken_ms).c_str(),
-             age_or_null(m.details_ms != 0, m.details_ms, s.snapshot_taken_ms).c_str(),
-             m.details_error, m.operation_mode, m.sys_status, m.self_test, m.sys_error,
-             m.calibration, (unsigned long)m.gyro_agree, (unsigned long)m.gyro_disagree, s.yaw_rate,
-             s.heading_rate, s.gyro_sign_suspect ? "true" : "false", n.present ? "true" : "false",
-             n.device_id, n.last_error, (unsigned long)n.reads, (unsigned long)n.read_failures,
-             age_or_null(n.last_ok_ms != 0, n.last_ok_ms, s.snapshot_taken_ms).c_str());
-
     JsonDocument doc;
-    espnow_json(doc.to<JsonObject>(), s.espnow, s.snapshot_taken_ms);
-    String espnow;
-    serializeJson(doc, espnow);
-    JsonDocument boot_doc;
-    boot_json(boot_doc.to<JsonObject>(), s.boot);
-    String boot;
-    serializeJson(boot_doc, boot);
-    String out(buf);
-    out.remove(out.length() - 1);
-    out += ",\"espnow\":";
-    out += espnow;
-    out += ",\"boot\":";
-    out += boot;
-    out += "}";
+    JsonObject root = doc.to<JsonObject>();
+    status_doc::fill_sensors(root, s, scan_pending);
+    espnow_json(root["espnow"].to<JsonObject>(), s.espnow, s.snapshot_taken_ms);
+    boot_json(root["boot"].to<JsonObject>(), s.boot);
+    String out;
+    serializeJson(doc, out);
     return out;
 }
 

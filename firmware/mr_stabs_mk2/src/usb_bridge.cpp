@@ -4,6 +4,7 @@
 #include <esp32s3/rom/ets_sys.h>
 #include <lwip/sockets.h>
 #include <mbedtls/base64.h>
+#include <peer_closed.h>
 #include <usb_bridge.h>
 #include <usb_framing.h>
 
@@ -75,16 +76,12 @@ static void close(Connection &c) {
 }
 
 static bool peer_closed(WiFiClient &client) {
-    const int fd = client.fd();
-    if (fd < 0) return true;
-    uint8_t byte;
-    const int n = recv(fd, &byte, 1, MSG_PEEK | MSG_DONTWAIT);
-    if (n == 0) return true;
-    if (n < 0 && errno != EWOULDBLOCK && errno != EAGAIN) {
-        Serial.printf("usb_bridge: fd %d closed with errno %d\n", fd, errno);
-        return true;
+    int error = 0;
+    const peer_closed::State state = peer_closed::probe(client.fd(), &error);
+    if (state == peer_closed::State::ERROR) {
+        Serial.printf("usb_bridge: fd %d closed with errno %d\n", client.fd(), error);
     }
-    return false;
+    return state != peer_closed::State::OPEN;
 }
 
 static void open_connection(uint32_t id, const char *encoded) {

@@ -33,8 +33,6 @@ PlatformIO reads `platformio.ini` in each firmware project. This page explains t
 ## Workarounds
 
 - ESP32 platform pin: `firmware/espnow_dongle/platformio.ini` and `firmware/mr_stabs_mk2/platformio.ini` both pin `espressif32@6.13.0`. The globally installed pioarduino 55.x (IDF 5) otherwise wins over an unpinned `espressif32`. The wire format assumes IDF 4.4's 250-byte ESP-NOW frames. Not verified by building unpinned.
-- `AIR_MAX_FRAME` in `firmware/shared/espnow_protocol/src/espnow_protocol.h` is 250, `ESP_NOW_MAX_DATA_LEN` on IDF 4.4. ESP-NOW v2 needs IDF 5.4, which the pin excludes.
-- `firmware/velocity_jig/include/config.h` names the status LED pin `PIN_STATUS_LED`, not `PIN_LED`, because the arduino-pico variant defines `PIN_LED` as a macro. Not verified by building.
 - `firmware/velocity_jig/src/main.cpp` calls `delay(2)` each pass of the diagnostics idle loop so USB CDC is serviced. Unverified.
 - The debug-build wait for the serial monitor in `firmware/velocity_jig/src/main.cpp` loops `delay(10)` up to a timeout, before any hardware init, blinking the LED. `delay()` services USB, so the CDC port enumerates even if a later init call hangs. Not tested against a hanging init.
 - `firmware/mr_stabs_mk2/scripts/coredump` reads the coredump partition with esptool, using the offset and size of the coredump row in `partitions.csv`. `esp_coredump` reads flash itself only with a full ESP-IDF install. The offset matches `partitions.csv` (0x310000, 64K). The `esp_coredump` claim is unverified.

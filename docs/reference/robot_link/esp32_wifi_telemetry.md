@@ -43,10 +43,9 @@ Every `GET /telemetry` reply starts with a `TelemetryBatchHeader` (`firmware/sha
 ## Workarounds
 
 - Station config: `WiFi.persistent(false)` in `wifi_manager.cpp`. The core otherwise writes the station config to flash on every `WiFi.begin()`, and a flash write stalls the control loop. The settings live in our own NVS namespace instead. WiFi settings writes go to flash too, so the diagnostics page changes them only while disarmed. The snapshot the page shows never carries passwords. The task owns the manager's state once `begin()` returns, and `snapshot()` reads it under `_lock`.
-- Status JSON: `diagnostics_server.cpp` serializes the ESP-NOW block through ArduinoJson into its own String and splices it in before the closing brace. ArduinoJson 7 clears a String before writing to it, which would wipe the earlier part of the status. Unverified.
 - Core dump erase writes flash, so it waits for the loop and refuses while armed.
 - CRSF telemetry: values go back to the radio as CRSF sensors, and NaN fields are sent as 0.
-- BNO055 (`updown_sensor.cpp`): the code reads CHIP_ID before the library's `begin()`, which returns only a bool and hides why it failed. The gyro unwrap tracks from the previous sample, which a reconnect leaves stale, so reconnect resets it. The Adafruit reads ignore I2C errors and return zeros, so each sample checks that the sensor still answers. One failed check costs a single transaction, then reads stop until `begin()` succeeds. The ignored-error claim is unverified against the library source.
+- BNO055 (`updown_sensor.cpp`): the code reads CHIP_ID before the library's `begin()`, which returns only a bool and hides why it failed. The gyro unwrap tracks from the previous sample, which a reconnect leaves stale, so reconnect resets it. Adafruit's `getVector` ignores the `readLen` result and returns zeros, so samples read the gyro, Euler, linear and gravity registers through `read_registers` and decode them in `bno055_decode`. A failed read, or a failed per-sample CHIP_ID check, marks the sensor lost and reads stop until `begin()` succeeds. The new read path is not yet bench-verified.
 
 ## USB bridge
 
