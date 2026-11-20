@@ -142,15 +142,12 @@ def _touches(cells, x: float, y: float, r: float) -> bool:
     return False
 
 
-def pocket_sketch(xs, ys, land, keep_circles=(), keep_boxes=(), ysign: float = 1.0):
-    """Pockets as a recipe sketch: (profiles, region points). Profiles are the cells and the
-    land round each keep-out that crosses one; the points pick every piece of the cells left
-    outside the lands. `ysign` -1 mirrors Y, for a part built in a frame turned over about X
-    (the lid's print frame).
+TOUCHING_LAND_GROWTH = 0.1
+BOSS_WALL_OVERLAP = 0.2
 
-    A land circle that only touches a cell's edge leaves a pocket whose boundary meets
-    itself at a point, which Onshape's kernel will not extrude (the PCBA's (25.5, -107.5)
-    boss land touched the y = -114.5 cell edge). Such a land grows by 0.1 so it crosses."""
+
+def pocket_sketch(xs, ys, land, keep_circles=(), keep_boxes=(), ysign: float = 1.0):
+    """Pockets as a recipe sketch: (profiles, region points). `ysign` -1 mirrors Y."""
     import regions
     from build123d import Circle, Rectangle
 
@@ -168,7 +165,7 @@ def pocket_sketch(xs, ys, land, keep_circles=(), keep_boxes=(), ysign: float = 1
 
     keeps = []
     for x, y, r in keep_circles:
-        rk = r + land + (0.1 if _touches(cells, x, y, r + land) else 0.0)
+        rk = r + land + (TOUCHING_LAND_GROWTH if _touches(cells, x, y, r + land) else 0.0)
         keeps.append((Pos(x, s * y) * Circle(rk), {"circle": (x, s * y, 2 * rk)}))
     keeps += [(rect(x0 - land, x1 + land, y0 - land, y1 + land),
                {"rect": ((x0 + x1) / 2, s * (y0 + y1) / 2, x1 - x0 + 2 * land, y1 - y0 + 2 * land)})
@@ -230,16 +227,18 @@ def _ribs_sketch(p: Params):
 
 
 def _lid_boss_profile(wall: str, p: Params) -> tuple[list[tuple[float, float]], tuple]:
-    """A lid boss's side profile in its sketch plane: (polygon, a point inside). A 9 x 9
-    block under the wall's edge, its underside a 50° gusset back into the wall; it starts
-    0.2 inside the wall so the block fuses. Top and bottom walls sketch on Right (Y, Z), the
-    ±X walls on Front (X, Z)."""
+    """A lid boss's side profile in its sketch plane: (polygon, a point inside)."""
     w, d = cl.LID_BOSS_SIZE, cl.LID_BOSS_FULL_DEPTH
     drop = w * math.tan(math.radians(p.gusset_slope))
     zt = cl.LID_UNDERSIDE_Z
     face, inward = {"top": (cl.Y_IN[1], -1), "bottom": (cl.Y_IN[0], 1),
                     "-x": (cl.X_IN[0], 1), "+x": (cl.X_IN[1], -1)}[wall]  # fmt: skip
-    pts = [(-0.2, zt), (w, zt), (w, zt - d), (-0.2, zt - d - drop - 0.2)]
+    pts = [
+        (-BOSS_WALL_OVERLAP, zt),
+        (w, zt),
+        (w, zt - d),
+        (-BOSS_WALL_OVERLAP, zt - d - drop - BOSS_WALL_OVERLAP),
+    ]
     poly = [(face + inward * n, z) for n, z in pts]
     return poly, (face + inward * w / 2, zt - d / 2)
 

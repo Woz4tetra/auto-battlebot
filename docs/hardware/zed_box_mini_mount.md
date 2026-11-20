@@ -447,3 +447,11 @@ Open questions
 - The side notches on the 30 mm edges are drawn but not dimensioned; modeled 9 x 1.5 mm from
   the drawing's scale. They touch nothing in this assembly.
 ```
+
+## Workarounds
+
+- `zed_box_mini_mount/assembly_page.py:write_mesh`: each mesh is one JSON file, base64 int16
+  positions in units of `MESH_MM_PER_STEP` mm (Z up) and uint32 triangle indices. Artifacts serve
+  JSON but not GLB, and the viewer computes the normals.
+- `zed_box_mini_mount/zed_x_one_s_assembly.py:STEP_EXPORT_ADAPTER_T`: the ZED Box Mini STEP was
+  exported on a 12 mm adapter, so it is dropped by 12 mm onto the current adapter thickness.

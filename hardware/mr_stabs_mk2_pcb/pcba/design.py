@@ -6,7 +6,7 @@ import os
 from skidl import ERC, KICAD9, Net, Part, generate_netlist, lib_search_paths, set_default_tool
 
 set_default_tool(KICAD9)
-NC = builtins.NC  # SKiDL 2.3 injects its no-connect net into builtins instead of exporting it
+NC = builtins.NC
 HERE = os.path.dirname(os.path.abspath(__file__))
 POWER_DRIVE = 3
 SBU_PINS = ("A8", "B8")
@@ -255,8 +255,6 @@ for side, io in (("l", "IO8"), ("r", "IO9")):
     sig += pad(f"DSHOT_{side.upper()}", PAD_SIG, f"p_dshot_{side}")[1]
     gnd += pad(f"SIG_GND_{side.upper()}", PAD_SIG, f"p_sig_gnd_{side}")[1]
 
-# GND stitching vias in the stem's sides: the tracks to the stem's USB-C and bulk cap box the
-# bottom GND pour there into fragments the flow's stitching found no via spot in.
 for i in range(2):
     gnd += pad("GND_STITCH", "mk2:StitchVia_0.6mm", f"v_stitch{i}")[1]
 

@@ -34,7 +34,7 @@ for fp in board.GetFootprints():
         add_model(fp, "ufl_plug.step", UFL_SOCKET_OFFSET)
 
 board.GetDesignSettings().SetAuxOrigin(pcbnew.VECTOR2I(pcbnew.FromMM(100), pcbnew.FromMM(100)))
-out = "mk2_render.kicad_pcb"  # beside the project, so KIPRJMOD resolves
+out = "mk2_render.kicad_pcb"
 board.Save(out)
 views = {
     "top": ["--side", "top"],

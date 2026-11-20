@@ -110,9 +110,7 @@ def _draft_wire(x: float, loop: np.ndarray, upper: bool, z_cut: float, z_far: fl
     chain = np.vstack(head + [arc[lo : hi + 1]] + tail)
     pts = [Vector(x, y, z) for y, z in chain]
     y_start, y_end = (y_back, y_front) if upper else (y_front, y_back)
-    step = -0.05 if upper else 0.05  # keeps the step edge non-degenerate when unclipped
-    # Steps out to full width at the chain's ends: horizontal when clipped at z_cut,
-    # a short collinear piece of wall when the chain ends on the widest point.
+    step = -0.05 if upper else 0.05
     s_end = Vector(x, y_end, pts[-1].Z + (step if not tail else 0))
     s_start = Vector(x, y_start, pts[0].Z + (step if not head else 0))
     f_end, f_start = Vector(x, y_end, z_far), Vector(x, y_start, z_far)

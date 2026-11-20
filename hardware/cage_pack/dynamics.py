@@ -228,7 +228,7 @@ def simulate(case: Case, pack: dict, t_end: float = 0.25, dt: float = 1e-5) -> d
     cup_line_y = B - CUP_BELOW_EDGE_M + y0
     M = pack["pack_g"] / 1000.0
     h = pack["cg_mm"][2] / 1000.0
-    J = M * (0.08**2 + 0.05**2) / 3  # about its own CG, box ~ 160 x 100 x 100 modal_mass
+    J = M * (0.08**2 + 0.05**2) / 3
     n = nm + 3
     Mm = np.zeros((n, n))
     Mm[:nm, :nm] = np.eye(nm) * modal_mass

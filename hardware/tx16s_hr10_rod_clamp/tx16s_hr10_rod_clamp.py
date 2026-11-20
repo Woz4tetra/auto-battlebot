@@ -109,11 +109,7 @@ def tower_xy() -> tuple[float, float]:
 
 
 def rod(p: Params) -> Solid:
-    """Bare rod around the corner, rod frame: run at v = rod_v, bend, arm at u = 0.
-
-    Straight legs are plain cylinders so the hole measurement reads them; only the bend
-    is swept.
-    """
+    """Bare rod around the corner, rod frame: run at v = rod_v, bend, arm at u = 0."""
     r, v0, rr = p.rod_bend_r, p.rod_v, p.rod_d / 2
     run = Pos(r, v0, 0) * Rot(0, 90, 0) * Cylinder(rr, p.run_len + 8 - r, align=C_MIN)
     arm = Pos(0, v0 + r, 0) * Rot(-90, 0, 0) * Cylinder(rr, p.arm_len + 8 - v0 - r, align=C_MIN)

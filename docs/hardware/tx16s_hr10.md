@@ -549,3 +549,15 @@ axis from the top face, which must miss the tower and the radio.
 
     ~/.local/share/build123d-part/venv/bin/python         hardware/tx16s_hr10_rod_clamp/verify_scan.py         ~/Downloads/radiomaster-tx16-1.snapshot.2.zip
 ```
+
+## Workarounds
+
+- `tx16s_hr10_handle_clamp/tx16s_hr10_handle_clamp.py`: the wire steps out to full width at the
+  chain's ends. The step is horizontal when the chain is clipped at `z_cut`, and a short collinear
+  piece of wall when the chain ends on the widest point. The 0.05 mm `step` nudge keeps the step
+  edge non-degenerate when unclipped. Unverified without it.
+- `tx16s_hr10_mount/tx16s_hr10_mount.py`: the back-right corner gets the tight `r_taper_corner`
+  so its arc starts outboard of the wire groove's wall (x 2.92). A wall that clips the arc leaves a
+  knife edge.
+- `tx16s_hr10_rod_clamp/tx16s_hr10_rod_clamp.py:rod`: the straight legs are plain cylinders so the
+  hole measurement reads them. Only the bend is swept.

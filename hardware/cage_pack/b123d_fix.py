@@ -1,9 +1,4 @@
-"""Work around build123d 0.12 Face.radius returning None for trimmed cylinders.
-
-A boss merged into a wall, or a key slot cut across a hole, leaves cylindrical faces whose
-surface is a Geom_RectangularTrimmedSurface. build123d returns None for their radius, and the
-build123d-part skill's check.py crashes rounding it. Import this module before building.
-"""
+"""Patch Face.radius so trimmed cylinders and spheres report a radius."""
 
 from build123d import Face, GeomType
 from OCP.Geom import Geom_RectangularTrimmedSurface

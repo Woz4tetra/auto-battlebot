@@ -256,8 +256,7 @@ MCMASTER: dict[str, McMasterPrice] = {
 
 
 def mcmaster(pn: str) -> dict:
-    """BOM keys for a McMaster item placed as a component (a component's own "mcmaster" key
-    would make the skill load its STEP instead)."""
+    """BOM keys for a McMaster item placed as a component."""
     if pn not in MCMASTER:
         return {
             "vendor": "McMaster-Carr",

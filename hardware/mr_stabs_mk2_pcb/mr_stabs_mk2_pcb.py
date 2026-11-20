@@ -23,7 +23,7 @@ from build123d import (
 )
 
 PROCESS = "none"
-MATERIAL = "pc"  # density stand-in, see docstring
+MATERIAL = "pc"
 
 STEP_DIR = Path.home() / "Downloads" / "Mr Stabs Mk2"
 CHASSIS_STEP = STEP_DIR / "Mr Stabs Mk2 - Mr Stabs Mk2 Chassis.step"

@@ -60,6 +60,7 @@ def _print(xa: float, za: float) -> tuple[float, float]:
 
 
 def _rib_profile(p: Params, xf: float, x1: float, zh1: float) -> list[tuple[float, float]]:
+    """Rib outline, SHIELD_RIB tall at the flange and rib_tip_h at its end."""
     return [
         _print(xf, zh1),
         _print(x1 - p.corner_r, zh1),
@@ -82,7 +83,6 @@ def features(p: Params) -> list[dict]:
     hx0, hx1 = _print(0, zh1)[0], _print(0, zh0)[0]
     ring_midpoint = (bx + (p.quarter_close_clearance_dia + p.boss_d_under_head_base) / 4, yc)
     flange_pick_point = ((fx0 + fx1) / 2, y0 + 1.0)
-    # radius short of the hood's end, SHIELD_RIB tall at the flange, rib_tip_h at the end.
     rib = _rib_profile(p, xf, x1, zh1)
     rib_pt = ((rib[0][0] + rib[3][0]) / 2 - 1.0, (rib[0][1] + rib[1][1]) / 2)
     rib_y0s = [y0, (y0 + y1 - p.rib_t) / 2, y1 - p.rib_t]

@@ -13,7 +13,6 @@ SLICER = ["flatpak", "run", "--command=prusa-slicer", "com.prusa3d.PrusaSlicer"]
 
 
 def slice_grams(stl: Path) -> float:
-    # The flatpak can write in $HOME only, not /tmp.
     with tempfile.TemporaryDirectory(dir=Path.home() / ".cache") as tmp:
         gcode = Path(tmp) / "part.gcode"
         cmd = [*SLICER, "--datadir", tmp, "--load", str(PROFILE), "--export-gcode"]

@@ -140,8 +140,6 @@ def footprint(p: Params):
     ]
     sk = Polygon(*corners, align=None)
     assert len(sk.vertices()) == 5
-    # The back-right corner gets a tight radius so its arc starts outboard of the wire
-    # groove's wall (x 2.92); a wall that clips the arc leaves a knife edge.
     tight = sk.vertices().filter_by(lambda v: abs(v.X - p.taper_u) < 1e-6)
     assert len(tight) == 1
     sk = fillet(tight, p.r_taper_corner)

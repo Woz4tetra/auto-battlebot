@@ -239,10 +239,7 @@ GX12_PLUG_WALL_TO_CLAMP = 33.0
 
 
 def _hr10_plug() -> Compound:
-    """Hirose HR10A-7P plug, GrabCAD "Hirose HR10 6 pin plug end" (same size-7 shell as the
-    4-pin HR10A-7P-4P), body's front face on the receptacle's 7.8 mm front, plus 40 mm of
-    cable. hr10.py frame: +Z into the enclosure. Only the body: its nose and pins sit inside
-    the receptacle, and the nose's boolean against the receptacle envelope segfaults OCC."""
+    """Hirose HR10A-7P plug body on the receptacle front, plus 40 mm of cable."""
     body = _vendor(
         "grabcad/hr10_plug_6p.step",
         (0, 0, 4.28),
@@ -431,6 +428,16 @@ CABLES = {
 }
 
 
+MIN_STRAIGHT_BETWEEN_FILLETS = 0.5
+
+
+def sweep_round_else_transformed(profile, path):
+    try:
+        return sweep(profile, path=path, transition=Transition.ROUND)
+    except Exception:
+        return sweep(profile, path=path, transition=Transition.TRANSFORMED)
+
+
 def _fillet_setback(r: float, turn: float) -> float:
     return r * math.tan(turn / 2)
 
@@ -446,8 +453,7 @@ def _run(kind: str, points: list[tuple[float, float, float]]):
         take.append(_fillet_setback(r, turn))
     take.append(0.0)
     for i, seg in enumerate(segs):
-        # + 0.5: OCC cannot build a path whose straight run between fillets is zero long.
-        need = take[i] + take[i + 1] + 0.5
+        need = take[i] + take[i + 1] + MIN_STRAIGHT_BETWEEN_FILLETS
         if seg < need:
             raise ValueError(
                 f"{kind} cable: segment {i} is {seg:.1f} long, R{r} corners need {need:.1f}"
@@ -455,11 +461,7 @@ def _run(kind: str, points: list[tuple[float, float, float]]):
     path = FilletPolyline(*pts, radius=r) if len(pts) > 2 else Polyline(*pts)
     edges = path.edges()
     plane = Plane(origin=edges[0].position_at(0), z_dir=edges[0].tangent_at(0))
-    try:
-        tube = sweep(plane * Circle(d / 2), path=path, transition=Transition.ROUND)
-    except Exception:  # OCC's pipe shell fails ROUND on some smooth 3D paths
-        tube = sweep(plane * Circle(d / 2), path=path, transition=Transition.TRANSFORMED)
-    return tube, path.length
+    return sweep_round_else_transformed(plane * Circle(d / 2), path), path.length
 
 
 MINIFIT_PLUG_TOP = 16.6

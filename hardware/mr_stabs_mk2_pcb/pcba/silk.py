@@ -160,7 +160,6 @@ for fp in board.GetFootprints():
 
 for fp in board.GetFootprints():
     fp.Reference().SetVisible(False)
-    # The EasyEDA LED footprint's polarity circle sits on its own pad 1; the chamfer marks it too.
     if fp.GetValue() == "XL-2020RGBC-WS2812B":
         for item in list(fp.GraphicalItems()):
             if item.GetLayer() == pcbnew.F_SilkS and item.GetShape() == pcbnew.SHAPE_T_CIRCLE:
@@ -191,8 +190,6 @@ draw_json("robot_silk.json", *ROBOT_BOTTOM_ART_XY)
 draw_json("robot_top_silk.json", *ROBOT_TOP_ART_XY, "F")
 draw_json("logo_silk.json", *LOGO_ART_XY)
 
-# Paste in the USB-C's shell-leg slots, so reflow solders them (EasyEDA's pads had none). The
-# routed board carries the footprint as kinet2pcb built it, so set it here as well.
 for fp in board.GetFootprints():
     if fp.GetValue() == "TYPE-C-31-D-06":
         for pad in fp.Pads():

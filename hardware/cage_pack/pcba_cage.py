@@ -10,7 +10,7 @@ import recipe
 from build123d import Align, Box, Compound, Part, Pos, Rot, Shape, import_step
 
 PROCESS = "none"
-MATERIAL = "nylon"  # density stand-in for FR4
+MATERIAL = "nylon"
 C_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
 
 

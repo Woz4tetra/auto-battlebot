@@ -46,8 +46,7 @@ def zed_location(top: float) -> Location:
 
 
 def write_mesh(shape: Shape, path: Path, tol: float, angular: float) -> None:
-    """One mesh as JSON: base64 int16 positions in units of MESH_MM_PER_STEP mm (Z up) and uint32
-    triangle indices. Artifacts serve JSON but not GLB; the viewer computes normals."""
+    """One mesh as JSON: base64 int16 positions in MESH_MM_PER_STEP mm units, uint32 indices."""
     pos: list[int] = []
     idx: list[int] = []
     for solid in shape.solids():

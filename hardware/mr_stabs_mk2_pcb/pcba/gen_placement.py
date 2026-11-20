@@ -87,15 +87,10 @@ under_low_keepout = shape(keep["B_low"]).buffer(0.3)
 
 lay = SidedLayout("info.jsonl", outline_b, bottom_keepout=under_tall_keepout, edge=0.25)
 lay.keepout = roof_keepout
-# EasyEDA courtyards that miss their own pads (footprint_audit.py).
 lay.size(LED, (-1.25, 1.25), (-1.2, 1.2))
 lay.size(USB, (-4.6, 4.6), (-2.95, 2.95))
-# Feet to pin tips and the RX's 11 mm width. legalize.py does not mirror bottom-side courtyards
-# and KiCad does, so this one is given mirrored (local y -12.35 to 1.85, not -1.85 to 12.35).
 lay.size(find("NANO_RX"), (-5.8, 5.8), (-12.35, 1.85))
 lay.size(find("BOOT/RST"), (-3.81, 3.81), (-3.4, 3.4))
-# The screw head sits on the B side inside the printed washer (in the B keep-out); on the F side
-# the hole only needs its own 3.7 mm plus 0.15 mm.
 for h in holes:
     lay.size(h, (-1.85, 1.85), (-1.85, 1.85))
     lay.accept(
@@ -104,8 +99,6 @@ for h in holes:
         "round 3.7 mm hole, box courtyard: the real hole edge is 1.05 mm from the module corner",
     )
 
-# The module overhangs nothing but sits 0.47 mm from the roof keep-out; it is fixed, so it is
-# checked against the board edge only, and the keep-out margin is checked here.
 assert lay.rect(MCU, 0, 0, 0).distance(shape(keep["F"])) > 0.3
 
 LAP_PAD_Y = -17.3
@@ -353,9 +346,6 @@ spec = {
                 k(x, y) for x, y in [(13.0, -20.0), (17.4, -20.0), (17.4, -10.3), (13.0, -10.3)]
             ],
         },
-        # Keep signals out of the B VBATT pour's neck, shunt VBATT end to ESC_L+: two tries running
-        # cut it with tracks, leaving the ESC current on a track. Clear of the INA238's +3V3 pins
-        # (vias go through B) and of R3's SENSE_N pad, whose track leaves downward.
         {
             "keepout": ["tracks", "vias"],
             "layers": ["B.Cu"],
@@ -363,9 +353,6 @@ spec = {
                 k(x, y) for x, y in [(16.6, -5.6), (19.4, -5.6), (19.4, -8.8), (16.6, -8.8)]
             ],
         },
-        # Keep signals out of the strip between R3's VBATT pad and ESC_L+, so the pour always
-        # joins the Kelvin tap: SENSE_N and SENSE_P tracks boxed that pad in. Turned to face the
-        # pad, R3 no longer fit between the shunt and ESC_L+.
         {
             "keepout": ["tracks", "vias"],
             "layers": ["B.Cu"],
