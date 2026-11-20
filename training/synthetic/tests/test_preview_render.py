@@ -67,3 +67,100 @@ def test_full_mode_disables_persistent_data_and_preview_enables_it(
     assert scene.cycles.use_persistent_data is preview, (
         "a stale Cycles cache must never reach a saved full-quality artifact"
     )
+
+
+def test_capture_scene_state_sets_the_cage_intrinsics_before_the_snapshot(
+    blender_stubs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from synthgen import preview_render
+
+    renderer = make_renderer(preview_render, {})
+    renderer._k_rect = {1.0: np.eye(3)}
+    renderer._render_size = (1920, 1080)
+    order: list[str] = []
+    blender_stubs.blenderproc.camera.set_intrinsics_from_K_matrix.side_effect = lambda *_: (
+        order.append("intrinsics")
+    )
+    monkeypatch.setattr(
+        preview_render, "snapshot_render_state", lambda: order.append("snapshot") or object()
+    )
+
+    renderer.capture_scene_state()
+
+    assert order == ["intrinsics", "snapshot"], (
+        "a snapshot before the intrinsics would restore BlenderProc's default camera"
+    )
+    blender_stubs.blenderproc.camera.set_intrinsics_from_K_matrix.assert_called_once()
+    assert blender_stubs.blenderproc.camera.set_intrinsics_from_K_matrix.call_args.args[1:] == (
+        1920,
+        1080,
+    )
+
+
+def mode_scene() -> SimpleNamespace:
+    return SimpleNamespace(
+        render=SimpleNamespace(image_settings=SimpleNamespace(), use_compositing=None),
+        cycles=SimpleNamespace(),
+    )
+
+
+@pytest.mark.parametrize(
+    ("denoiser", "preview", "expected_name", "compositing"),
+    [
+        ("none", True, "OPTIX", False),
+        ("none", False, None, False),
+        ("OPTIX", False, "OPTIX", False),
+        ("INTEL", False, "INTEL", True),
+        ("INTEL", True, "INTEL", True),
+    ],
+)
+def test_denoiser_goes_through_blenderproc_and_compositing_follows_intel(
+    blender_stubs,
+    denoiser: str,
+    preview: bool,
+    expected_name: str | None,
+    compositing: bool,
+) -> None:
+    from synthgen import preview_render
+
+    renderer = make_renderer(preview_render, {})
+    renderer._spec.render.denoiser = denoiser
+    scene = mode_scene()
+
+    renderer._write_mode_settings(scene, preview)
+
+    blender_stubs.blenderproc.renderer.set_denoiser.assert_called_once_with(expected_name)
+    assert scene.render.use_compositing is compositing
+
+
+def test_one_way_glass_rewrites_visibility_only_when_the_hidden_set_changes(
+    blender_stubs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from synthgen import preview_render
+
+    writes: list[bool] = []
+
+    class Pane:
+        def animation_data_clear(self) -> None:
+            pass
+
+        @property
+        def hide_render(self) -> bool:
+            return False
+
+        @hide_render.setter
+        def hide_render(self, value: bool) -> None:
+            writes.append(value)
+
+    panes = {"north": SimpleNamespace(blender_obj=Pane())}
+    monkeypatch.setattr(preview_render, "panels_by_wall", lambda _objects: panes)
+    hidden_sets = iter([("north",), ("north",), ()])
+    monkeypatch.setattr(preview_render, "panels_outside_camera", lambda *_: next(hidden_sets))
+    glass = preview_render.OneWayGlass(SimpleNamespace(), {})
+
+    camera = np.zeros(3)
+    glass.update(camera)
+    glass.update(camera)
+    glass.update(camera)
+
+    assert writes == [True, False]

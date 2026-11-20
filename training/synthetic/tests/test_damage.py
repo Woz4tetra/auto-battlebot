@@ -409,3 +409,21 @@ def test_damage_session_reverts_scene(blender_stubs: Any) -> None:
     assert cutter.location is blender_stubs.mathutils.Vector.return_value
     blender_stubs.mathutils.Vector.assert_called_with(damage_scene.DISTRACTOR_OFFSCREEN_LOCATION)
     assert not (session.hidden or session.modifiers or session.cutters)
+
+
+def test_chunk_cut_uses_the_exact_boolean_solver(blender_stubs: Any) -> None:
+    from synthgen import damage_scene
+    from synthgen.damage import ChunkDraw
+
+    cutter = SimpleNamespace(name="cutter_0", location=None, scale=None, rotation_euler=None)
+    pool = SimpleNamespace(acquire=lambda _shape: cutter)
+    modifier = SimpleNamespace()
+    target = SimpleNamespace(modifiers=SimpleNamespace(new=lambda name, type: modifier))
+    draw = ChunkDraw(shape=CUTTER_CUBE, centre=(0.0, 0.0, 0.0), radius_m=0.01, volume_fraction=0.1)
+    session = damage_scene.DamageSession()
+
+    assert damage_scene._apply_chunk_draw(session, pool, target, draw) is True
+
+    assert modifier.solver == "EXACT", "FAST returns the input unchanged on non-manifold meshes"
+    assert modifier.operation == "DIFFERENCE"
+    assert modifier.object is cutter

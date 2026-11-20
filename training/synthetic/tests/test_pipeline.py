@@ -155,3 +155,36 @@ def test_fresh_run_replaces_the_manifest_and_a_resume_keeps_it(blender_stubs, tm
     pipeline._reset_manifest_for_fresh_run(layout, start_index=0)
     assert not manifest.exists()
     pipeline._reset_manifest_for_fresh_run(layout, start_index=0)
+
+
+def test_absent_instance_pass_is_none_whether_none_or_empty(blender_stubs) -> None:
+    from synthgen import pipeline
+
+    assert pipeline._map_or_none_when_pass_absent(None, 0) is None
+    assert pipeline._map_or_none_when_pass_absent([], 0) is None
+    assert pipeline._map_or_none_when_pass_absent(["a", "b"], 1) == "b"
+
+
+def test_buffer_cleanup_frees_render_images_and_leaves_cached_textures(blender_stubs) -> None:
+    from synthgen import pipeline
+
+    def make_image(name: str, users: int) -> SimpleNamespace:
+        return SimpleNamespace(
+            name=name, users=users, buffers_free=lambda name=name: freed.append(name)
+        )
+
+    freed: list[str] = []
+    removed: list[str] = []
+    images = [
+        make_image("Render Result", 0),
+        make_image("Viewer Node", 2),
+        make_image("cc_texture_Rock_Color", 0),
+    ]
+    blender_stubs.bpy.data.images.__iter__.side_effect = lambda: iter(images)
+    blender_stubs.bpy.data.images.remove.side_effect = lambda img: removed.append(img.name)
+
+    pipeline._free_render_buffers_keeping_cached_textures()
+
+    assert freed == ["Render Result", "Viewer Node"]
+    assert removed == ["Render Result"]
+    blender_stubs.bpy.ops.outliner.orphans_purge.assert_not_called()

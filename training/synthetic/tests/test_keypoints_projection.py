@@ -86,3 +86,32 @@ def test_distractor_with_tiny_bbox_is_counted_not_frame_fatal(
     stats = RunStats()
     assert annotate_distractor(segmap, stats) == []
     assert stats.distractor_skip_counts[DistractorSkipReason.BBOX_TOO_SMALL] == 1
+
+
+def test_distractor_with_occluded_or_off_frame_keypoints_still_yields_its_annotation(
+    blender_stubs: SimpleNamespace,
+) -> None:
+    from synthgen import keypoints
+    from synthgen.annotations import KeypointVisibility
+
+    blender_stubs.bpy_extras_object_utils.world_to_camera_view.side_effect = [
+        SimpleNamespace(x=0.5, y=0.5, z=2.5),
+        SimpleNamespace(x=1.5, y=0.5, z=2.5),
+    ]
+    segmap = np.zeros((IMG_H, IMG_W), dtype=int)
+    segmap[20:60, 20:60] = DISTRACTOR_ID
+
+    annotations = keypoints.build_distractor_keypoint_annotations(
+        [make_distractor(np.eye(4))],
+        segmap,
+        np.full((IMG_H, IMG_W), 9.0),
+        IMG_W,
+        IMG_H,
+        NHRL_CLASS_ID,
+        False,
+        RunStats(),
+    )
+
+    assert len(annotations) == 1, "one bad keypoint must not discard a frame of good robots"
+    flags = [kp[2] for kp in annotations[0][2]]
+    assert flags == [KeypointVisibility.OCCLUDED, KeypointVisibility.OUT_OF_FRAME]
