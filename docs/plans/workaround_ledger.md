@@ -207,11 +207,6 @@ Fixed 2026-11-19, found during phase 2:
 | `src/rgbd_camera/zed_one_rgb_camera.cpp:241` | `camera_info.header` copied from the image header | Foxglove image panels reject a calibration whose frame differs from the image's | unverified: needs a ZED camera | none known |
 | `src/robot_filter/kalman_motion_estimator.cpp:516` | Our-robot forward speed corrects in a second `ekf_update` with its own gate | Sharing the gate lets one noisy finite-difference speed discard the position fix that arrived with it | unverified: the failing arm is a structural change (a joint 4-row update), so there is no one-line mutation, and a gated speed row needs a hand-tuned scenario | build the joint-update arm behind a test-only switch and compare |
 | `src/robot_filter/kalman_motion_estimator.cpp:717` | Opponent diagnostics omit infinite heading and yaw-rate sigmas | A heading-blind track would write inf into the diagnostics stream | unverified: `DiagnosticsLogger` is a process-global with no capture backend in the test binary | a capturing `DiagnosticsBackend` fixture |
-| `firmware/mr_stabs_mk2/src/usb_bridge.cpp:36` | Installs ets_install_putc2(log_putc) to buffer ROM log output into a ring flushed between frames. | log_e() writes char by char from any core with no lock and lands mid-frame. | unverified. | none known; ROM putc path. |
-| `firmware/velocity_jig/src/main.cpp:692` | Loops delay(10) up to timeout_ms waiting for Serial before any hardware init (debug builds). | A later init call that hangs would leave USB CDC unenumerated, so no debug output reaches the host. | unverified: did not test a hanging init on the board; consistent with main.cpp:791-792. | Bound every init call with a timeout (Wire.setTimeout is already set) so none can hang. |
-| `training/synthetic/synthgen/materials.py:145` | Looks up CC materials in bpy.data when BlenderProc's loader did not return them on this call. | BlenderProc's load_ccmaterials returns only newly loaded materials on subsequent calls. | unverified: same claim as prepare_robot_model.py:394-395; BlenderProc source not read | Load CC materials once per run and cache them by name |
-| `training/synthetic/synthgen/preview_render.py:1` | Poses the preview camera by writing matrix_world directly and checks animation_data stays None every frame. | bproc.camera.add_camera_pose inserts keyframes, which accumulate per WASD frame and then override direct pose writes. | unverified: plausible from BlenderProc's keyframe-per-pose API; _assert_no_keyframes guards it at runtime | none known; the assert is already the test. Keep the assert and delete the prose |
-| `training/synthetic/synthgen/render_settings.py:60` | Calls bproc.renderer.set_denoiser(None) and then enables Cycles' own OPTIX or OpenImageDenoise denoiser. | BlenderProc's default Intel denoiser runs as a CPU compositor node and cost 6 s per ten-frame scene on 2026-09-12. | unverified: measurement is in the module docstring; not re-run | none known upstream; this wrapper is the fix. Move the measurement to a doc and keep the code |
 
 ## TEST rows deferred
 
@@ -284,7 +279,6 @@ harness named in the last column exists.
 | `tests/esp32_diagnostics/test_esp32_wifi_telemetry.cpp:119-123` | Fake server mirrors firmware `handle_telemetry` | A shared fixture both sides test against needs the firmware build |
 | `tests/test_kalman_motion_estimator.cpp` (`make_our_pose_measurement`, `make_opponent_pose_measurement`) | Helpers mark heading as measured | A `heading_measured` field on `RobotDescription` touches the tracker, the estimator and scene adapter |
 | `web/src/lib/connection.ts:1-4` | Subscriptions survive reconnects | web/ has no test runner |
-| `firmware/mr_stabs_mk2/src/usb_bridge.cpp:24-25` | `write_whole` waits for room | `Serial.availableForWrite` has no native stub |
 
 ## Blocked on a decision or hardware
 

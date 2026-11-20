@@ -115,3 +115,5 @@ Workarounds whose last check needs hardware. Delete a row once the check passes.
 | `/status` built as one ArduinoJson document (`lib/status_doc`) | `fbd2dffc` | Mk2 diagnostics page: every panel fills, I2C "Devices found" lists the BNO055, rates show one decimal |
 | USB bridge task pinned to core 1 | existing | Mk2 over USB-Serial/JTAG: stream 10 kB with the task on core 0 (expect 2 to 5 lost per 10 kB) and core 1 (expect 0) |
 | Velocity jig diagnostics idle `delay(2)` (USB is serviced from an IRQ every 1 ms, so the reason looks wrong) | existing | Jig: build with the delay removed; diagnostics exits within 100 ms of a serial byte and the console never stalls over 5 minutes |
+| USB bridge ROM log hook `ets_install_putc2` routes `log_e()` through `usb_framing::push_log_char` | `17056e2c` | Mk2 on USB with `usb_dashboard.py` streaming: trigger a burst of `log_e()`; no 0x1e frame is split by ROM log bytes, CRC errors stay at 0 |
+| Velocity jig `dbgWaitForHost` loop | existing | Jig debug build: with a hanging init after `dbgWaitForHost(8000)`, the CDC port enumerates with the loop and not without it; if it enumerates either way, delete the loop |
