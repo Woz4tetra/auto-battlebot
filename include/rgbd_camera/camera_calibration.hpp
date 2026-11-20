@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <opencv2/opencv.hpp>
 #include <string>
 
@@ -21,6 +22,8 @@ struct CameraCalibration {
 };
 
 inline constexpr const char *kCameraCalibrationMetadataKey = "camera_calibration";
+
+std::string zed_x_one_calibration_id(uint32_t serial_number, int width, int height);
 
 CameraCalibration load_camera_calibration(const std::string &path);
 void save_camera_calibration(const std::string &path, const CameraCalibration &calibration);

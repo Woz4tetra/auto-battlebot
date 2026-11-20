@@ -73,6 +73,11 @@ CameraCalibration parse_camera_calibration(const std::string &toml_text,
     return calibration;
 }
 
+std::string zed_x_one_calibration_id(uint32_t serial_number, int width, int height) {
+    return "zed_x_one_" + std::to_string(serial_number) + "_" + std::to_string(width) + "x" +
+           std::to_string(height);
+}
+
 CameraCalibration load_camera_calibration(const std::string &path) {
     const std::filesystem::path resolved = resolve(path);
     if (!std::filesystem::exists(resolved)) {

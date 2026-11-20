@@ -110,8 +110,8 @@ void ZedOneRgbCamera::read_calibration() {
     info.distortion = cv::Mat::zeros(1, 5, CV_64F);
     latest_data_.camera_info = info;
 
-    calibration_.calibration_id = "zed_x_one_" + std::to_string(information.serial_number) + "_" +
-                                  std::to_string(width_) + "x" + std::to_string(height_);
+    calibration_.calibration_id =
+        zed_x_one_calibration_id(information.serial_number, width_, height_);
     calibration_.width = width_;
     calibration_.height = height_;
     calibration_.fx = rectified.fx;
