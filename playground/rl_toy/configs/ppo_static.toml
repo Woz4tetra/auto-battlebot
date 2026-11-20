@@ -1,4 +1,3 @@
-# Question 1 and 2 of the toy viability test: PPO on true state against a static opponent.
 name = "ppo_static"
 
 [source]

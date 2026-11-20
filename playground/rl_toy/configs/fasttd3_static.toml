@@ -1,4 +1,3 @@
-# Question 4: FastTD3 on true state against a static opponent, same scenarios and budget as PPO.
 name = "fasttd3_static"
 
 [source]

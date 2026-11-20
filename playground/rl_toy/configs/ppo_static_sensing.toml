@@ -1,5 +1,3 @@
-# Question 3: PPO with the sensing model on (MeasurementModel, OurEkfErrorModel and the opponent
-# filter mirror on simulation/sensing_models/provisional_rl.toml).
 name = "ppo_static_sensing"
 
 [source]

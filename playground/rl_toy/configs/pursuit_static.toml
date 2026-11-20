@@ -1,4 +1,3 @@
-# Scripted baseline: PursuitNavigation's law with the Mr Stabs Mk2 profile gains (max linear 0.25).
 name = "pursuit_static"
 
 [source]
