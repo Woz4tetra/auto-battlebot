@@ -477,10 +477,11 @@ if(BUILD_TESTING)
 
     target_include_directories(auto_battlebot_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
+        ${CMAKE_CURRENT_SOURCE_DIR}/firmware/mr_stabs_mk2/lib/telemetry_ring
     )
 
     include(GoogleTest)
-    gtest_discover_tests(auto_battlebot_test)
+    gtest_discover_tests(auto_battlebot_test PROPERTIES TIMEOUT 300)
 
     add_test(NAME NoNvjpegLink
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_no_nvjpeg_link.sh

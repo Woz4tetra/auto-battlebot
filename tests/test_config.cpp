@@ -1615,6 +1615,23 @@ type = "DeadReckoningMotionEstimator"
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
 }
 
+TEST_F(ConfigTest, MotionEstimatorsWithoutPlantTableNameThePlantTableInTheError) {
+    for (const char *type : {"DeadReckoningMotionEstimator", "KalmanMotionEstimator"}) {
+        write_config_file(config_with_motion_estimator(
+            std::string("\n[robot_filter.motion_estimator]\ntype = \"") + type + "\"\n",
+            kNoPlantTable));
+        try {
+            load_classes_from_config(temp_config_file.string());
+            FAIL() << type << " loaded without a [plant] table";
+        } catch (const ConfigValidationError &error) {
+            const std::string message = error.what();
+            EXPECT_NE(message.find(type), std::string::npos) << message;
+            EXPECT_NE(message.find("requires the top-level [plant] table"), std::string::npos)
+                << message;
+        }
+    }
+}
+
 TEST_F(ConfigTest, KalmanMotionEstimatorDeadReckoningModeRequiresPlantTable) {
     write_config_file(config_with_motion_estimator(R"(
 [robot_filter.motion_estimator]

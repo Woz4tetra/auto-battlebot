@@ -121,16 +121,6 @@ struct McapRecorderTestAccess {
 
 namespace {
 
-constexpr double kWriteMustNotWaitOnCloseMs = 50.0;
-
-void wait_for_queued_close(McapRecorder &recorder) { recorder.flush(); }
-
-void wait_for_file_open(McapRecorder &recorder) { recorder.flush(); }
-
-[[noreturn]] void abort_because_stuck_thread_holds_recorder() { std::abort(); }
-
-void flush_async_logger() { spdlog::default_logger()->flush(); }
-
 class McapRecorderToggleTest : public ::testing::Test {
    protected:
     void SetUp() override { dir_ = make_scratch_recordings_dir("toggle_test"); }
@@ -151,10 +141,11 @@ TEST_F(McapRecorderToggleTest, OffClosesTheFileAndOnStartsANewOne) {
     const std::filesystem::path first = recorder.file_path();
     paths_.push_back(first);
 
-    ASSERT_TRUE(recorder.set_enabled(false));
+    std::future<void> closed_first;
+    ASSERT_TRUE(recorder.set_enabled(false, &closed_first));
     EXPECT_FALSE(recorder.is_enabled());
     write_one(recorder, early, 2);
-    wait_for_queued_close(recorder);
+    closed_first.wait();
 
     FileContents closed = read_file(first);
     EXPECT_TRUE(closed.has_summary) << "the file recording-off closed is not finalized";
@@ -173,6 +164,23 @@ TEST_F(McapRecorderToggleTest, OffClosesTheFileAndOnStartsANewOne) {
     EXPECT_EQ(reopened.metadata["camera_calibration"], "calibration");
     EXPECT_EQ(reopened.metadata["active_profile"], "toggle_test");
     EXPECT_EQ(read_file(first).count_by_topic["/early"], 1);
+}
+
+TEST_F(McapRecorderToggleTest, TheFileExistsOnceTheConstructorReturns) {
+    McapRecorder recorder("toggle_ctor_test", dir_);
+    paths_.push_back(recorder.file_path());
+    EXPECT_TRUE(std::filesystem::exists(recorder.file_path()));
+}
+
+TEST_F(McapRecorderToggleTest, TheEnableFutureIsReadyOnceTheNewFileExists) {
+    McapRecorder recorder("toggle_enable_future_test", dir_);
+    paths_.push_back(recorder.file_path());
+    ASSERT_TRUE(recorder.set_enabled(false));
+    std::future<void> opened;
+    ASSERT_TRUE(recorder.set_enabled(true, &opened));
+    paths_.push_back(recorder.file_path());
+    opened.wait();
+    EXPECT_TRUE(std::filesystem::exists(recorder.file_path()));
 }
 
 TEST_F(McapRecorderToggleTest, ChannelOpenedWhileOffRecordsInTheNextFile) {
@@ -195,21 +203,11 @@ TEST_F(McapRecorderToggleTest, TogglingWithTheMcapLogSinkDoesNotDeadlock) {
     setup_logging(recorder);
     paths_.push_back(recorder->file_path());
 
-    auto done = std::make_shared<std::promise<std::filesystem::path>>();
-    auto finished = done->get_future();
-    std::thread([recorder, done] {
-        recorder->set_enabled(false);
-        recorder->set_enabled(true);
-        spdlog::info("after reopen");
-        done->set_value(recorder->file_path());
-    }).detach();
-    if (finished.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
-        ADD_FAILURE() << "set_enabled deadlocked against the MCAP log sink";
-        abort_because_stuck_thread_holds_recorder();
-    }
-    const std::filesystem::path second = finished.get();
+    recorder->set_enabled(false);
+    recorder->set_enabled(true);
+    spdlog::info("after reopen");
+    const std::filesystem::path second = recorder->file_path();
     paths_.push_back(second);
-    flush_async_logger();
     recorder->close();
     spdlog::set_default_logger(previous_logger);
 
@@ -228,22 +226,13 @@ TEST_F(McapRecorderToggleTest, LoggingFromAnotherThreadWhileTogglingDoesNotDeadl
         while (!stop->load()) spdlog::info("control loop log line");
     });
 
-    auto done = std::make_shared<std::promise<std::vector<std::filesystem::path>>>();
-    auto finished = done->get_future();
-    std::thread([recorder, done] {
-        std::vector<std::filesystem::path> paths{recorder->file_path()};
-        for (int i = 0; i < 200; ++i) {
-            recorder->set_enabled(false);
-            recorder->set_enabled(true);
-            if (paths.back() != recorder->file_path()) paths.push_back(recorder->file_path());
-        }
-        done->set_value(paths);
-    }).detach();
-    if (finished.wait_for(std::chrono::seconds(20)) != std::future_status::ready) {
-        ADD_FAILURE() << "toggling deadlocked against a thread that was logging";
-        abort_because_stuck_thread_holds_recorder();
+    std::vector<std::filesystem::path> paths{recorder->file_path()};
+    for (int i = 0; i < 200; ++i) {
+        recorder->set_enabled(false);
+        recorder->set_enabled(true);
+        if (paths.back() != recorder->file_path()) paths.push_back(recorder->file_path());
     }
-    paths_ = finished.get();
+    paths_ = paths;
     stop->store(true);
     logger_thread.join();
     spdlog::set_default_logger(previous_logger);
@@ -274,28 +263,25 @@ TEST_F(McapRecorderToggleTest, QuickTogglesEachGetTheirOwnFile) {
     }
 }
 
-TEST_F(McapRecorderToggleTest, WritesDoNotWaitForTogglesToFinish) {
+TEST_F(McapRecorderToggleTest, WritesDoNotWaitForTheWriterThreadWhileTogglesAreQueued) {
     McapRecorder recorder("toggle_nowait_test", dir_);
     const auto id = recorder.open_channel("/topic", "json", empty_json_schema());
     std::vector<std::filesystem::path> paths{recorder.file_path()};
-    constexpr size_t kCloseLoadBytes = 1 << 20;
-    const std::vector<std::byte> payload(kCloseLoadBytes, std::byte{'x'});
-    double worst_ms = 0.0;
-    for (int i = 0; i < 20; ++i) {
+    constexpr size_t kPayloadBytes = 1 << 20;
+    const std::vector<std::byte> payload(kPayloadBytes, std::byte{'x'});
+    McapRecorderTestAccess::hold_writer(recorder, true);
+    for (int i = 0; i < 10; ++i) {
         recorder.set_enabled(false);
         recorder.set_enabled(true);
         paths.push_back(recorder.file_path());
         for (int j = 0; j < 5; ++j) {
-            const auto start = std::chrono::steady_clock::now();
             recorder.write(id, payload.data(), payload.size(), 1 + static_cast<uint64_t>(j));
-            worst_ms = std::max(worst_ms, std::chrono::duration<double, std::milli>(
-                                              std::chrono::steady_clock::now() - start)
-                                              .count());
         }
     }
+    EXPECT_EQ(recorder.dropped_messages(), 0u);
+    McapRecorderTestAccess::hold_writer(recorder, false);
     recorder.close();
     paths_ = paths;
-    EXPECT_LT(worst_ms, kWriteMustNotWaitOnCloseMs);
 }
 
 TEST_F(McapRecorderToggleTest, FlushWaitsForQueuedWrites) {
@@ -342,7 +328,6 @@ TEST_F(McapRecorderToggleTest, FullQueueDropsVideoAndKeepsStatus) {
     const auto status = recorder.open_channel("/status/system", "json", empty_json_schema());
     const std::filesystem::path path = recorder.file_path();
     paths_.push_back(path);
-    wait_for_file_open(recorder);
 
     McapRecorderTestAccess::hold_writer(recorder, true);
     const std::vector<std::byte> frame(1 << 20, std::byte{0x11});

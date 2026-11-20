@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #include <armed_guard.h>
 #include <status_doc.h>
+#include <telemetry_batch.h>
 #include <tuning_store.h>
 #include <web_assets.h>
 
@@ -159,41 +160,24 @@ static String wifi_json(wifi_manager::WifiManager *wifi) {
 
 static void handle_telemetry(AsyncWebServerRequest *request, const telemetry_ring_t *ring,
                              uint32_t boot_id) {
-    using espnow_protocol::TelemetryBatchHeader;
-    using espnow_protocol::TelemetryPayload;
-    uint32_t max = espnow_protocol::TELEMETRY_BATCH_MAX;
+    espnow_protocol::TelemetryBatchQuery query;
     if (request->hasParam("max")) {
-        max = std::min<uint32_t>(max,
-                                 strtoul(request->getParam("max")->value().c_str(), nullptr, 10));
+        query.max = std::min<uint32_t>(
+            query.max, strtoul(request->getParam("max")->value().c_str(), nullptr, 10));
     }
-    const bool has_from = request->hasParam("from");
-    const uint32_t from =
-        has_from ? strtoul(request->getParam("from")->value().c_str(), nullptr, 10) : 0;
-    if (!has_from) max = 0;
+    query.has_from = request->hasParam("from");
+    if (query.has_from) {
+        query.from = strtoul(request->getParam("from")->value().c_str(), nullptr, 10);
+    }
 
-    const size_t capacity_bytes = sizeof(TelemetryBatchHeader) + max * sizeof(TelemetryPayload);
+    const size_t capacity_bytes = espnow_protocol::telemetry_batch_max_bytes(query);
     uint8_t *raw = static_cast<uint8_t *>(psramFound() ? ps_malloc(capacity_bytes) : nullptr);
     if (!raw) raw = static_cast<uint8_t *>(malloc(capacity_bytes));
     if (!raw) return request->send(503, "text/plain", "out of memory");
     std::shared_ptr<uint8_t> body(raw, free);
 
-    TelemetryPayload *records =
-        reinterpret_cast<TelemetryPayload *>(raw + sizeof(TelemetryBatchHeader));
-    const telemetry_ring::read_result_t r =
-        ring->read(has_from ? from : ring->head(), records, max);
-    TelemetryBatchHeader header = {};
-    header.magic = espnow_protocol::TELEMETRY_BATCH_MAGIC;
-    header.version = espnow_protocol::TELEMETRY_BATCH_VERSION;
-    header.record_size = sizeof(TelemetryPayload);
-    header.boot_id = boot_id;
-    header.capacity = ring->capacity();
-    header.next_seq = r.next_seq;
-    header.oldest_seq = r.oldest_seq_at_start;
-    header.first_seq = r.first_seq;
-    header.count = r.copied;
-    memcpy(raw, &header, sizeof(header));
+    const size_t length = espnow_protocol::encode_telemetry_batch(*ring, boot_id, query, raw);
 
-    const size_t length = sizeof(TelemetryBatchHeader) + r.copied * sizeof(TelemetryPayload);
     AsyncWebServerResponse *response = request->beginResponse(
         "application/octet-stream", length,
         [body, length](uint8_t *out, size_t max_len, size_t index) -> size_t {

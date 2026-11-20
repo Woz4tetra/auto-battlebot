@@ -19,7 +19,9 @@ constexpr int kTensorWidth = 640;
 constexpr int kTensorHeight = 384;
 constexpr double kGreyLevel = 1.0 / 255.0;
 constexpr double kMaxDiffOneGreyLevel = 1.01 * kGreyLevel;
-constexpr double kMeanDiffBound = 0.3 * kGreyLevel;
+constexpr double kCpuUint8RoundingMeanGrey = 0.25;
+constexpr double kMeanDiffHeadroomGrey = 0.05;
+constexpr double kMeanDiffBound = (kCpuUint8RoundingMeanGrey + kMeanDiffHeadroomGrey) * kGreyLevel;
 const float kPadding = YoloKeypointModelConfiguration{}.letterbox_padding;
 
 bool has_cuda_device() {
@@ -187,6 +189,15 @@ TEST_F(GpuLetterboxTest, RoiUsesRowStep) {
     const std::vector<float> gpu = gpu_letterbox(pinned_roi);
     EXPECT_TRUE(letterbox_.last_was_zero_copy());
     expect_close(gpu, legacy_yolo_cpu_preprocess(pinned_roi.clone()));
+}
+
+TEST_F(GpuLetterboxTest, ManySourceShapesStayWithinOneGreyLevel) {
+    for (const int width : {1920, 1280, 2208, 1000, 777}) {
+        for (const int height : {1200, 720, 1242, 1080, 555}) {
+            const cv::Mat image = random_image(width, height, CV_8UC3);
+            expect_close(gpu_letterbox(image), legacy_yolo_cpu_preprocess(image));
+        }
+    }
 }
 
 TEST_F(GpuLetterboxTest, TensorSizedImageIsExact) {

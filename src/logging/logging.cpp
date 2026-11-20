@@ -6,6 +6,7 @@
 #include <spdlog/spdlog.h>
 
 #include <chrono>
+#include <condition_variable>
 #include <foxglove/schemas.hpp>
 #include <memory>
 #include <mutex>
@@ -49,6 +50,15 @@ class McapLogSink : public spdlog::sinks::base_sink<std::mutex> {
         rebuild_channel(std::move(sink));
     }
 
+    bool flush_logger_and_wait(spdlog::logger& logger, std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lock(flush_mutex_);
+        const uint64_t before = flushes_;
+        lock.unlock();
+        logger.flush();
+        lock.lock();
+        return flushed_cv_.wait_for(lock, timeout, [&] { return flushes_ > before; });
+    }
+
    protected:
     void sink_it_(const spdlog::details::log_msg& msg) override {
         if (!channel_) return;
@@ -71,7 +81,13 @@ class McapLogSink : public spdlog::sinks::base_sink<std::mutex> {
         channel_->log_message(log, time_ns);
     }
 
-    void flush_() override {}
+    void flush_() override {
+        {
+            std::lock_guard<std::mutex> lock(flush_mutex_);
+            ++flushes_;
+        }
+        flushed_cv_.notify_all();
+    }
 
    private:
     void rebuild_channel(std::shared_ptr<VizSink> sink) {
@@ -86,9 +102,14 @@ class McapLogSink : public spdlog::sinks::base_sink<std::mutex> {
 
     std::shared_ptr<McapRecorder> recorder_;
     std::unique_ptr<OutputChannel> channel_;
+    std::mutex flush_mutex_;
+    uint64_t flushes_ = 0;
+    std::condition_variable flushed_cv_;
 };
 
-McapLogSink* g_mcap_log_sink = nullptr;
+std::mutex g_mcap_log_sink_mutex;
+std::weak_ptr<McapLogSink> g_mcap_log_sink;
+std::weak_ptr<spdlog::logger> g_mcap_logger;
 
 }  // namespace
 
@@ -110,7 +131,10 @@ void setup_logging(std::shared_ptr<McapRecorder> recorder) {
     std::vector<spdlog::sink_ptr> sinks;
     sinks.push_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
     auto mcap_sink = std::make_shared<McapLogSink>(std::move(recorder));
-    g_mcap_log_sink = mcap_sink.get();
+    {
+        std::lock_guard<std::mutex> lock(g_mcap_log_sink_mutex);
+        g_mcap_log_sink = mcap_sink;
+    }
     sinks.push_back(std::move(mcap_sink));
 
     if (!spdlog::thread_pool()) spdlog::init_thread_pool(kLogQueueSize, 1);
@@ -118,12 +142,19 @@ void setup_logging(std::shared_ptr<McapRecorder> recorder) {
     logger->set_level(spdlog::level::debug);
     logger->set_pattern(kPattern);
 
+    {
+        std::lock_guard<std::mutex> lock(g_mcap_log_sink_mutex);
+        g_mcap_logger = logger;
+    }
     spdlog::set_default_logger(logger);
 }
 
 void shutdown_logging() {
     spdlog::default_logger()->flush();
-    g_mcap_log_sink = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_mcap_log_sink_mutex);
+        g_mcap_log_sink.reset();
+    }
     auto logger = std::make_shared<spdlog::logger>(
         kLoggerName, std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
     logger->set_level(spdlog::level::debug);
@@ -132,8 +163,25 @@ void shutdown_logging() {
 }
 
 void attach_log_viz_sink(std::shared_ptr<VizSink> sink) {
-    if (!g_mcap_log_sink) return;
-    g_mcap_log_sink->set_viz_sink(std::move(sink));
+    std::shared_ptr<McapLogSink> mcap_sink;
+    {
+        std::lock_guard<std::mutex> lock(g_mcap_log_sink_mutex);
+        mcap_sink = g_mcap_log_sink.lock();
+    }
+    if (!mcap_sink) return;
+    mcap_sink->set_viz_sink(std::move(sink));
+}
+
+void flush_logging(std::chrono::milliseconds timeout) {
+    std::shared_ptr<McapLogSink> mcap_sink;
+    std::shared_ptr<spdlog::logger> logger;
+    {
+        std::lock_guard<std::mutex> lock(g_mcap_log_sink_mutex);
+        mcap_sink = g_mcap_log_sink.lock();
+        logger = g_mcap_logger.lock();
+    }
+    if (!mcap_sink || !logger) return;
+    mcap_sink->flush_logger_and_wait(*logger, timeout);
 }
 
 }  // namespace auto_battlebot

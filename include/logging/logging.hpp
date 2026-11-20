@@ -3,6 +3,7 @@
 #include <spdlog/async.h>
 #include <spdlog/spdlog.h>
 
+#include <chrono>
 #include <memory>
 #include <vector>
 
@@ -17,6 +18,8 @@ std::shared_ptr<spdlog::logger> make_async_logger(
 void setup_logging(std::shared_ptr<McapRecorder> recorder);
 
 void shutdown_logging();
+
+void flush_logging(std::chrono::milliseconds timeout = std::chrono::milliseconds(2000));
 
 void attach_log_viz_sink(std::shared_ptr<VizSink> sink);
 

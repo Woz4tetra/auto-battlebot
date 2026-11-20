@@ -13,6 +13,8 @@
 #include <utility>
 #include <vector>
 
+#include "logging/logging.hpp"
+
 namespace auto_battlebot {
 namespace {
 
@@ -59,6 +61,7 @@ McapRecorder::McapRecorder(const std::string& active_profile, std::filesystem::p
                       refused.string());
     }
     writer_thread_ = std::thread(&McapRecorder::writer_loop, this);
+    flush();
 }
 
 McapRecorder::~McapRecorder() { close(); }
@@ -89,7 +92,7 @@ std::filesystem::path McapRecorder::next_file_path_locked() {
     return path;
 }
 
-bool McapRecorder::start_file_locked(std::filesystem::path& refused) {
+bool McapRecorder::start_file_locked(std::filesystem::path& refused, std::future<void>* completed) {
     std::filesystem::path path = next_file_path_locked();
     if (is_reserved(path)) {
         refused = std::move(path);
@@ -97,7 +100,12 @@ bool McapRecorder::start_file_locked(std::filesystem::path& refused) {
     }
     file_path_ = path;
     file_started_ = std::chrono::steady_clock::now();
-    push_locked(OpenOp{std::move(path), metadata_}, 0);
+    OpenOp op{std::move(path), metadata_, nullptr};
+    if (completed) {
+        op.done = std::make_shared<std::promise<void>>();
+        *completed = op.done->get_future();
+    }
+    push_locked(std::move(op), 0);
     enabled_ = true;
     enabled_hint_.store(true);
     return true;
@@ -109,20 +117,30 @@ void McapRecorder::push_locked(Op op, size_t bytes) {
     ++queued_seq_;
 }
 
-bool McapRecorder::set_enabled(bool enabled) {
+bool McapRecorder::set_enabled(bool enabled, std::future<void>* completed) {
     std::filesystem::path refused;
+    if (completed) {
+        std::promise<void> ready;
+        ready.set_value();
+        *completed = ready.get_future();
+    }
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!enabled) {
             if (enabled_) {
                 enabled_ = false;
                 enabled_hint_.store(false);
-                push_locked(CloseOp{}, 0);
+                CloseOp op;
+                if (completed) {
+                    op.done = std::make_shared<std::promise<void>>();
+                    *completed = op.done->get_future();
+                }
+                push_locked(std::move(op), 0);
             }
         } else if (closed_for_good_) {
             return false;
         } else if (!enabled_) {
-            start_file_locked(refused);
+            start_file_locked(refused, completed);
         }
     }
     work_cv_.notify_one();
@@ -168,6 +186,7 @@ bool McapRecorder::past_size_limit() const {
 }
 
 void McapRecorder::close() {
+    flush_logging();
     {
         std::lock_guard<std::mutex> lock(mutex_);
         closed_for_good_ = true;
@@ -280,6 +299,12 @@ void McapRecorder::writer_loop() {
 }
 
 void McapRecorder::handle(OpenOp& op) {
+    struct Completion {
+        std::shared_ptr<std::promise<void>>& done;
+        ~Completion() {
+            if (done) done->set_value();
+        }
+    } completion{op.done};
     if (writer_state_.writer) close_file();
     enforce_holding_dir_size(op.path.parent_path());
 
@@ -319,8 +344,9 @@ void McapRecorder::handle(OpenOp& op) {
                  active_profile_.empty() ? "<none>" : active_profile_);
 }
 
-void McapRecorder::handle(CloseOp&) {
+void McapRecorder::handle(CloseOp& op) {
     if (writer_state_.writer) close_file();
+    if (op.done) op.done->set_value();
 }
 
 foxglove::FoxgloveError McapRecorder::log_to_channel(foxglove::RawChannel& channel,

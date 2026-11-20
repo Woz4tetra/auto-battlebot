@@ -68,7 +68,3 @@ wheel.
 - `k_ang = 2 * 3.92699 / 0.131 m track = 59.9541 rad/s`
 - Deadzones and coupling are zero because geometry cannot predict them. The time constants and
   delay are zero, so the navigation feedforward adds no derivative terms.
-
-## Workarounds in tests
-
-- `tests/test_jig_plant_model.cpp` compares the C++ jig plant to the Python golden fixture within `kGoldenTol` (1e-9). Both sides run the same double arithmetic at the same 2 ms substep, and the only drift is last-ulp libm differences accumulating over 1200 steps.

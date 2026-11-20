@@ -56,4 +56,4 @@ Every `GET /telemetry` reply starts with a `TelemetryBatchHeader` (`firmware/sha
 
 ## Test fake server
 
-`FakeRingServer` in `tests/esp32_diagnostics/test_esp32_wifi_telemetry.cpp` stands in for the firmware's `GET /telemetry`. It keeps a ring of `capacity` records behind the head the test moves and answers the way `handle_telemetry` in `diagnostics_server.cpp` does. While `offline` is set it accepts and closes without replying, like a robot out of WiFi range. A shared fixture that both sides test against would need the firmware build.
+`FakeRingServer` in `tests/esp32_diagnostics/test_esp32_wifi_telemetry.cpp` stands in for the firmware's `GET /telemetry`. It keeps a ring of `capacity` records behind the head the test moves and encodes its replies with `encode_telemetry_batch` from `firmware/shared/espnow_protocol/src/telemetry_batch.h`, the same function `handle_telemetry` in `diagnostics_server.cpp` calls. While `offline` is set it accepts and closes without replying, like a robot out of WiFi range.

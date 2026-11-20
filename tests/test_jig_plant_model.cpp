@@ -11,7 +11,7 @@
 namespace auto_battlebot {
 namespace {
 
-constexpr double kGoldenTol = 1e-9;
+constexpr double kGoldenTol = 1e-12;
 constexpr double kDesignHorizonS = 0.4;
 
 double wrap_angle(double angle) {

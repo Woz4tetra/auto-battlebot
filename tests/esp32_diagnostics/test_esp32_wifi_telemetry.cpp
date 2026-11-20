@@ -4,6 +4,8 @@
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <telemetry_batch.h>
+#include <telemetry_ring.h>
 #include <unistd.h>
 
 #include <atomic>
@@ -201,15 +203,20 @@ class FakeRingServer {
             boot_id = boot_id_;
             head = head_;
         }
-        const uint32_t oldest = head > capacity ? head - capacity : 0;
-        uint32_t first = head, count = 0;
+        std::vector<TelemetryPayload> storage(capacity);
+        telemetry_ring::TelemetryRing<TelemetryPayload> ring;
+        ring.init(storage.data(), capacity);
+        for (uint32_t i = 0; i < head; ++i) ring.push(record(i));
+        espnow_protocol::TelemetryBatchQuery query;
+        query.max = batch_max;
         const size_t from = path.find("from=");
         if (from != std::string::npos) {
-            const uint32_t want = static_cast<uint32_t>(std::stoul(path.substr(from + 5)));
-            first = std::min(std::max(want, oldest), head);
-            count = std::min(head - first, batch_max);
+            query.has_from = true;
+            query.from = static_cast<uint32_t>(std::stoul(path.substr(from + 5)));
         }
-        const std::string body = batch_body(boot_id, capacity, head, first, count);
+        std::vector<uint8_t> bytes(espnow_protocol::telemetry_batch_max_bytes(query));
+        bytes.resize(espnow_protocol::encode_telemetry_batch(ring, boot_id, query, bytes.data()));
+        const std::string body(reinterpret_cast<const char *>(bytes.data()), bytes.size());
         const std::string reply =
             "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
             "Content-Length: " +

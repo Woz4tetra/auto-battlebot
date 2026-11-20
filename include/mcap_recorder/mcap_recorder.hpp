@@ -11,6 +11,7 @@
 #include <foxglove/context.hpp>
 #include <foxglove/mcap.hpp>
 #include <functional>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -43,7 +44,7 @@ class McapRecorder {
     void set_size_limits(std::optional<uint64_t> max_size_gb,
                          std::optional<uint64_t> holding_dir_max_size_gb);
     void set_ignored_topics(const std::vector<std::string>& topics);
-    bool set_enabled(bool enabled);
+    bool set_enabled(bool enabled, std::future<void>* completed = nullptr);
     bool is_enabled() const;
     bool records_topic(const std::string& topic) const;
     void close();
@@ -71,8 +72,11 @@ class McapRecorder {
     struct OpenOp {
         std::filesystem::path path;
         std::vector<std::pair<std::string, std::string>> metadata;
+        std::shared_ptr<std::promise<void>> done;
     };
-    struct CloseOp {};
+    struct CloseOp {
+        std::shared_ptr<std::promise<void>> done;
+    };
     struct WriteOp {
         ChannelId channel;
         uint64_t log_time_ns;
@@ -97,7 +101,7 @@ class McapRecorder {
     static std::filesystem::path make_file_path(const std::filesystem::path& recordings_dir,
                                                 const std::string& active_profile, int segment);
     static bool is_reserved(const std::filesystem::path& path);
-    bool start_file_locked(std::filesystem::path& refused);
+    bool start_file_locked(std::filesystem::path& refused, std::future<void>* completed = nullptr);
     std::filesystem::path next_file_path_locked();
     void push_locked(Op op, size_t bytes);
 
