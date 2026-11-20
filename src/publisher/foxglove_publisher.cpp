@@ -39,8 +39,6 @@ VizSchema json_schema(const char *name, const char *text) {
 
 constexpr bool kLatched = true;
 constexpr bool kUnlatched = false;
-constexpr int kFullImageJpegQuality = 95;
-constexpr int kPreviewVideoFps = 30;
 
 std::unique_ptr<ImageEncoderWorker> make_jpeg_worker(std::string name, OutputChannel &channel,
                                                      int quality) {
@@ -104,9 +102,9 @@ FoxglovePublisher::FoxglovePublisher(std::shared_ptr<VizSink> sink,
       config_(config),
       field_mask_encoder_(make_jpeg_encoder()),
       preview_gate_(config.preview_rate_hz),
-      preview_video_gate_(kPreviewVideoFps),
+      preview_video_gate_(config.preview_video_fps),
       diagnostics_logger_(DiagnosticsLogger::get_logger("foxglove_publisher")),
-      image_worker_(make_jpeg_worker("camera_image", rgb_image_, kFullImageJpegQuality)),
+      image_worker_(make_jpeg_worker("camera_image", rgb_image_, config.full_image_jpeg_quality)),
       preview_worker_(
           make_jpeg_worker("camera_preview", preview_image_, config_.preview_jpeg_quality)) {
     if (sink_ && config_.preview_width > 0 &&
@@ -134,9 +132,9 @@ void FoxglovePublisher::submit_preview_video(const cv::Mat &frame, uint64_t log_
         VideoEncoderOptions options;
         options.width = frame.cols;
         options.height = frame.rows;
-        options.fps = kPreviewVideoFps;
+        options.fps = config_.preview_video_fps;
         options.bitrate = static_cast<int64_t>(config_.preview_video_bitrate_kbps) * 1000;
-        options.keyframe_interval = kPreviewVideoFps;
+        options.keyframe_interval = config_.preview_video_fps;
         options.input_format = VideoInputFormat::BGR;
         options.software_preview = true;
         OutputChannel *channel = preview_video_.get();
@@ -241,7 +239,8 @@ void FoxglovePublisher::publish_field_mask(const MaskStamped &field_mask, const 
     mask_message.timestamp = foxglove_adapters::to_timestamp(mask_as_image.header.stamp);
     mask_message.frame_id = foxglove_adapters::frame_id_string(mask_as_image.header.frame_id);
     mask_message.format = "jpeg";
-    field_mask_encoder_->encode(mask_as_image.image, kFullImageJpegQuality, mask_message.data);
+    field_mask_encoder_->encode(mask_as_image.image, config_.full_image_jpeg_quality,
+                                mask_message.data);
     field_mask_.log_message(mask_message, log_time);
 
     CameraInfo field_mask_camera_info = camera_info;

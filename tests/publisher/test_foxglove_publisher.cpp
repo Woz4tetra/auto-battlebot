@@ -1,15 +1,25 @@
 #include <gtest/gtest.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
+#include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <map>
 #include <mcap/reader.hpp>
+#include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "publisher/foxglove_publisher.hpp"
+#include "publisher/output_channel.hpp"
+#include "viz/frame.hpp"
+#include "viz/viz_sink.hpp"
 
 namespace auto_battlebot {
 
@@ -28,7 +38,7 @@ struct RecordedMessage {
 
 using Recording = std::map<std::string, std::vector<RecordedMessage>>;
 
-Recording record(const std::function<void(FoxglovePublisher &)> &publish) {
+Recording record_to(const std::function<void(const std::shared_ptr<McapRecorder> &)> &publish) {
     if (!DiagnosticsLogger::is_initialized()) DiagnosticsLogger::initialize({});
     const auto cwd = std::filesystem::current_path();
     const auto scratch = std::filesystem::temp_directory_path() / "auto_battlebot_pub_record_test";
@@ -36,10 +46,7 @@ Recording record(const std::function<void(FoxglovePublisher &)> &publish) {
     std::filesystem::current_path(scratch);
     auto recorder = std::make_shared<McapRecorder>("test_profile", scratch);
     const auto file = recorder->file_path();
-    {
-        FoxglovePublisher publisher(nullptr, recorder);
-        publish(publisher);
-    }
+    publish(recorder);
     recorder->close();
     std::filesystem::current_path(cwd);
 
@@ -57,6 +64,13 @@ Recording record(const std::function<void(FoxglovePublisher &)> &publish) {
     return out;
 }
 
+Recording record(const std::function<void(FoxglovePublisher &)> &publish) {
+    return record_to([&](const std::shared_ptr<McapRecorder> &recorder) {
+        FoxglovePublisher publisher(nullptr, recorder);
+        publish(publisher);
+    });
+}
+
 FieldDescriptionWithInlierPoints square_field() {
     FieldDescriptionWithInlierPoints field;
     field.header.frame_id = FrameId::CAMERA;
@@ -65,6 +79,84 @@ FieldDescriptionWithInlierPoints square_field() {
     field.tf_camera_from_fieldcenter.tf = Eigen::MatrixXd::Identity(4, 4);
     return field;
 }
+
+class SubscribingRelay {
+   public:
+    explicit SubscribingRelay(const std::string &path) : path_(path) {
+        ::unlink(path_.c_str());
+        listen_fd_ = ::socket(AF_UNIX, SOCK_STREAM, 0);
+        sockaddr_un addr{};
+        addr.sun_family = AF_UNIX;
+        std::strncpy(addr.sun_path, path_.c_str(), sizeof(addr.sun_path) - 1);
+        EXPECT_EQ(::bind(listen_fd_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)), 0);
+        EXPECT_EQ(::listen(listen_fd_, 1), 0);
+    }
+    ~SubscribingRelay() {
+        if (client_fd_ >= 0) ::close(client_fd_);
+        ::close(listen_fd_);
+        ::unlink(path_.c_str());
+    }
+
+    bool accept_client() {
+        timeval tv{3, 0};
+        ::setsockopt(listen_fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        client_fd_ = ::accept(listen_fd_, nullptr, nullptr);
+        if (client_fd_ < 0) return false;
+        ::setsockopt(client_fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        return true;
+    }
+
+    std::optional<viz::MessageFrame> next_message() {
+        for (int i = 0; i < 50; ++i) {
+            std::byte header[4];
+            if (!read_exact(header, 4)) return std::nullopt;
+            size_t off = 0;
+            uint32_t len = 0;
+            viz::detail::get_u32(header, 4, off, len);
+            std::vector<std::byte> body(len);
+            if (!read_exact(body.data(), len)) return std::nullopt;
+            if (viz::frame_kind(body.data(), body.size()) != viz::FrameKind::MESSAGE) continue;
+            viz::MessageFrame message;
+            if (viz::decode_message(body.data(), body.size(), message)) return message;
+        }
+        return std::nullopt;
+    }
+
+    bool subscribe_to(const std::string &topic) {
+        for (int i = 0; i < 200; ++i) {
+            std::byte header[4];
+            if (!read_exact(header, 4)) return false;
+            size_t off = 0;
+            uint32_t len = 0;
+            viz::detail::get_u32(header, 4, off, len);
+            std::vector<std::byte> body(len);
+            if (!read_exact(body.data(), len)) return false;
+            viz::AdvertiseFrame advertise;
+            if (viz::frame_kind(body.data(), body.size()) != viz::FrameKind::ADVERTISE) continue;
+            if (!viz::decode_advertise(body.data(), body.size(), advertise)) continue;
+            if (advertise.topic != topic) continue;
+            const auto frame = viz::encode_subscriber_count(advertise.channel_id, 1);
+            return ::send(client_fd_, frame.data(), frame.size(), MSG_NOSIGNAL) ==
+                   static_cast<ssize_t>(frame.size());
+        }
+        return false;
+    }
+
+   private:
+    bool read_exact(std::byte *out, size_t len) {
+        size_t got = 0;
+        while (got < len) {
+            const ssize_t n = ::recv(client_fd_, out + got, len - got, 0);
+            if (n <= 0) return false;
+            got += static_cast<size_t>(n);
+        }
+        return true;
+    }
+
+    std::string path_;
+    int listen_fd_ = -1;
+    int client_fd_ = -1;
+};
 
 }  // namespace
 
@@ -129,6 +221,64 @@ TEST(FoxglovePublisherTest, AnnotationsAreLiveOnly) {
     EXPECT_EQ(contents.find("/blob_detections/annotations"), std::string::npos);
     EXPECT_NE(contents.find("auto_battlebot.Detections"), std::string::npos);
     std::filesystem::remove_all(scratch);
+}
+
+TEST(FoxglovePublisherTest, SubscribedAnnotationsStayOutOfTheRecording) {
+    if (!DiagnosticsLogger::is_initialized()) DiagnosticsLogger::initialize({});
+    const auto cwd = std::filesystem::current_path();
+    const auto scratch = std::filesystem::temp_directory_path() / "auto_battlebot_pub_sub_test";
+    std::filesystem::create_directories(scratch);
+    std::filesystem::current_path(scratch);
+    const std::string socket_path =
+        "/tmp/auto_battlebot_pub_test_" + std::to_string(::getpid()) + ".sock";
+    SubscribingRelay relay(socket_path);
+    auto sink = std::make_shared<VizSink>(socket_path);
+    auto recorder = std::make_shared<McapRecorder>("test_profile", scratch);
+    const auto file = recorder->file_path();
+    {
+        FoxglovePublisher publisher(sink, recorder);
+        ASSERT_TRUE(relay.accept_client());
+        ASSERT_TRUE(relay.subscribe_to("/blob_detections/annotations"));
+        for (int i = 0; i < 300; ++i) {
+            DetectionsStamped detections;
+            detections.header.frame_id = FrameId::CAMERA;
+            detections.header.stamp = 2.0;
+            Detection2D det;
+            det.label = Label::MR_STABS_MK1;
+            detections.detections.push_back(det);
+            publisher.publish_blob_detections(detections);
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+    }
+    recorder->close();
+    std::filesystem::current_path(cwd);
+
+    ASSERT_TRUE(std::filesystem::exists(file));
+    std::ifstream in(file, std::ios::binary);
+    std::string contents((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_NE(contents.find("/blob_detections"), std::string::npos);
+    EXPECT_EQ(contents.find("/blob_detections/annotations"), std::string::npos);
+    std::filesystem::remove_all(scratch);
+}
+
+TEST(OutputChannelTest, ZeroLengthPayloadsNeverReachTheRelay) {
+    const std::string socket_path =
+        "/tmp/auto_battlebot_chan_test_" + std::to_string(::getpid()) + ".sock";
+    SubscribingRelay relay(socket_path);
+    auto sink = std::make_shared<VizSink>(socket_path);
+    OutputChannel channel("/empty_probe", "json", VizSchema{"n", "jsonschema", "{}"}, false, sink,
+                          nullptr);
+    ASSERT_TRUE(relay.accept_client());
+    ASSERT_TRUE(relay.subscribe_to("/empty_probe"));
+    for (int i = 0; i < 200 && sink->num_subscribers(1) == 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    channel.log(std::string(), 1);
+    channel.log(std::string("{}"), 2);
+    const auto first = relay.next_message();
+    ASSERT_TRUE(first.has_value());
+    EXPECT_EQ(first->log_time_ns, 2u);
+    EXPECT_EQ(first->payload.size(), 2u);
 }
 
 TEST(FoxglovePublisherTest, EmptyHeaderDetectionsAreNotRecorded) {

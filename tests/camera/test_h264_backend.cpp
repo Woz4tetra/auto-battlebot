@@ -15,6 +15,7 @@ namespace {
 
 constexpr int kFrames = 30;
 constexpr int kKeyframeInterval = 10;
+constexpr int kNalIdr = 5;
 constexpr int kNalSps = 7;
 constexpr int kNalPps = 8;
 
@@ -23,6 +24,7 @@ struct Packet {
     bool keyframe = false;
     bool has_sps = false;
     bool has_pps = false;
+    bool has_idr = false;
 };
 
 bool has_nal(const std::byte *data, size_t len, int nal_type) {
@@ -44,11 +46,29 @@ struct NamedOpener {
     BackendOpener open;
 };
 
+bool ffmpeg_h264_available(const std::string &codec) {
+    if (!ffmpeg_h264_registered(codec)) return false;
+    VideoEncoderOptions options;
+    options.width = 320;
+    options.height = 240;
+    options.fps = 30;
+    options.bitrate = 1000000;
+    options.keyframe_interval = kKeyframeInterval;
+    options.input_format = VideoInputFormat::BGR;
+    auto backend =
+        open_ffmpeg_h264(codec, options, [](const std::byte *, size_t, int64_t, bool) {});
+    return backend != nullptr;
+}
+
 std::vector<NamedOpener> openers() {
     std::vector<NamedOpener> result;
     result.push_back({"ffmpeg_libx264", [] { return ffmpeg_h264_registered("libx264"); },
                       [](const VideoEncoderOptions &options, H264Backend::PacketSink sink) {
                           return open_ffmpeg_h264("libx264", options, std::move(sink));
+                      }});
+    result.push_back({"ffmpeg_nvenc", [] { return ffmpeg_h264_available("h264_nvenc"); },
+                      [](const VideoEncoderOptions &options, H264Backend::PacketSink sink) {
+                          return open_ffmpeg_h264("h264_nvenc", options, std::move(sink));
                       }});
 #ifdef AUTO_BATTLEBOT_HAVE_GSTREAMER
     result.push_back({"gst_x264", [] { return gst_x264_installed(); }, open_gst_x264});
@@ -58,14 +78,15 @@ std::vector<NamedOpener> openers() {
 
 class H264BackendTest : public ::testing::TestWithParam<size_t> {
    protected:
-    std::vector<Packet> encode_all() {
+    std::vector<Packet> encode_all(int keyframe_interval = kKeyframeInterval,
+                                   int forced_frame = -1) {
         const NamedOpener &opener = openers()[GetParam()];
         VideoEncoderOptions options;
         options.width = 320;
         options.height = 240;
         options.fps = 30;
         options.bitrate = 1000000;
-        options.keyframe_interval = kKeyframeInterval;
+        options.keyframe_interval = keyframe_interval;
         options.input_format = VideoInputFormat::BGR;
         options.software_preview = true;
 
@@ -75,7 +96,7 @@ class H264BackendTest : public ::testing::TestWithParam<size_t> {
             options, [&](const std::byte *data, size_t len, int64_t pts, bool keyframe) {
                 std::lock_guard<std::mutex> lock(mutex);
                 packets.push_back(Packet{pts, keyframe, has_nal(data, len, kNalSps),
-                                         has_nal(data, len, kNalPps)});
+                                         has_nal(data, len, kNalPps), has_nal(data, len, kNalIdr)});
             });
         if (!backend) {
             return {};
@@ -83,7 +104,7 @@ class H264BackendTest : public ::testing::TestWithParam<size_t> {
         for (int i = 0; i < kFrames; ++i) {
             cv::Mat frame(options.height, options.width, CV_8UC3,
                           cv::Scalar((i * 7) % 255, (i * 13) % 255, (i * 29) % 255));
-            while (!backend->encode(frame.clone(), i, false)) {
+            while (!backend->encode(frame.clone(), i, i == forced_frame)) {
             }
         }
         backend->finish();
@@ -119,6 +140,15 @@ TEST_P(H264BackendTest, PacketsLeaveInCaptureOrderBecauseThereAreNoBFrames) {
     for (size_t i = 0; i < packets.size(); ++i) {
         EXPECT_EQ(packets[i].pts, static_cast<int64_t>(i)) << "packet " << i << " reordered";
     }
+}
+
+TEST_P(H264BackendTest, ForcedKeyframeIsAnIdr) {
+    if (!openers()[GetParam()].available()) GTEST_SKIP() << "encoder not installed";
+    constexpr int kForcedFrame = 5;
+    const std::vector<Packet> packets = encode_all(1000, kForcedFrame);
+    ASSERT_EQ(packets.size(), static_cast<size_t>(kFrames));
+    EXPECT_TRUE(packets[kForcedFrame].keyframe);
+    EXPECT_TRUE(packets[kForcedFrame].has_idr);
 }
 
 INSTANTIATE_TEST_SUITE_P(Backends, H264BackendTest, ::testing::Range<size_t>(0, openers().size()),

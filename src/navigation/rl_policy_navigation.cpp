@@ -217,7 +217,7 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
         const auto [speed, yaw_rate] = measured_speed_and_yaw_rate(*our_robot);
         history_->push(rl_policy::HistoryEntry{action_.linear, action_.angular, speed, yaw_rate});
         ticks_until_policy_step_ = policy_period_ticks_;
-        log_step(robots, *our_robot, opponent, field, inference_us);
+        log_step(cached_snapshot_age_s, *our_robot, opponent, field, inference_us);
     }
     --ticks_until_policy_step_;
 
@@ -244,8 +244,7 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
     return command;
 }
 
-void RlPolicyNavigation::log_step(const RobotDescriptionsStamped &robots,
-                                  const RobotDescription &our_robot,
+void RlPolicyNavigation::log_step(double observation_age_s, const RobotDescription &our_robot,
                                   const RobotDescription *opponent, const FieldDescription &field,
                                   double inference_us) {
     const Pose2D our_pose = pose_to_pose2d(our_robot.pose);
@@ -253,7 +252,7 @@ void RlPolicyNavigation::log_step(const RobotDescriptionsStamped &robots,
         {"linear", action_.linear},
         {"angular", action_.angular},
         {"inference_us", inference_us},
-        {"observation_age_s", clock_->now() - robots.header.stamp},
+        {"observation_age_s", observation_age_s},
         {"our_measurement_age_s", our_robot.measurement_age_s},
         {"our_x", our_pose.x},
         {"our_y", our_pose.y},

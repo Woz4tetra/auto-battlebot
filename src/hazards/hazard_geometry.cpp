@@ -7,7 +7,6 @@
 namespace auto_battlebot {
 namespace {
 constexpr double kEps = 1e-9;
-constexpr int kMaxPushOutPasses = 6;
 
 double normalize_angle(double angle) {
     while (angle > M_PI) angle -= 2.0 * M_PI;
@@ -38,9 +37,9 @@ Pose2D predicted_center(const FieldHazard &hazard, double seconds) {
 }
 
 Pose2D push_out_of_hazards(const Pose2D &pose, const std::vector<FieldHazard> &hazards,
-                           double half_x, double half_y) {
+                           double half_x, double half_y, int max_passes) {
     Pose2D result = pose;
-    for (int pass = 0; pass < kMaxPushOutPasses; ++pass) {
+    for (int pass = 0; pass < max_passes; ++pass) {
         bool moved = false;
         for (const auto &hazard : hazards) {
             double dx = result.x - hazard.center.x;

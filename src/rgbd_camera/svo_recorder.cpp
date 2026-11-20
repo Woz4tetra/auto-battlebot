@@ -27,12 +27,32 @@ std::filesystem::path unused_svo_path(const std::filesystem::path &dir, const st
     return path;
 }
 
-SvoRecorder::SvoRecorder(sl::Camera &camera, std::filesystem::path holding_dir,
-                         uint64_t max_size_bytes, uint64_t holding_dir_max_size_bytes)
-    : camera_(camera),
+bool ZedSvoRecordingTarget::is_open() const { return camera_.isOpened(); }
+
+bool ZedSvoRecordingTarget::start_recording(const std::string &path, std::string &error) {
+    sl::RecordingParameters rec_params;
+    rec_params.video_filename = sl::String(path.c_str());
+    rec_params.compression_mode = sl::SVO_COMPRESSION_MODE::H264;
+    const sl::ERROR_CODE err = camera_.enableRecording(rec_params);
+    if (err == sl::ERROR_CODE::SUCCESS) return true;
+    error = sl::toString(err).c_str();
+    return false;
+}
+
+void ZedSvoRecordingTarget::stop_recording() { camera_.disableRecording(); }
+
+SvoRecorder::SvoRecorder(std::unique_ptr<SvoRecordingTarget> target,
+                         std::filesystem::path holding_dir, uint64_t max_size_bytes,
+                         uint64_t holding_dir_max_size_bytes)
+    : target_(std::move(target)),
       holding_dir_(std::move(holding_dir)),
       max_size_bytes_(max_size_bytes),
       holding_dir_max_size_bytes_(holding_dir_max_size_bytes) {}
+
+SvoRecorder::SvoRecorder(sl::Camera &camera, std::filesystem::path holding_dir,
+                         uint64_t max_size_bytes, uint64_t holding_dir_max_size_bytes)
+    : SvoRecorder(std::make_unique<ZedSvoRecordingTarget>(camera), std::move(holding_dir),
+                  max_size_bytes, holding_dir_max_size_bytes) {}
 
 void SvoRecorder::set_desired(bool enabled) { desired_.store(enabled); }
 
@@ -49,7 +69,7 @@ void SvoRecorder::stop() {
 }
 
 bool SvoRecorder::start_locked(const std::unique_lock<std::mutex> &) {
-    if (!camera_.isOpened()) {
+    if (!target_->is_open()) {
         spdlog::error("Cannot start SVO recording: the camera is not open");
         return false;
     }
@@ -57,12 +77,9 @@ bool SvoRecorder::start_locked(const std::unique_lock<std::mutex> &) {
     enforce_holding_dir_size();
 
     std::string path = generate_filename();
-    sl::RecordingParameters rec_params;
-    rec_params.video_filename = sl::String(path.c_str());
-    rec_params.compression_mode = sl::SVO_COMPRESSION_MODE::H264;
-    sl::ERROR_CODE err = camera_.enableRecording(rec_params);
-    if (err != sl::ERROR_CODE::SUCCESS) {
-        spdlog::error("Failed to start SVO recording: {}", sl::toString(err).c_str());
+    std::string error;
+    if (!target_->start_recording(path, error)) {
+        spdlog::error("Failed to start SVO recording: {}", error);
         return false;
     }
     {
@@ -83,7 +100,7 @@ void SvoRecorder::stop_locked(const std::unique_lock<std::mutex> &) {
             return;
         }
     }
-    camera_.disableRecording();
+    target_->stop_recording();
     {
         std::lock_guard<std::mutex> lock(mutex_);
         spdlog::info("SVO recording stopped: {}", current_path_.string());

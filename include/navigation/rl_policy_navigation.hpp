@@ -36,7 +36,7 @@ class RlPolicyNavigation : public NavigationInterface {
                                                         const RobotDescription &our_robot,
                                                         const TargetSelection &target);
 
-    void log_step(const RobotDescriptionsStamped &robots, const RobotDescription &our_robot,
+    void log_step(double observation_age_s, const RobotDescription &our_robot,
                   const RobotDescription *opponent, const FieldDescription &field,
                   double inference_us);
 

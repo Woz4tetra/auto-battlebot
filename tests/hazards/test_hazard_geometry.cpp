@@ -42,22 +42,22 @@ FieldDescription field_with(std::vector<FieldHazard> hazards, double size = 2.4)
 
 TEST(HazardGeometryTest, PushOutLeavesALegalPointAlone) {
     const std::vector<FieldHazard> hazards = {hazard(0.0, 0.0, 0.3)};
-    const Pose2D result = push_out_of_hazards(pose(0.8, 0.0), hazards, 1.2, 1.2);
+    const Pose2D result = push_out_of_hazards(pose(0.8, 0.0), hazards, 1.2, 1.2, 6);
     EXPECT_NEAR(result.x, 0.8, kTol);
     EXPECT_NEAR(result.y, 0.0, kTol);
 }
 
 TEST(HazardGeometryTest, PushOutMovesToTheNearestBoundaryPoint) {
     const std::vector<FieldHazard> hazards = {hazard(0.0, 0.0, 0.3)};
-    const Pose2D result = push_out_of_hazards(pose(0.1, 0.0), hazards, 1.2, 1.2);
+    const Pose2D result = push_out_of_hazards(pose(0.1, 0.0), hazards, 1.2, 1.2, 6);
     EXPECT_NEAR(result.x, 0.3, kTol) << "should leave along the radius it came in on";
     EXPECT_NEAR(result.y, 0.0, kTol);
 }
 
 TEST(HazardGeometryTest, PushOutFromDeadCentreIsDeterministic) {
     const std::vector<FieldHazard> hazards = {hazard(0.0, 0.0, 0.3)};
-    const Pose2D first = push_out_of_hazards(pose(0.0, 0.0), hazards, 1.2, 1.2);
-    const Pose2D second = push_out_of_hazards(pose(0.0, 0.0), hazards, 1.2, 1.2);
+    const Pose2D first = push_out_of_hazards(pose(0.0, 0.0), hazards, 1.2, 1.2, 6);
+    const Pose2D second = push_out_of_hazards(pose(0.0, 0.0), hazards, 1.2, 1.2, 6);
     EXPECT_NEAR(first.x, second.x, kTol);
     EXPECT_NEAR(first.y, second.y, kTol);
     EXPECT_NEAR(first.x, 0.3, kTol) << "dead centre leaves along +x";
@@ -66,14 +66,14 @@ TEST(HazardGeometryTest, PushOutFromDeadCentreIsDeterministic) {
 
 TEST(HazardGeometryTest, PushOutClampsBackInsideTheField) {
     const std::vector<FieldHazard> hazards = {hazard(1.15, 0.0, 0.4)};
-    const Pose2D result = push_out_of_hazards(pose(1.2, 0.0), hazards, 1.1, 1.1);
+    const Pose2D result = push_out_of_hazards(pose(1.2, 0.0), hazards, 1.1, 1.1, 6);
     EXPECT_LE(result.x, 1.1 + kTol);
     EXPECT_GE(result.x, -1.1 - kTol);
 }
 
 TEST(HazardGeometryTest, PushOutSettlesBetweenOverlappingDiscs) {
     const std::vector<FieldHazard> hazards = {hazard(-0.2, 0.0, 0.35), hazard(0.2, 0.0, 0.35)};
-    const Pose2D result = push_out_of_hazards(pose(0.0, 0.0), hazards, 1.1, 1.1);
+    const Pose2D result = push_out_of_hazards(pose(0.0, 0.0), hazards, 1.1, 1.1, 6);
     EXPECT_TRUE(std::isfinite(result.x));
     EXPECT_TRUE(std::isfinite(result.y));
     EXPECT_LE(std::abs(result.x), 1.1 + kTol);
@@ -203,6 +203,14 @@ TEST(HazardAvoidanceTest, BothSidesBlockedStillTerminatesWithAFiniteWaypoint) {
     EXPECT_TRUE(std::isfinite(steered.x));
     EXPECT_TRUE(std::isfinite(steered.y));
     EXPECT_TRUE(avoidance.last_substituted());
+}
+
+TEST(HazardAvoidanceTest, StartingInsideOneHazardStillRoutesAroundTheNextOne) {
+    HazardAvoidance avoidance(default_settings());
+    const FieldDescription field = field_with({hazard(0.0, 0.0, 0.3), hazard(0.4, 0.0, 0.15)});
+    const Pose2D steered = avoidance.steer_around(pose(0.1, 0.0, 0.0), pose(1.0, 0.0), field);
+    EXPECT_TRUE(avoidance.last_substituted());
+    EXPECT_GT(std::abs(steered.y), 0.05) << "the exit point sits on the second hazard's path";
 }
 
 TEST(HazardAvoidanceTest, ReverseFiresOnlyWhenCloseAndPointedAtIt) {

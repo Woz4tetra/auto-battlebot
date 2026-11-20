@@ -95,6 +95,7 @@ class MotionProfileNavigation : public NavigationInterface {
     bool enable_hysteresis_;
 
     double boundary_margin_;
+    int hazard_push_out_max_passes_;
     std::optional<double> max_linear_command_;
     std::optional<double> wall_reverse_distance_m_;
     double wall_reverse_min_speed_;

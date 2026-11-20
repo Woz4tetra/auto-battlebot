@@ -33,11 +33,11 @@ Pose2D HazardAvoidance::steer_around(const Pose2D &our_pose, const Pose2D &goal,
     }
 
     Pose2D waypoint = goal;
-    std::vector<size_t> handled;
+    std::vector<size_t> routed_around;
     for (int iteration = 0; iteration < std::max(1, settings_.tangent_max_iterations);
          ++iteration) {
         const auto blocking = first_blocking_hazard(our_pose, waypoint, field.hazards,
-                                                    settings_.prediction_horizon_s, handled);
+                                                    settings_.prediction_horizon_s, routed_around);
         if (!blocking.has_value()) break;
 
         const FieldHazard &hazard = field.hazards[*blocking];
@@ -50,7 +50,7 @@ Pose2D HazardAvoidance::steer_around(const Pose2D &our_pose, const Pose2D &goal,
             our_pose, center, hazard.inflated_radius_m + settings_.waypoint_clearance_m,
             our_pose.yaw, side);
 
-        handled.push_back(*blocking);
+        routed_around.push_back(*blocking);
         if (!tangent.inside) {
             latched_hazard_index_ = *blocking;
             committed_side_ = tangent.side;
@@ -78,7 +78,6 @@ HazardBarrierResult HazardAvoidance::limit_command(const Pose2D &our_pose,
     if (!settings_.barrier_enable || field.hazards.empty()) return result;
     if (settings_.max_linear_speed_fwd <= 0.0 || settings_.barrier_horizon_s <= 0.0) return result;
 
-    constexpr double kExcessGain = 1.5;
     constexpr double kEps = 1e-6;
 
     double u_min = -1.0;
@@ -106,7 +105,7 @@ HazardBarrierResult HazardAvoidance::limit_command(const Pose2D &our_pose,
                                             : std::max(settings_.max_linear_speed_rev, kEps);
             u_max = std::min(u_max, bound / (k * toward));
             if (excess > 0.0) {
-                u_max = std::min(u_max, -std::min(1.0, kExcessGain * excess));
+                u_max = std::min(u_max, -std::min(1.0, settings_.excess_gain * excess));
                 result.braking = true;
             }
         } else {
@@ -114,7 +113,7 @@ HazardBarrierResult HazardAvoidance::limit_command(const Pose2D &our_pose,
                                             : settings_.max_linear_speed_fwd;
             u_min = std::max(u_min, bound / (k * toward));
             if (excess > 0.0) {
-                u_min = std::max(u_min, std::min(1.0, kExcessGain * excess));
+                u_min = std::max(u_min, std::min(1.0, settings_.excess_gain * excess));
                 result.braking = true;
             }
         }

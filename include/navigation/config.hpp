@@ -131,6 +131,7 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
     std::optional<double> max_angular_command = 1.0;
     bool enable_hysteresis = true;
     double boundary_margin = 0.1;
+    int hazard_push_out_max_passes = 6;
     std::optional<double> max_linear_command = 1.0;
     std::optional<double> wall_reverse_distance_m;
     double wall_reverse_min_speed = 0.0;
@@ -174,6 +175,7 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
         PARSE_FIELD_NULLABLE_DOUBLE(max_angular_command)
         PARSE_FIELD_BOOL(enable_hysteresis)
         PARSE_FIELD_DOUBLE(boundary_margin)
+        PARSE_FIELD(hazard_push_out_max_passes)
         PARSE_FIELD_NULLABLE_DOUBLE(max_linear_command)
         PARSE_RENAMED(wall_reverse_distance, wall_reverse_distance_m)
         PARSE_FIELD_NULLABLE_DOUBLE(wall_reverse_distance_m)

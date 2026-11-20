@@ -76,6 +76,7 @@ MotionProfileNavigation::MotionProfileNavigation(const MotionProfileNavigationCo
       max_angular_command_(config.max_angular_command),
       enable_hysteresis_(config.enable_hysteresis),
       boundary_margin_(config.boundary_margin),
+      hazard_push_out_max_passes_(config.hazard_push_out_max_passes),
       max_linear_command_(config.max_linear_command),
       wall_reverse_distance_m_(config.wall_reverse_distance_m),
       wall_reverse_min_speed_(config.wall_reverse_min_speed),
@@ -437,7 +438,7 @@ Pose2D MotionProfileNavigation::clamp_to_field(const Pose2D &pose,
     if (half_y > 0) {
         clamped.y = std::clamp(clamped.y, -half_y, half_y);
     }
-    return push_out_of_hazards(clamped, field.hazards, half_x, half_y);
+    return push_out_of_hazards(clamped, field.hazards, half_x, half_y, hazard_push_out_max_passes_);
 }
 
 double MotionProfileNavigation::normalize_angle(double angle) {

@@ -27,7 +27,7 @@ inline Pose2D footprint_center(const RobotDescription &robot) {
 }
 
 Pose2D push_out_of_hazards(const Pose2D &pose, const std::vector<FieldHazard> &hazards,
-                           double half_x, double half_y);
+                           double half_x, double half_y, int max_passes);
 
 std::optional<size_t> first_blocking_hazard(const Pose2D &start, const Pose2D &goal,
                                             const std::vector<FieldHazard> &hazards,

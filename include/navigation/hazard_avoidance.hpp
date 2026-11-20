@@ -25,6 +25,7 @@ struct HazardAvoidanceSettings {
     double max_linear_speed_rev = 0.0;
     double barrier_horizon_s = 0.0;
     double barrier_delay_s = 0.0;
+    double excess_gain = 1.5;
 };
 
 struct HazardBarrierResult {

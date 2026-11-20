@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <sl/Camera.hpp>
 #include <string>
@@ -11,8 +12,29 @@ namespace auto_battlebot {
 
 std::filesystem::path unused_svo_path(const std::filesystem::path &dir, const std::string &stamp);
 
+class SvoRecordingTarget {
+   public:
+    virtual ~SvoRecordingTarget() = default;
+    virtual bool is_open() const = 0;
+    virtual bool start_recording(const std::string &path, std::string &error) = 0;
+    virtual void stop_recording() = 0;
+};
+
+class ZedSvoRecordingTarget : public SvoRecordingTarget {
+   public:
+    explicit ZedSvoRecordingTarget(sl::Camera &camera) : camera_(camera) {}
+    bool is_open() const override;
+    bool start_recording(const std::string &path, std::string &error) override;
+    void stop_recording() override;
+
+   private:
+    sl::Camera &camera_;
+};
+
 class SvoRecorder {
    public:
+    SvoRecorder(std::unique_ptr<SvoRecordingTarget> target, std::filesystem::path holding_dir,
+                uint64_t max_size_bytes, uint64_t holding_dir_max_size_bytes);
     SvoRecorder(sl::Camera &camera, std::filesystem::path holding_dir, uint64_t max_size_bytes,
                 uint64_t holding_dir_max_size_bytes);
 
@@ -41,7 +63,7 @@ class SvoRecorder {
     bool start_locked(const std::unique_lock<std::mutex> &lifecycle_lock);
     void stop_locked(const std::unique_lock<std::mutex> &lifecycle_lock);
 
-    sl::Camera &camera_;
+    std::unique_ptr<SvoRecordingTarget> target_;
     std::filesystem::path holding_dir_;
     uint64_t max_size_bytes_;
     uint64_t holding_dir_max_size_bytes_;
