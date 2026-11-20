@@ -32,3 +32,38 @@ def test_flip_switch_down_matches_crsf_bridge_enum() -> None:
     match = re.search(r"\bDOWN\s*=\s*(\d+)", CRSF_BRIDGE_H.read_text())
     assert match is not None
     assert twitch.FLIP_SWITCH_DOWN == int(match.group(1))
+
+
+def row_of(count: int) -> str:
+    return ",".join(str(i) for i in range(count))
+
+
+def test_pad_row_full_width_passes_through() -> None:
+    row = row_of(len(twitch.COLUMNS))
+    assert twitch.pad_row(row) == row
+
+
+def test_pad_row_pre_guard_firmware_keeps_seq_last() -> None:
+    short = len(twitch.COLUMNS) - len(twitch.GUARD_COLUMNS)
+    padded = twitch.pad_row(row_of(short))
+    assert padded is not None
+    cells = padded.split(",")
+    assert len(cells) == len(twitch.COLUMNS)
+    assert cells[-1] == str(short - 1)
+    assert cells[short - 1 : short - 1 + len(twitch.GUARD_COLUMNS)] == ["nan"] * len(
+        twitch.GUARD_COLUMNS
+    )
+
+
+def test_pad_row_pre_yaw_firmware_pads_trailing_columns() -> None:
+    short = len(twitch.COLUMNS) - len(twitch.OPTIONAL_COLUMNS)
+    padded = twitch.pad_row(row_of(short))
+    assert padded is not None
+    cells = padded.split(",")
+    assert len(cells) == len(twitch.COLUMNS)
+    assert cells[short:] == ["nan"] * (len(twitch.COLUMNS) - short)
+
+
+def test_pad_row_rejects_truncated_and_oversized_rows() -> None:
+    assert twitch.pad_row(row_of(len(twitch.COLUMNS) - len(twitch.OPTIONAL_COLUMNS) - 1)) is None
+    assert twitch.pad_row(row_of(len(twitch.COLUMNS) + 1)) is None

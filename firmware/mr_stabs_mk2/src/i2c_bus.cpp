@@ -1,18 +1,12 @@
 #include <driver/gpio.h>
 #include <esp_task_wdt.h>
 #include <i2c_bus.h>
+#include <i2c_scan.h>
 
 namespace i2c_bus {
 bool scan(TwoWire *wire, scan_t *result, bool armed) {
     if (armed) return false;
-    result->count = 0;
-    for (uint8_t address = 0x08; address < 0x78; address++) {
-        esp_task_wdt_reset();
-        wire->beginTransmission(address);
-        if (wire->endTransmission() == 0 && result->count < MAX_FOUND) {
-            result->addresses[result->count++] = address;
-        }
-    }
+    result->count = i2c_scan::scan(*wire, esp_task_wdt_reset, result->addresses, MAX_FOUND);
     result->scanned = true;
     result->scanned_at_ms = millis();
     return true;

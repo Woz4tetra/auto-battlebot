@@ -38,4 +38,3 @@ PlatformIO reads `platformio.ini` in each firmware project. This page explains t
 - `firmware/velocity_jig/src/main.cpp` calls `delay(2)` each pass of the diagnostics idle loop so USB CDC is serviced. Unverified.
 - The debug-build wait for the serial monitor in `firmware/velocity_jig/src/main.cpp` loops `delay(10)` up to a timeout, before any hardware init, blinking the LED. `delay()` services USB, so the CDC port enumerates even if a later init call hangs. Not tested against a hanging init.
 - `firmware/mr_stabs_mk2/scripts/coredump` reads the coredump partition with esptool, using the offset and size of the coredump row in `partitions.csv`. `esp_coredump` reads flash itself only with a full ESP-IDF install. The offset matches `partitions.csv` (0x310000, 64K). The `esp_coredump` claim is unverified.
-- `firmware/mr_stabs_mk2/scripts/ota` passes one key (`-i`, `IdentitiesOnly=yes`) because the ssh agent's full key set exhausts sshd's `MaxAuthTries`. Unverified here.

@@ -90,3 +90,63 @@ def test_end_frame_ends_only_its_stream(dash: ModuleType) -> None:
     bridge._handle_line(dash.FRAME_START + b"E 1")
     assert isinstance(bridge._streams[1].get_nowait(), dash.StreamEnd)
     assert bridge._streams[2].empty()
+
+
+class SilentBridge:
+    def __init__(self) -> None:
+        self.opens = 0
+
+    def open(self, request: bytes) -> tuple[int, queue.Queue[Any]]:
+        self.opens += 1
+        return self.opens, queue.Queue()
+
+    def close(self, stream_id: int) -> None:
+        pass
+
+    def note(self, text: str) -> None:
+        pass
+
+
+class ReplyAfterSilenceBridge(SilentBridge):
+    def __init__(self, silent_opens: int, reply: bytes) -> None:
+        super().__init__()
+        self.silent_opens = silent_opens
+        self.reply = reply
+
+    def open(self, request: bytes) -> tuple[int, queue.Queue[Any]]:
+        stream_id, stream = super().open(request)
+        if stream_id > self.silent_opens:
+            stream.put(self.reply)
+        return stream_id, stream
+
+
+def test_get_retried_after_silent_timeout(
+    dash: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(dash, "GET_TIMEOUT_S", 0.01)
+    reply = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"
+    bridge = ReplyAfterSilenceBridge(2, reply)
+    get = handler("GET")
+    dash.relay(bridge, get)
+    assert bridge.opens == 3
+    assert get.wfile.getvalue() == reply
+    assert get.errors == []
+
+
+def test_post_not_retried_after_silent_timeout(
+    dash: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(dash, "RESPONSE_TIMEOUT_S", 0.01)
+    bridge = SilentBridge()
+    dash.relay(bridge, handler("POST"))
+    assert bridge.opens == 1
+
+
+def test_get_timeout_is_shorter_than_post_timeout(dash: ModuleType) -> None:
+    assert dash.GET_TIMEOUT_S < dash.RESPONSE_TIMEOUT_S
+
+
+def test_fetch_returns_once_content_length_body_arrives_without_close(dash: ModuleType) -> None:
+    reply = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"
+    bridge = ReplyAfterSilenceBridge(0, reply)
+    assert dash.fetch(bridge, b"GET / HTTP/1.1\r\n\r\n", "GET /", 0.2) == reply

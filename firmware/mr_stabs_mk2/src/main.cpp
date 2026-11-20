@@ -6,6 +6,7 @@
 #include <crash_report.h>
 #include <crsf_bridge.h>
 #include <diagnostics_server.h>
+#include <drive_gate.h>
 #include <esc.h>
 #include <esc_config.h>
 #include <esp_attr.h>
@@ -314,12 +315,11 @@ void reset_steering(float sensed_angle_z) {
     yaw_loop_active = false;
 }
 
-void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle_z,
-                       bool auto_steer_enabled, bool is_upside_down, uint32_t now_us,
-                       float &left_command, float &right_command) {
+void update_steering(crsf_bridge::radio_data_t *radio_data, float sensed_angle_z,
+                     bool auto_steer_enabled, bool is_upside_down, uint32_t now_us) {
     float a_percent = radio_data->a_percent;
     float b_percent = radio_data->b_percent;
-    float tail_first_throttle = is_upside_down ? -a_percent : a_percent;
+    float tail_first_throttle = drive_gate::tail_first_throttle(a_percent, is_upside_down);
 
     uint32_t sample_us = accel->get_sample_us();
     bool fresh_heading = sample_us != 0 && sample_us != last_heading_sample_us;
@@ -344,14 +344,6 @@ void mix_motor_outputs(crsf_bridge::radio_data_t *radio_data, float sensed_angle
         }
     }
     was_upside_down = is_upside_down;
-
-    left_command = -1 * a_percent + steer_differential_pct;
-    right_command = -1 * a_percent - steer_differential_pct;
-    float max_command = max(abs(left_command), abs(right_command));
-    if (max_command > 100.0) {
-        left_command = left_command / max_command * 100.0;
-        right_command = right_command / max_command * 100.0;
-    }
 }
 
 esp_timer_handle_t setup_frames_timer = nullptr;
@@ -444,7 +436,7 @@ void loop() {
     uint32_t loop_us = now_us - prev_loop_us;
     prev_loop_us = now_us;
 
-    if (!esc_tuning.owns_escs()) ArduinoOTA.handle();
+    if (drive_gate::run_ota_handler(esc_tuning.owns_escs())) ArduinoOTA.handle();
     if (is_loading_firmware) {
         return;
     }
@@ -458,14 +450,16 @@ void loop() {
     update_motor_guard(micros());
 
     if (ESPNOW_ENABLED) {
-        espnow.update(now_ms, (radio_ok && radio_data->armed) || esc_tuning.owns_escs());
+        espnow.update(now_ms, drive_gate::espnow_arm_input(radio_ok, radio_data->armed,
+                                                           esc_tuning.owns_escs()));
         if (espnow.ota_in_progress()) {
             stop_escs();
             return;
         }
     }
     pair_request_t pair_request;
-    if (diag_server.take_erase_dump_request() && !(radio_ok && radio_data->armed)) {
+    if (diag_server.take_erase_dump_request() &&
+        drive_gate::erase_dump_allowed(radio_ok, radio_data->armed)) {
         if (crash_report::erase_dump()) {
             boot_reset_report.has_dump = false;
             request_status_refresh();
@@ -506,7 +500,9 @@ void loop() {
         }
     }
 
-    if (!radio_ok) {
+    const drive_gate::LoopMode mode =
+        drive_gate::loop_mode(radio_ok, radio_data->armed, esc_tuning.owns_escs());
+    if (mode == drive_gate::LoopMode::RADIO_LOST) {
         stop_escs();
         reset_steering(accel->get_orientation()->x);
 
@@ -542,8 +538,8 @@ void loop() {
         return;
     }
 
-    if (!radio_data->armed || esc_tuning.owns_escs()) {
-        if (!radio_data->armed) guard.clear_trip();
+    if (mode == drive_gate::LoopMode::STOPPED) {
+        if (drive_gate::clear_guard_trip(mode, radio_data->armed)) guard.clear_trip();
         stop_escs();
         reset_steering(accel->get_orientation()->x);
 
@@ -580,8 +576,8 @@ void loop() {
     }
 
     bool espnow_active = false;
-    if (ESPNOW_ENABLED && ESPNOW_COMMAND_SUBSTITUTION && radio_data->autonomy_enabled &&
-        espnow.fresh(now_ms)) {
+    if (drive_gate::substitution_active(ESPNOW_ENABLED, ESPNOW_COMMAND_SUBSTITUTION,
+                                        radio_data->autonomy_enabled, espnow.fresh(now_ms))) {
         const espnow_protocol::CommandPayload &cmd = espnow.latest();
         radio_data->a_percent = -100.0f * cmd.ch0_value;
         radio_data->b_percent = 100.0f * cmd.ch1_value;
@@ -590,33 +586,20 @@ void loop() {
 
     set_led_intensity((abs(radio_data->a_percent) + abs(radio_data->b_percent)) / 2.0);
 
-    bool is_upside_down;
-    bool auto_steer_enabled = false;
-    switch (radio_data->flip_switch_state) {
-        case crsf_bridge::UP:
-            is_upside_down = true;
-            break;
-        case crsf_bridge::MIDDLE:
-            is_upside_down = false;
-            break;
-        case crsf_bridge::DOWN:
-            auto_steer_enabled = true;
-            is_upside_down = sensed_upside_down;
-            break;
-        default:
-            is_upside_down = false;
-            break;
-    }
+    const drive_gate::Orientation facing = drive_gate::resolve_orientation(
+        static_cast<drive_gate::FlipSwitch>(radio_data->flip_switch_state), sensed_upside_down);
+    const bool is_upside_down = facing.upside_down;
+    const bool auto_steer_enabled = facing.auto_steer;
 
-    if (is_upside_down) radio_data->a_percent *= -1;
+    radio_data->a_percent = drive_gate::flipped_throttle(radio_data->a_percent, is_upside_down);
 
     float sensed_angle_z = orientation->x;
 
-    float left_command, right_command;
-    mix_motor_outputs(radio_data, sensed_angle_z, auto_steer_enabled, is_upside_down, micros(),
-                      left_command, right_command);
-
-    guard.apply(left_command, right_command);
+    update_steering(radio_data, sensed_angle_z, auto_steer_enabled, is_upside_down, micros());
+    const drive_gate::Pair command =
+        drive_gate::guarded_pair(radio_data->a_percent, steer_differential_pct, guard);
+    const float left_command = command.left;
+    const float right_command = command.right;
     esc::Esc::write_pair(*left_esc, left_command, *right_esc, right_command);
     last_left_scaled_duty = left_esc->duty(left_command);
     last_right_scaled_duty = right_esc->duty(right_command);

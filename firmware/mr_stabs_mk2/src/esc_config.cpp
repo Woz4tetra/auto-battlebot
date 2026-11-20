@@ -2,6 +2,7 @@
 #include <driver/gpio.h>
 #include <driver/uart.h>
 #include <esc_config.h>
+#include <esc_tuning_plan.h>
 #include <esp_rom_gpio.h>
 #include <soc/gpio_sig_map.h>
 #include <soc/uart_periph.h>
@@ -308,12 +309,19 @@ void EscConfig::update(uint32_t now_ms, bool armed, bool driving, bool button_pr
                 _last_activity_ms = millis();
                 _released = false;
             }
-            if (requested == Request::EXIT || button_edge) {
-                start_exit(now_ms);
-            } else if (!_released && millis() - _last_activity_ms >= IDLE_BOOTLOADER_RELEASE_MS) {
-                _server->reset_esc(0);
-                _server->reset_esc(1);
-                _released = true;
+            switch (esc_tuning_plan::next_action(requested == Request::EXIT, button_edge, _released,
+                                                 millis(), _last_activity_ms,
+                                                 IDLE_BOOTLOADER_RELEASE_MS)) {
+                case esc_tuning_plan::Action::EXIT:
+                    start_exit(now_ms);
+                    break;
+                case esc_tuning_plan::Action::RELEASE_ESCS:
+                    _server->reset_esc(0);
+                    _server->reset_esc(1);
+                    _released = true;
+                    break;
+                case esc_tuning_plan::Action::NONE:
+                    break;
             }
             return;
         }

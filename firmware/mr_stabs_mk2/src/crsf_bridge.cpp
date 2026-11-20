@@ -1,5 +1,6 @@
 #include <crsf_bridge.h>
 #include <crsf_encode.h>
+#include <drive_gate.h>
 
 using namespace crsf_bridge;
 
@@ -15,7 +16,8 @@ bool CrsfBridge::update(radio_data_t *radio_data) {
     three_state_switch_t flip_switch_state;
     if (crsf->isLinkUp()) {
         const crsf_channels_t *channels = crsf->getChannelsPacked();
-        radio_data->a_percent = -1 * scale_channel_to_percent(channels->ch0);
+        radio_data->a_percent =
+            drive_gate::throttle_from_channel_percent(scale_channel_to_percent(channels->ch0));
         radio_data->b_percent = scale_channel_to_percent(channels->ch1);
         radio_data->armed = channels->ch4 > MID_CYCLE;
         radio_data->autonomy_enabled = channels->ch5 > MID_CYCLE;

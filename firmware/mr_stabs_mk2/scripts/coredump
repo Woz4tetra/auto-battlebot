@@ -1,6 +1,24 @@
 #!/bin/bash
 BASE_DIR=$(realpath "$(dirname "$0")")
 cd "${BASE_DIR}/.." || exit 1
+
+coredump_range() {
+    local name offset size
+    while IFS=', ' read -r name _ _ offset size _; do
+        if [ "$name" = "coredump" ]; then
+            size="${size%K}"
+            printf '0x%x 0x%x\n' "$((offset))" "$((size * 1024))"
+            return 0
+        fi
+    done < partitions.csv
+    return 1
+}
+
+if [ "${1:-}" = "--range" ]; then
+    coredump_range
+    exit $?
+fi
+read -r OFFSET SIZE < <(coredump_range) || { echo "no coredump row in partitions.csv" >&2; exit 1; }
 PORT="${1:-}"
 if [ -z "$PORT" ] && [ -e /dev/mr_stabs ]; then
     PORT=/dev/mr_stabs
@@ -16,7 +34,7 @@ trap 'rm -f "$DUMP"' EXIT
 
 echo "ELF SHA-256 prefix: $(sha256sum "$ELF" | cut -c1-16)"
 "$PIO/penv/bin/python" "$PIO/packages/tool-esptoolpy/esptool.py" --chip esp32s3 --port "$PORT" \
-    read_flash 0x310000 0x10000 "$DUMP" || exit 1
+    read_flash "$OFFSET" "$SIZE" "$DUMP" || exit 1
 "$PIO/penv/bin/python" -m esp_coredump --chip esp32s3 info_corefile \
     --gdb "$PIO/packages/tool-xtensa-esp-elf-gdb/bin/xtensa-esp32s3-elf-gdb" \
     --core "$DUMP" --core-format raw "$ELF"

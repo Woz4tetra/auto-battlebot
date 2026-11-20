@@ -72,6 +72,18 @@ def fetch_deadzones(host: str) -> tuple[float, float]:
     return float(fields["left_deadzone"]["value"]), float(fields["right_deadzone"]["value"])
 
 
+def pad_row(data: str) -> str | None:
+    """The row padded with NaN for columns older firmware lacks, or None if the size is wrong."""
+    fields = data.count(",") + 1
+    if not len(COLUMNS) - len(OPTIONAL_COLUMNS) <= fields <= len(COLUMNS):
+        return None
+    if fields == len(COLUMNS) - len(GUARD_COLUMNS):
+        head, seq = data.rsplit(",", 1)
+        data = head + ",nan" * len(GUARD_COLUMNS) + "," + seq
+        fields = len(COLUMNS)
+    return data + ",nan" * (len(COLUMNS) - fields)
+
+
 def capture(host: str, seconds: float, out: Path) -> None:
     """Stream /events in recording mode, which sends a row every control loop."""
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -92,14 +104,10 @@ def capture(host: str, seconds: float, out: Path) -> None:
                 if not line.startswith("data:"):
                     continue
                 data = line[len("data:") :].strip()
-                fields = data.count(",") + 1
-                if not len(COLUMNS) - len(OPTIONAL_COLUMNS) <= fields <= len(COLUMNS):
+                padded = pad_row(data)
+                if padded is None:
                     continue
-                if fields == len(COLUMNS) - len(GUARD_COLUMNS):
-                    head, seq = data.rsplit(",", 1)
-                    data = head + ",nan" * len(GUARD_COLUMNS) + "," + seq
-                    fields = len(COLUMNS)
-                f.write(data + ",nan" * (len(COLUMNS) - fields) + "\n")
+                f.write(padded + "\n")
                 rows += 1
                 if rows % 500 == 0:
                     print(f"\r{rows} rows", end="", flush=True)

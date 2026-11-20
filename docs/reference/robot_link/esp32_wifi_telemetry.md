@@ -45,10 +45,7 @@ Every `GET /telemetry` reply starts with a `TelemetryBatchHeader` (`firmware/sha
 - Station config: `WiFi.persistent(false)` in `wifi_manager.cpp`. The core otherwise writes the station config to flash on every `WiFi.begin()`, and a flash write stalls the control loop. The settings live in our own NVS namespace instead. WiFi settings writes go to flash too, so the diagnostics page changes them only while disarmed. The snapshot the page shows never carries passwords. The task owns the manager's state once `begin()` returns, and `snapshot()` reads it under `_lock`.
 - Status JSON: `diagnostics_server.cpp` serializes the ESP-NOW block through ArduinoJson into its own String and splices it in before the closing brace. ArduinoJson 7 clears a String before writing to it, which would wipe the earlier part of the status. Unverified.
 - Core dump erase writes flash, so it waits for the loop and refuses while armed.
-- I2C scan: `i2c_bus.cpp` resets the task watchdog on each address. A stuck bus times out every address, and 112 of them (112 x 50 ms Wire timeout = 5.6 s) outlast the 5 s loop watchdog.
-- INA238: `main.cpp` reads pack voltage and current from it on the same bus. If it is missing, `vbat` and `ibat` report NaN and the robot runs normally. `VbatSensor::begin()` checks the device ID and writes the ADC config, returns false and reports NaN from then on if the chip does not ACK or is not an INA238, and never blocks beyond two I2C transactions.
 - CRSF telemetry: values go back to the radio as CRSF sensors, and NaN fields are sent as 0.
-- Throttle sign: `a_percent` is the negated throttle channel, so pulling the stick back reads positive, and `loop()` negates it again when inverted. Either way, stick back drives tail-first.
 - BNO055 (`updown_sensor.cpp`): the code reads CHIP_ID before the library's `begin()`, which returns only a bool and hides why it failed. The gyro unwrap tracks from the previous sample, which a reconnect leaves stale, so reconnect resets it. The Adafruit reads ignore I2C errors and return zeros, so each sample checks that the sensor still answers. One failed check costs a single transaction, then reads stop until `begin()` succeeds. The ignored-error claim is unverified against the library source.
 
 ## USB bridge
@@ -57,9 +54,6 @@ Every `GET /telemetry` reply starts with a `TelemetryBatchHeader` (`firmware/sha
 - Arduino's `log_e()` and friends write one character at a time through the ROM putc hook, from any task or core, with no lock, so they would land in the middle of a frame. The bridge collects them and lets the bridge task write whole lines between frames.
 - `WiFiClient::connected()` probes with a zero-length recv, which never reports an orderly close, so a finished response would hold its slot forever. `peer_closed()` peeks one byte instead: 0 means EOF.
 - The bridge task runs on core 1, where `Serial.begin()` put the USB-Serial/JTAG interrupt. Writing from core 0 raced it and lost whole 64-byte packets: 2 to 5 damaged frames per 10 kB file, none on core 1 (236 frames checked on 2026-10-23).
-- `usb_dashboard.py` waits before sending a GET again. The robot replays requests over loopback TCP, which now and then stalls a response for 10 s (a dropped segment waiting out its retransmit timer). Answers are held for at most about 3 s while an ESC exchange runs. Unverified.
-- The robot closes each connection after the response, but its side notices the close late, so `usb_dashboard.py` computes the total response size from `Content-Length` and closes the bridged connection as soon as the body is complete.
-- `log_drive_twitch.py` pads rows from older firmware that lack the yaw, guard, or seq columns so every row matches the header. The firmware just before the guard ends in seq, so the padding goes in front of seq.
 
 ## Test fake server
 
