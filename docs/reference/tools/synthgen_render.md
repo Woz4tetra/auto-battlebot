@@ -36,3 +36,42 @@ Design facts for `training/synthetic/synthgen/` (`pipeline.py`, `robots.py`, `pr
 
 - Intrinsics are written on every mode transition, not only the first. `restore_render_state` puts the base camera back, so a cached setup would otherwise render at that base.
 - Full renders set `use_persistent_data = False`. A stale Cycles cache must never reach a saved artifact. Preview renders keep it on.
+- `warm_up` renders a throwaway frame so the OptiX kernel compile lands before the port opens, not on the first keypress.
+- Preview renders scale with `resolution_percentage`, never by rescaling `K`. It is applied after projection, so the preview frames identically to the full render.
+- Preview renders keep Cycles bounces at the spec's own values. The mat is lit through the polycarbonate panels, so truncating transmission bounces would make the preview systematically darker than the render it previews. Samples are the lever, and the denoiser buys back the noise.
+- `RobotField` imports one robot and stands it at every mat sample point as linked duplicates. `obj.copy()` shares the mesh datablock, so the clones cost a transform each and materials come along for free. All clones share a heading, so projected widths in the readout compare like for like. They are placed once at construction, because moving geometry per frame would discard the Cycles persistent-data cache.
+
+## Sharded renders
+
+`synthgen/shards.py` is a pure module (no Blender) that `render_shards.py` uses to split a render over GPUs and views. Each GPU renders its shard as one `render_scenes.py` run per view. Every run writes its own directory, because `data.yml` and `manifest.jsonl` are per run and would race in a shared one. `merge_parts` hardlinks the finished runs into one flat dataset.
+
+- The total splits evenly over the views, with the remainder going to the views in the order given. The caller picks which view runs short by putting it last.
+- Each view's count splits over the shards, with the remainder starting one shard further along per view. Shard totals stay within one frame of each other.
+- Every shard renders every view. A warped frame costs about twice a pinhole one, so a pinhole-only GPU would sit idle for half the render.
+- `DEFAULT_VIEW_ORDER` is pinhole, rectified, distorted, so distorted runs short. NHRL keeps it. MassD passes `--views rectified distorted pinhole`, so the two venues run short on different views.
+
+## Render settings
+
+`synthgen/render_settings.py` holds the Cycles device and denoiser choices and the cheap settings for the occlusion-only pass. It requires Blender.
+
+- `use_gpu_only` removes the CPU from the Cycles device list whenever a GPU renders. BlenderProc's init enables every device of the chosen type and Blender lists the CPU among the OptiX devices. A 1280x720 frame is small enough that the CPU's tiles finish after the GPU's and add wall time. A CPU-only run keeps the CPU.
+- `occlusion_pass` is for a pass whose only read output is the segmap: one sample, no adaptive sampling, no denoiser, camera rays only. The object-index pass is decided by the first hit, so none of the colour work changes it. Everything is restored on exit so the next colour pass renders as configured.
+- `_render_clean_inst_seg_maps` renders the occlusion-free instance segmentation with distractors hidden, under `occlusion_pass`. Distractors that `clear_blocking_distractors` already hid stay hidden afterwards, which is why visibility is saved alongside the transform.
+- `ARENA_DENOISER` is OptiX for the HDRI arena half. A cage scene uses its spec's `render.denoiser`. OptiX runs on the render device, where BlenderProc's default Intel compositor node runs on the CPU.
+- Preview mode sets `use_persistent_data = True` because the scene is static and only the camera moves. The batch pipeline turns it off because it mutates geometry per frame.
+
+## Scene setup
+
+- `render_scene` warps every map once, right after Blender renders, because Blender writes every map at render resolution and everything after works in the written view.
+- `hide_distractor` hides a distractor and parks it far off-screen via its parent. Hiding is what saves the time, because a parked-but-visible pool still syncs into every pass. The park keeps it clear of the ray casts in `clear_blocking_distractors`.
+- Damage goes on after posing and material jitter and comes off in the `finally` of `render_scene`. Both render passes see the same silhouette and the next scene gets the model back whole. Bboxes and keypoint visibility come from the segmentation of what rendered, so annotations need no special handling.
+- `split_damage_parts` cuts a robot's meshes into the named pieces its `damage_parts` describe. A CAD GLB grouped by material colour holds one object per colour, so the weapon disk shares objects with every other part painted the same. Faces are assigned to pieces by centre. Each piece's faces move into their own object once, before materials and segmentation ids go on, so pieces render and label like any other mesh and damage never edits mesh data mid-run. It returns `(meshes, pieces)`: the mesh list including the pieces, and per part name the objects that received faces.
+- `_UNDISTORT_CRITERIA` in `synthgen/lens.py` is 100 iterations at 1e-10. The `cv2.undistortPoints` default of five iterations leaves pixels of error at a wide lens's corners.
+- `ALPHAS` in `synthgen/constants.py` are the two rectification alphas the pose camera server toggles. 1.0 keeps every source pixel, so the frame is wider than the lens and carries a black border. 0.0 crops to the largest all-valid rectangle, with no border and a narrower field. The C++ `Rectifier` ships 1.0.
+- `HOUSE_BOT_CATEGORY_ID` (3) is the NHRL house bot parked on a cage rail. It is scenery, but it is robot-shaped and sits in frame in real cage footage, so it gets its own category and YOLO class rather than being left unlabelled for the detector to guess at.
+
+## Materials and lighting
+
+- `make_textured_material` gates the house bot texture on HSV saturation above `LED_SATURATION_THRESHOLD` (0.35) before scaling emission. The body texel is a slightly bluish grey (saturation about 0.1) and the LEDs are 0.6 and up.
+- Faces a boolean cut opens take the cutter's material (`CUT_INTERIOR_MATERIAL_NAME`, material_mode TRANSFER). With no material they took slot 0 of the target through the primitive's own UVs and rendered near white. Dark, rough and slightly metallic reads as exposed internals at 34 to 70 px.
+- `add_sky_lighting` and the sprite margin are covered in `synthgen_scene_contracts.md`.
