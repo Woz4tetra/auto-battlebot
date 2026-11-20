@@ -238,10 +238,8 @@ Output goes under `OUT` (default `cage_high_x50_conf044/scores_size_ladder`, wit
 | `venue_massd/` | the 120 MassD frames, opponents only |
 | `rec_<name>/` | one recording, which is one opponent, opponents only |
 
-Environment: `ARM` (default `d50000`), `BASELINE` (default `s`), `SHAPE`, `SM` (default `sm86`, megamind, where the set lives), `CONF` (default 0.5), `EVAL` (a split root for the threshold read), `VENUES`, `OUT`, `RUNS` (default all: opponent, heading, venues, recordings), `EXTRA`.
+Environment: `ARM` (default `d50000`), `BASELINE` (default `s`), `SHAPE`, `SM` (default `sm86`, megamind, where the set lives), `CONF` (default 0.5), `EVAL` (a split root for the threshold read), `NHRL_RECORDINGS` and `MASSD_RECORDINGS` (globs under `EVAL` that select each venue's recordings, passed to `score.py --recordings`), `OUT`, `RUNS` (default all: opponent, heading, venues, recordings), `EXTRA`.
 
 ## Workarounds in `training/model_eval`
 
-- `interpret_context_vs_appearance.py` `gradcam` rebuilds the opponent score from the grad-carrying class-branch conv outputs (`Detect.cv3`), flattened and concatenated into the 8400-anchor order to match `anchor_centers`, then takes the max opponent probability inside the box. The end2end head detaches its postprocessed dict, so Grad-CAM from it has no gradient.
-- `score_domain_mix.sh` and `score_size_ladder.sh` score per-venue symlink roots over the set's recordings, each with its own slice of `validation_state.json`. The GT loader reads review state only in the directory it is pointed at.
 - `score_size_ladder.sh` scores bare recordings directly because every label file in an eval recording is a `pass` frame, so a bare recording scores the same frames the gated root does.

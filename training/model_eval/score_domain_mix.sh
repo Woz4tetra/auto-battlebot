@@ -17,7 +17,8 @@ RUNS=${RUNS:-all}
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$REPO"
 EVAL=training/data/nhrl_keypoints_eval_test
-VENUES=training/data/nhrl_keypoints_eval_test_by_venue
+NHRL_RECORDINGS=${NHRL_RECORDINGS:-main_*}
+MASSD_RECORDINGS=${MASSD_RECORDINGS:-mrs_buff_mk3_massd_*}
 OUT=${OUT:-$EVAL/scores_domain_mix_${MODEL}}
 LABELS="mr_stabs_mk2,mrs_buff_mk3,opponent,house_bot"
 
@@ -37,10 +38,15 @@ done
 
 score() {
     local gt=$1 taxonomy=$2 out=$3
+    shift 3
     echo "=== $out"
     venv/bin/python training/model_eval/score.py "$gt" "${candidates[@]}" --labels "$LABELS" \
         --taxonomy "$taxonomy" --conf "$CONF" --baseline "$BASELINE" --bootstrap 1000 \
-        --output "$out"
+        --output "$out" "$@"
+}
+
+venue_recordings() {
+    (cd "$EVAL" && compgen -G "$1" | sort)
 }
 
 want() {
@@ -52,8 +58,10 @@ if want pooled; then score "$EVAL" training/model_eval/taxonomy.yaml "$OUT/poole
 if want opponent; then score "$EVAL" "$OPPONENT" "$OUT/opponent"; fi
 if want heading; then score "$EVAL" training/model_eval/taxonomy_keypoint_ours.yaml "$OUT/heading"; fi
 if want venues; then
-    score "$VENUES/nhrl_may" "$OPPONENT" "$OUT/venue_nhrl"
-    score "$VENUES/massd_aug" "$OPPONENT" "$OUT/venue_massd"
+    mapfile -t nhrl < <(venue_recordings "$NHRL_RECORDINGS")
+    mapfile -t massd < <(venue_recordings "$MASSD_RECORDINGS")
+    score "$EVAL" "$OPPONENT" "$OUT/venue_nhrl" --recordings "${nhrl[@]}"
+    score "$EVAL" "$OPPONENT" "$OUT/venue_massd" --recordings "${massd[@]}"
 fi
 if want recordings; then
     for recording in "$EVAL"/*/; do

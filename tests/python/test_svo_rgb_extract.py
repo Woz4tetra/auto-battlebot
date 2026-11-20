@@ -18,9 +18,9 @@ def _flag_value(command: list[str], flag: str) -> str:
     return command[command.index(flag) + 1]
 
 
-def test_command_conceals_errors_and_pins_constant_frame_rate(extractor, tmp_path: Path) -> None:
+def test_command_pins_constant_frame_rate(extractor, tmp_path: Path) -> None:
     command = extractor.ffmpeg_command(29.97, 0, tmp_path / "o.mp4", 23, "medium")
-    assert _flag_value(command, "-err_detect") == "ignore_err"
+    assert "-err_detect" not in command
     assert _flag_value(command, "-r") == "29.970000"
     assert _flag_value(command, "-vsync") == "cfr"
     assert command.index("-r") < command.index("-i")

@@ -42,3 +42,45 @@ def test_render_does_not_touch_sim_state(monkeypatch: pytest.MonkeyPatch) -> Non
     assert server._tick == 175
     assert tuple(server._plant.pose()) == before_pose
     assert [(o.x, o.y, o.yaw) for o in server._opponents] == before_opponents
+
+
+def test_camera_frame_has_no_outline_or_overlay_pixels(monkeypatch: pytest.MonkeyPatch) -> None:
+    import numpy as np
+
+    from auto_battlebot.kinematic_sim import kinematic_sim_server
+    from auto_battlebot.kinematic_sim.viewer import COLLISION_BGR
+
+    cfg = KinematicSimConfig()
+    server = kinematic_sim_server.KinematicServer(cfg)
+    server._reset()
+    viewer = Viewer(cfg, [])
+    world = viewer.compose_world(server._plant, server._opponents)
+    full = viewer.compose(server._plant, server._opponents, 0, 0.0, (1.0, 1.0))
+    assert not (world == np.array(COLLISION_BGR, dtype=world.dtype)).all(axis=2).any()
+    assert (full != world).any()
+    assert (full == np.array(COLLISION_BGR, dtype=full.dtype)).all(axis=2).any()
+
+
+@pytest.mark.parametrize("render_delay_s", [0.0, 0.05])
+def test_sim_time_advances_by_dt_per_tick_whatever_the_render_cost(
+    monkeypatch: pytest.MonkeyPatch, render_delay_s: float
+) -> None:
+    import time
+    from types import SimpleNamespace
+
+    from auto_battlebot.kinematic_sim import kinematic_sim_server
+
+    cfg = KinematicSimConfig()
+    cfg.sim.max_ticks = 4
+    server = kinematic_sim_server.KinematicServer(cfg)
+    monkeypatch.setattr(kinematic_sim_server, "recv_all", lambda *_a: b"")
+    monkeypatch.setattr(
+        kinematic_sim_server,
+        "unpack_request",
+        lambda _data: SimpleNamespace(linear_x=0.0, angular_z=0.0),
+    )
+    monkeypatch.setattr(server, "_send_frame", lambda *_a: None)
+    server._viewer = SimpleNamespace(render=lambda *_a: time.sleep(render_delay_s))
+    server._run_client(object(), None)
+    assert server._tick == 4
+    assert server._sim_time == pytest.approx(4 * cfg.sim.dt)

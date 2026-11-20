@@ -97,6 +97,18 @@ def test_calibrator_buffer_is_cuda_resident_on_the_instance(converter, tmp_path:
     assert tuple(calibrator._buffer.shape) == (1, 3, 32, 32)
 
 
+def test_served_pointer_is_not_reused_by_a_later_cuda_allocation(converter, tmp_path: Path) -> None:
+    import torch
+
+    frame = tmp_path / "a__frame_0000.jpg"
+    _frame(frame)
+    int8 = converter.Int8Config(frames=[frame], cache_path=tmp_path / "x.calib", algo="entropy2")
+    calibrator = converter._make_calibrator(int8, 64, 96)
+    (pointer,) = calibrator.get_batch(["images"])
+    later = torch.empty((1, 3, 64, 96), dtype=torch.float32, device="cuda")
+    assert int(later.data_ptr()) != pointer
+
+
 class _StubCalibrator:
     def __init__(self, served: int, cache_hit: bool = False) -> None:
         self.batches_served = served

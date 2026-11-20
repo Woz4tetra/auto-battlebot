@@ -23,8 +23,6 @@ def ffmpeg_command(fps: float, channel: int, output: Path, crf: int, preset: str
         "-y",
         "-fflags",
         "+genpts",
-        "-err_detect",
-        "ignore_err",
         "-f",
         "h264",
         "-r",

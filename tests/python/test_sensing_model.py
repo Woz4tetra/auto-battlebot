@@ -161,6 +161,20 @@ def test_delivery_delay_and_order() -> None:
         assert spacing.mean() == pytest.approx(period, abs=dt / len(spacing) + 1e-9)
 
 
+def test_capture_spacing_is_exact_when_period_is_a_whole_number_of_steps() -> None:
+    model = MeasurementModel(
+        _spec(), ["opponent"], worlds=2, seed=3, randomize=False, frame_rate_hz=250.0
+    )
+    model.reset(torch.ones(2, dtype=torch.bool), 0.0)
+    stamps: list[float] = []
+    truth = _truth(2, 1)
+    for k in range(1000):
+        out = model.step(k * 0.001, truth, _far(2, 1))
+        if bool(out.delivered[0]):
+            stamps.append(float(out.stamp[0]))
+    assert np.abs(np.diff(stamps) - 0.004).max() < 1e-9
+
+
 def test_measured_fraction_matches_tables() -> None:
     model = MeasurementModel(_spec(), ["opponent"], worlds=256, seed=4, randomize=False)
     model.reset(torch.ones(256, dtype=torch.bool), 0.0)
