@@ -477,13 +477,6 @@ dropout_stretch = [0.7, 2.0]
 ekf_sigma_scale = [0.5, 1.5]
 ekf_tau_scale = [0.5, 2.0]
 
-# Provisional, from playground/rl/fit_provisional_ekf_error.py:
-# from the C++ filter in 127 lockstep episodes of Mrs Buff Mk3 (lockstep_record, 2026-10-25,
-# bundle rl_nav_mk3_c_near), its output at control time against sim truth, all five components
-# measured. Heading error runs 2 to 4 times Mr Stabs Mk2's, most of it while spinning in place:
-# the filter predicts with the jig plant (31.7 rad/s full spin) and the MuJoCo plant spins at
-# 26.1 rad/s.
-# Replace with the sensing plan step 5 fit.
 [robots.ours.ekf_error]
 sigma = { along = [0.046911, 0.0395, 0.040827, 0.049957, 0.062195], cross = [0.035711, 0.036694, 0.039981, 0.049155, 0.053906], theta = [0.81568, 0.87722, 0.64549, 0.43852, 0.34661], v = [0.33982, 0.30355, 0.43321, 0.64235, 0.81154], omega = [6.5836, 7.9628, 7.2996, 4.8369, 2.8564] }
 tau_s = { along = 0.1256, cross = 0.2215, theta = 0.1391, v = 0.09931, omega = 0.1096 }

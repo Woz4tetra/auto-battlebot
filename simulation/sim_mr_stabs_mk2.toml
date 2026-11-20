@@ -1,44 +1,21 @@
-# Headless sim config for MR STABS MK2 (simulation/kinematic_sim_server.py), on the MuJoCo
-# rigid-body plant (auto_battlebot/mujoco_sim, docs/guides/sysid_guide.md).
-# Set [our_robot] plant = "kinematic" for the run-175805 kinematic fit further down.
-#
-# Matches the world the RL policy trains in (auto_battlebot/rl/envs/warp_nav.py,
-# docs/experiments/control/rl_navigation_report.md): the 2026-10-15 plant fit at 2 ms, 50 Hz ticks, 60 ms
-# actuation latency, the provisional_rl sensing model, a moving opponent our robot can hit, and
-# the house bot. No static hazards: the training mix draws 0 to 3, and this is the 0 case. To run
-# the policy:
-#
-#   ./scripts/run_simulation.sh simulation/sim_mr_stabs_mk2.toml \
-#       config/simulation/mr_stabs_mk2_rl_sim.toml
-#
-# Keep [arena] in sync with the C++ pairs' [field_filter] size_x/size_y.
-
-
 [server]
 host = "127.0.0.1"
 port = 14882
 
 [sim]
-dt = 0.02 # 50 Hz: the RL policy steps every 20 ms, and the lockstep eval ticks at this rate
+dt = 0.02
 seed = 0
 
 [arena]
 width = 2.4
 height = 2.4
 
-# Actuation latency, in ms of sim time. The measured total is 60 ms (Crossfire + ESC +
-# mechanical), the RL environment's nominal value. The MuJoCo plant holds the firmware-to-motion
-# part itself (the fit's delay_s, 0.65 ms), so this is the radio part only. Set it back to 60 for
-# plant = "kinematic".
 [latency]
 command_ms = 59.3
 
 [camera]
 res_width = 640
 res_height = 360
-# Overhead and slightly back, the way the ZED actually mounts over the cage. The old low side
-# view was arbitrary: nothing rendered, so the pose only fed the projection-bias model. Now the UI
-# draws its overlay on this frame, so the pose decides whether the arena is even in shot.
 fov = 52.0
 pos = [0.0, -0.5, 2.6]
 lookat = [0.0, 0.0, 0.0]
@@ -49,39 +26,23 @@ start_pos = [-0.9, -0.9]
 start_yaw_deg = 45.0
 sprite = "mr_stabs_mk2"
 radius = 0.11
-# Kinematic plant, read only when plant = "kinematic".
-# Calibrated MR STABS MK2 plant (run 175805). Time constants are low confidence (one clean segment
-# each) but physically sensible. max_linear_speed is the full-throttle value the robot achieves.
-# NOTE: max_angular_speed may be inflated by yaw-keypoint flips in the calibration; revisit if turns
-# look unrealistically fast in sim.
-max_linear_speed = 5.6      # symmetric fallback (unused once _fwd/_rev are set)
+max_linear_speed = 5.6
 max_angular_speed = 61.5
-tau_linear = 0.058          # fallback
-tau_angular = 0.066         # fallback
+tau_linear = 0.058
+tau_angular = 0.066
 max_linear_speed_fwd = 5.6
 max_linear_speed_rev = 4.84
 tau_linear_accel = 0.058
-tau_linear_decel = 0.078    # coast: the term that drives stopping overrun
+tau_linear_decel = 0.078
 tau_angular_accel = 0.066
 
 [our_robot.mujoco]
-# The 2026-10-15 sysid fit the RL environment trains on (warp_nav.DEFAULT_FIT).
 fit_file = "playground/calibration/out/mujoco_sysid/fit_2026-10-15_yolo_brake/fit.json"
-# The RL environment's step; position error against 1 ms is 0.3 mm at 0.4 s.
 timestep = 0.002
 pack_voltage = 15.2
-# Transmitter flip switch: "down" (power-on) holds heading and reverses the throttle while the IMU
-# reads upside down; "middle" does neither; "up" always reverses.
 flip_switch = "down"
 
-# Perception latency, dropouts and noise come from a sensing model
-# (docs/experiments/control/2026-11-15_kinematic_sim_design.md). Empty sends the true poses every tick. Pair a model with
-# config/simulation/kinematic_sim_sensing.toml on the C++ side, so the real keypoint filter and
-# motion estimator see the measurements.
 [perception]
-# sensing_model = ""
-# provisional.toml with the our-robot EKF error fitted from lockstep and the measured dropout gaps
-# (playground/rl/fit_provisional_ekf_error.py), as the RL environment reads it.
 sensing_model = "simulation/sensing_models/provisional_rl.toml"
 randomize = false
 
@@ -89,16 +50,6 @@ randomize = false
 enabled = false
 keypoint_height = 0.06
 
-# A Mrs Buff Mk3 driven by the RL training opponents (behavior = "trained"): trained_behaviour
-# picks static, straight, circle, random_walk, pursuit, corner or replay, or "any" to draw one per
-# client connection as stage D does; speeds, radii, pursuit lead and delay and replay tracks are
-# drawn as in training (speed and radius below are unused). trained_holdout = true draws the
-# evaluation's held-out pursuit corner and replay tracks instead. The server prints the draw.
-# The hazard_radius makes it an obstacle our robot hits instead of driving through. In the MuJoCo
-# plant it is a box turned with the opponent's yaw, the RL environment's opponent
-# (warp_nav.OPP_SIZE_M, the Mk3's CAD footprint). The kinematic plant and the clearance score
-# use the 0.168 m disc, the footprint's half-diagonal. For a "go to X and stop" mission, set
-# behavior = "static", hazard_radius = 0 and start_pos to the goal (sim_stop_test.py does this).
 [[opponents]]
 behavior = "trained"
 trained_behaviour = "random_walk"
@@ -112,8 +63,6 @@ replay_csv = ""
 hazard_radius = 0.168
 collision_box = [0.2225, 0.2535, 0.0861]
 
-# The house bot, parked as in half the RL environment's worlds, at its 0.2083 m radius
-# (HOUSE_RADIUS_M). The C++ pairs expect it as the third ground-truth slot (NEUTRAL_ROBOT_1).
 [[opponents]]
 behavior = "static"
 start_pos = [0.85, 0.75]
@@ -122,5 +71,4 @@ sprite = "house_bot"
 hazard_radius = 0.2083
 
 [viewer]
-# MuJoCo's 3D viewer next to the OpenCV window, showing the contact geometry the plant steps.
 mujoco = false

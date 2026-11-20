@@ -85,8 +85,6 @@ class KinematicPlant:
             float(np.clip(angular_cmd, -1.0, 1.0)), cfg.deadzone_angular, dz_ang_r
         )
 
-        # Direction-dependent gain (forward/reverse asymmetry), with fall-backs to the
-        # symmetric value.
         fwd = cfg.max_linear_speed_fwd or cfg.max_linear_speed
         rev = cfg.max_linear_speed_rev or fwd
         v_target = lc * (fwd if lc >= 0.0 else rev)
@@ -94,7 +92,6 @@ class KinematicPlant:
         w_target = ac * cfg.max_angular_speed
         w_target *= max(0.0, 1.0 - cfg.angular_droop_coeff * abs(lc))
 
-        # Separate spin-up vs coast/brake time constants, again falling back to the single tau.
         tau_l_acc = cfg.tau_linear_accel or cfg.tau_linear
         tau_a_acc = cfg.tau_angular_accel or cfg.tau_angular
         tau_l_dec = cfg.tau_linear_decel or tau_l_acc

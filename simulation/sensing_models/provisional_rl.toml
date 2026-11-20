@@ -479,10 +479,6 @@ dropout_stretch = [0.7, 2.0]
 ekf_sigma_scale = [0.5, 1.5]
 ekf_tau_scale = [0.5, 2.0]
 
-# Provisional, from playground/rl/fit_provisional_ekf_error.py:
-# from the C++ filter in 53 lockstep episodes (lockstep_record),
-# its output at control time against sim truth, all five components measured.
-# Replace with the sensing plan step 5 fit.
 [robots.ours.ekf_error]
 sigma = { along = [0.038579, 0.039983, 0.041747, 0.036533, 0.039022], cross = [0.038552, 0.021555, 0.023322, 0.028729, 0.049088], theta = [0.22151, 0.31182, 0.31226, 0.26598, 0.28775], v = [0.20381, 0.36884, 0.5391, 0.55476, 0.5769], omega = [2.3613, 4.7377, 5.2992, 4.8981, 5.0535] }
 tau_s = { along = 0.143, cross = 0.2792, theta = 0.03732, v = 0.1389, omega = 0.02556 }
