@@ -3,19 +3,19 @@
 
 namespace yaw_control {
 struct Config {
-    float max_rate = 2000.0f;          // deg/s at full stick, the BNO055 gyro range
-    float feedforward = 1.0f / 27.0f;  // % per deg/s: the sim's open-loop gain at rest
-    float kp = 0.02f;                  // % per deg/s of rate error
-    float ki = 0.02f;                  // % per degree of integrated rate error
-    float i_max = 20.0f;               // % cap on the integral term
-    float k_heading = 6.0f;            // deg/s of rate command per degree of heading error
-    float hold_rate_max = 360.0f;      // deg/s cap on the heading-hold rate command
-    float reverse_kp_scale = 4.0f;     // kp multiplier at full reverse throttle
-    float reverse_ff_scale = 0.25f;    // feedforward multiplier at full reverse throttle
-    float turn_threshold = 1.0f;       // % of stick above which the driver is turning
-    float capture_rate = 45.0f;        // deg/s below which a released turn has stopped
-    float capture_timeout = 0.3f;      // s after release to take the heading regardless
-    float idle_throttle = 5.0f;        // % of throttle below which a centered stick idles
+    float max_rate = 2000.0f;
+    float feedforward = 1.0f / 27.0f;
+    float kp = 0.02f;
+    float ki = 0.02f;
+    float i_max = 20.0f;
+    float k_heading = 6.0f;
+    float hold_rate_max = 360.0f;
+    float reverse_kp_scale = 4.0f;
+    float reverse_ff_scale = 0.25f;
+    float turn_threshold = 1.0f;
+    float capture_rate = 45.0f;
+    float capture_timeout = 0.3f;
+    float idle_throttle = 5.0f;
 };
 
 class YawController {

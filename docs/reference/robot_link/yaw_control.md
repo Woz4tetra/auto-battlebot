@@ -40,3 +40,23 @@
 - That turns the yaw-rate loop into positive feedback: it drives the motors harder to "brake" a spin it sees going the wrong way.
 - `unwrap_gyro_rate()` picks the alias of the raw reading nearest the previous unwrapped rate.
 - It is exact while the rate changes by under half a wrap (2048 deg/s) between samples. A larger step picks the wrong alias.
+
+## `yaw_control::Config`
+
+Defaults are in `firmware/mr_stabs_mk2/lib/yaw_control/yaw_control.h`. Percent means percent of drive command.
+
+| Field | Meaning |
+| --- | --- |
+| `max_rate` | deg/s at full stick, the BNO055 gyro range. |
+| `feedforward` | Percent per deg/s: the sim's open-loop gain at rest (1/27). |
+| `kp` | Percent per deg/s of rate error. |
+| `ki` | Percent per degree of integrated rate error. |
+| `i_max` | Percent cap on the integral term. |
+| `k_heading` | deg/s of rate command per degree of heading error. |
+| `hold_rate_max` | deg/s cap on the heading-hold rate command. |
+| `reverse_kp_scale` | `kp` multiplier at full reverse throttle. |
+| `reverse_ff_scale` | Feedforward multiplier at full reverse throttle. |
+| `turn_threshold` | Percent of stick above which the driver is turning. |
+| `capture_rate` | deg/s below which a released turn has stopped. |
+| `capture_timeout` | Seconds after release to take the heading regardless. |
+| `idle_throttle` | Percent of throttle below which a centered stick idles. |

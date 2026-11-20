@@ -4,33 +4,32 @@
 namespace motor_guard {
 
 struct Config {
-    float r_cold_ohm = 0.40f;          // effective circuit resistance, cold (fit says 0.453)
-    float ke_v_s_per_rad = 4.152e-3f;  // back-EMF constant, 2300 KV
-    float k_c_per_a2s = 0.036f;        // thermal gain
-    float tau_s = 40.0f;               // thermal time constant
-    float alpha_per_c = 0.00393f;      // copper tempco
-    float rise_soft_c = 35.0f;         // limiting starts folding back here
-    float rise_max_c = 50.0f;          // and holds the motor here
-    float peak_amps = 15.0f;           // I_peak, allowed below rise_soft_c
-    float loop_rad_s = 10.0f;          // k_c, limiter crossover
-    float recover_per_s = 3.0f;        // r_up, in ln(scale) per second
+    float r_cold_ohm = 0.40f;
+    float ke_v_s_per_rad = 4.152e-3f;
+    float k_c_per_a2s = 0.036f;
+    float tau_s = 40.0f;
+    float alpha_per_c = 0.00393f;
+    float rise_soft_c = 35.0f;
+    float rise_max_c = 50.0f;
+    float peak_amps = 15.0f;
+    float loop_rad_s = 10.0f;
+    float recover_per_s = 3.0f;
     float min_scale = 0.05f;
-    float min_duty = 0.05f;               // floor on |d| in the measured bound
-    float max_dt_s = 0.1f;                // clamp on dt after a stall in the loop
-    float pole_pairs = 7.0f;              // P
-    float logic_amps = 0.3f;              // I_logic
-    float gain_gate_amps = 2.0f;          // g only updates above this summed motor draw
-    float reversal_margin_rad_s = 50.0f;  // speed rise that proves a reversed motor crossed 0
+    float min_duty = 0.05f;
+    float max_dt_s = 0.1f;
+    float pole_pairs = 7.0f;
+    float logic_amps = 0.3f;
+    float gain_gate_amps = 2.0f;
+    float reversal_margin_rad_s = 50.0f;
     float gain_steady_rad_s = 150.0f;
-    float gain_steady_duty = 0.02f;  // and while neither duty moved more, two updates running //
-                                     // and while neither motor's speed moved more per update
-    float gain_min_load = 0.4f;      // and above this fraction of the draw with no back-EMF
+    float gain_steady_duty = 0.02f;
+    float gain_min_load = 0.4f;
     float gain_tau_s = 0.5f;
     float gain_min = 1.0f;
     float gain_max = 1.5f;
-    float stall_duty = 0.3f;  // stall flag: |d| above this with eRPM 0
+    float stall_duty = 0.3f;
     float stall_hold_s = 0.1f;
-    float fallback_volts = 15.2f;  // V once the last INA238 voltage is volts_hold_s old
+    float fallback_volts = 15.2f;
     float volts_hold_s = 1.0f;
     float min_amps = 0.1f;
     float limit_filter_s = 0.1f;

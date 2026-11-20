@@ -7,38 +7,16 @@ struct PidConfig {
     float ki = 0.0;
     float kd = 0.0;
     float kf = 0.0;
-    float i_zone = -1.0;  // -1 means no i_zone limit
+    float i_zone = -1.0;
     float i_max = 0.0;
     float tolerance = 0.0;
-    bool continuous = false;   // Enable continuous angle wrapping
-    float min_input = -180.0;  // Minimum input value for continuous mode
-    float max_input = 180.0;   // Maximum input value for continuous mode
+    bool continuous = false;
+    float min_input = -180.0;
+    float max_input = 180.0;
 };
 
 class Pid {
    public:
-    /**
-     * Implements a PID controller with optional feedforward term and integral zone.
-     *
-     * Call update() once per new measurement, with dt the time since the previous measurement.
-     * Calling it again with a repeated measurement makes the D term read zero.
-     *
-     * Config arguments:
-     * kp: Proportional gain.
-     * ki: Integral gain, per second.
-     * kd: Derivative gain, in seconds.
-     * kf: Feedforward gain.
-     * i_zone: Integral zone. If the error is within this zone, the integral term is
-     *         accumulated. If set to -1, the integral term is always accumulated.
-     * i_max: Maximum magnitude of the integral term's output. If set to 0, the integral term
-     *        is not limited.
-     * tolerance: Error tolerance for which the controller is considered to have reached the
-     *           setpoint. Output is zero while the error is within this tolerance, but the
-     *           integral and derivative state keep updating so leaving the band does not kick.
-     * continuous: Enable continuous input wrapping (for angles)
-     * min_input: Minimum input value for continuous mode (typically -180)
-     * max_input: Maximum input value for continuous mode (typically 180)
-     */
     Pid(const PidConfig &config);
 
     void reset();

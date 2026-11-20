@@ -129,14 +129,14 @@ ROBOTS = {
 @dataclass(frozen=True)
 class Stage:
     opponents: tuple[str, ...]
-    hazards: int  # most holes and wall blocks per arena
+    hazards: int
     holes_only: bool
     sensing: bool
-    random: float  # domain randomization: 0 nominal plant, 1 full ranges
-    arena: tuple[float, float]  # side length range, m
-    run_away: float  # fraction of RUN_AWAY episodes
-    house: float  # probability of a house bot
-    policy: float = 0.0  # share of opponents driven by a policy, for robots that have drivers
+    random: float
+    arena: tuple[float, float]
+    run_away: float
+    house: float
+    policy: float = 0.0
 
 
 STAGE_B_OPPONENTS = ("static", "straight", "circle", "random_walk")
@@ -196,31 +196,23 @@ class WarpNavConfig:
     policy_dt_s: float = 0.02
     measure_period_s: float = 0.01
     episode_s: float = 20.0
-    robot: str = "mr_stabs_mk2"  # a key of ROBOTS
-    fit_file: str = ""  # empty: the robot's own (RobotProfile.fit_file)
-    sensing_model: str = ""  # empty: the robot's own (RobotProfile.sensing_model)
+    robot: str = "mr_stabs_mk2"
+    fit_file: str = ""
+    sensing_model: str = ""
     arc_half_angle_deg: float = 60.0
     strike_x_m: float = 0.06
     strike_half_width_m: float = 0.081
     danger_margin_m: float = 0.10
-    # reward["hole_near_per_s"] ramps from 0 at this distance outside a hole's edge to full weight
-    # at the edge, so the policy learns to keep clear before the terminal hole penalty.
     hole_margin_m: float = 0.15
-    # Under this body speed, unless our wedge is on the opponent from outside its arc, the robot
-    # counts as standing still and pays reward["still_per_s"]. Spinning in place still counts: a
-    # robot turning on the spot is as easy to hit as a parked one.
     still_speed_mps: float = 0.2
     stage_offset_m: float = 0.25
     engagement_gap_s: float = 0.5
-    # Continued contact inside the opponent's arc is charged as another hit taken every this many
-    # seconds: a weapon keeps hitting a robot pinned against it. Before, only the first touch
-    # counted, so freezing nose-to-nose with a pursuer cost one hit for a whole episode.
     arc_rehit_s: float = 0.5
     latency_s: tuple[float, float] = (0.04, 0.08)
     pack_volts: tuple[float, float] = (14.0, 16.4)
     flip_hold_s: float = 0.5
     gamma: float = 0.99
-    holdout: bool = False  # evaluation: draw only the held-out pursuit corner and replay tracks
+    holdout: bool = False
     nconmax: int = 48
     njmax: int = 640
     reward: dict[str, float] = field(
@@ -231,28 +223,14 @@ class WarpNavConfig:
             "hit_taken": -10.0,
             "danger_per_s": -1.0,
             "hole": -10.0,
-            # Off by default. Mrs Buff Mk3's stage C fine-tune with hole -30 still fell in on
-            # 0.05 to 0.07 of training episodes, mostly with no hit taken: a terminal penalty
-            # alone gives little credit to the steps that drove there.
             "hole_near_per_s": 0.0,
             "block_event": -0.5,
             "wall_event": -0.2,
             "flip": -20.0,
             "nose_lift_per_s": -0.5,
-            # A moving target beats a parked one even when moving does not lead to a strike. The
-            # 2026-10-17 policy parked for whole episodes in a facing opponent's front arc,
-            # waiting for it to turn (rl_navigation_report.md); waiting cost nothing. 20 s parked
-            # now costs as much as one hit taken. Applies in both modes.
             "still_per_s": -0.5,
-            # 5x the plan's -0.01: a stage C evaluation (2026-10-17) found the deterministic policy
-            # moving its linear command 0.11 per 20 ms step, 0.18 before a tip, and flipping in
-            # 40% of episodes; chatter spins the rotors up and down and their reaction lifts the
-            # chassis, which no slew limit stops any more.
             "command_change": -0.05,
             "shaping": 1.0,
-            # Weight of the flank term in the attack potential (`_potential`): being beside or
-            # behind the opponent at close range. A pursuer turns to keep us in its arc, so the
-            # point-behind distance alone barely changes while we circle it.
             "flank": 2.0,
         }
     )
@@ -1299,8 +1277,6 @@ class WarpNavEnv:
         reward += torch.where(danger, rw["danger_per_s"] * dt, 0.0)
         self.stats["danger_s"] += danger.float() * dt
 
-        # Pushing or pinning the opponent with our wedge from outside its arc is slow on purpose
-        # and exempt. Any other contact is not: pinned in its arc is the worst place to sit.
         pushing_wedge = wedge & ~arc
         still = ~pushing_wedge & (tr["velocity"].norm(dim=1) < cfg.still_speed_mps)
         reward += torch.where(still, rw["still_per_s"] * dt, 0.0)

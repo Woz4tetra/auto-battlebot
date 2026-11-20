@@ -5,8 +5,8 @@
 
 namespace tuning {
 struct Settings {
-    float left_deadzone = 1.0f;   // % of command below which the left ESC gets DShot stop
-    float right_deadzone = 1.0f;  // same, right ESC
+    float left_deadzone = 1.0f;
+    float right_deadzone = 1.0f;
     yaw_control::Config yaw;
 };
 

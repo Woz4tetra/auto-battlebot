@@ -17,3 +17,7 @@
 - When the robot drops a chunk, every chunk behind it in flight draws the same next offset. The flasher goes back once per offset within 0.1 s, so one drop does not rewind the window once per stale acknowledgement.
 
 - `espnow_ota.py` has no rollback. If the new image installs but does not report running for 10 s with the dongle in range, the tool raises `OtaError` and the robot is recovered over USB with `scripts/upload`.
+
+## Dongle build envs
+
+`firmware/espnow_dongle/platformio.ini` has one env, `qtpy_nopsram`: the development dongle, an Adafruit QT Py ESP32-S3 with 8 MB flash and no PSRAM. The match dongle will be an ESP32-S3 with a u.FL antenna. Add an env with its board and nothing else changes.

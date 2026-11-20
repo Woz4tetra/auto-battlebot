@@ -18,9 +18,7 @@ STEPS_PER_ITERATION = 16
 
 @dataclass
 class FastTd3Config:
-    buffer_steps: int = 256  # per world
-    # The paper's 32768 costs 100 ms per update on the laptop's RTX 4080 with this critic; 8192
-    # costs 18 ms, so the laptop arm runs 8192.
+    buffer_steps: int = 256
     batch_size: int = 8192
     n_step: int = 3
     gamma: float = 0.99
@@ -37,7 +35,7 @@ class FastTd3Config:
     v_min: float = -80.0
     v_max: float = 80.0
     critic_hidden: tuple[int, ...] = (1024, 512, 256)
-    learning_starts: int = 16  # buffer steps of uniform-random actions before updates
+    learning_starts: int = 16
     max_grad_norm: float = 0.0
 
 

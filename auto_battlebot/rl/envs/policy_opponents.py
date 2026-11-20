@@ -22,9 +22,9 @@ PLANT_SUBSTEPS = 4
 @dataclass(frozen=True)
 class PolicyDriver:
     name: str
-    robot: str  # footprint key, warp_nav.ROBOT_SIZE_M
-    plant_file: str  # a TOML with a [plant] table, repo-relative
-    checkpoint: str  # a training checkpoint, repo-relative; "" for self-play
+    robot: str
+    plant_file: str
+    checkpoint: str
 
 
 class PolicyOpponents:
