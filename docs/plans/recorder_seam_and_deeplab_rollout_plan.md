@@ -23,38 +23,16 @@ protects the recordings that steps 2 and 3 produce.
 
 ## 2. Confirm the DeepLab fix on the Jetson
 
-Report: `docs/experiments/perception/2026-11-19_deeplab_preprocessing_fix.md`. The x86 TensorRT
-replay matched the `rgb, dataset, deployed` arm at 0.990 IoU. The Jetson builds its own aarch64
-engine, which is unchecked.
-
-1. Deploy `benw/nav-v2-phase0` to the Jetson and rebuild. The engine itself does not change; the
-   C++ preprocessing does.
-2. Record a short session with field inits (human-driven or stationary; no autonomous drive).
-3. Copy the MCAP to the dev box and run:
-
-   ```bash
-   source scripts/activate_python.sh
-   python -m playground.deeplab_preprocess.recorded_mask_agreement <mcap> \
-     --checkpoint <deeplab checkpoint>
-   ```
-
-4. Pass: recorded masks match the `rgb, *` arms better than the `bgr, *` arms. The old Jetson
-   recordings gave BGR 0.880 against RGB 0.822 to 0.827, so the fixed build should flip that.
-5. Add the result to the report as a dated section.
+Done 2026-11-20 on auto-battlebot-compute-1 by SVO playback: recorded masks match
+`rgb, dataset, deployed` at 0.9949 IoU against 0.9122 for the closest BGR arm
+(`docs/experiments/perception/2026-11-19_deeplab_preprocessing_fix.md`, "Jetson engine check").
+A live e-CAM25 session is still unchecked.
 
 ## 3. Settle the field-fit result
 
-The fixed build moved the fitted MassD field side from 2.32 m to 2.09 m against a measured 2.26 m
-(mean absolute side error 0.199 to 0.174 m), from one init on each of 6 SVOs. That is too few to
-call a regression or a gain.
-
-- Replay each MassD SVO with several `svo_start_frame` values (say 5 per SVO, 30 inits per build),
-  old and fixed build, x86.
-- Pin `svo_start_frame` in each scratch overlay and delete `config/_replay_scratch.toml` after.
-- Score fitted side length and its spread per build against 2.26 m.
-- If the fixed build is consistently small, check whether the tighter mask trims the floor edge;
-  the BF1@2 numbers in the report are the place to start.
-- Needs step 1 first, so the replay MCAPs survive a test run.
+Done 2026-11-20: 30 inits per build. On converged good-view inits the fix moves side bias from
++0.146 m to -0.038 m. Half the good-view inits fail in both builds, so the field fit itself is the
+next problem (report section "Field fit over 30 inits").
 
 ## 4. Comment purge phase 5
 

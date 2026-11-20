@@ -169,15 +169,45 @@ and after builds on x86. The arena floor measures 2.26 m on a side
 
 The contour shrinks in 5 of 6, matching the smaller floor fraction above.
 
+### Field fit over 30 inits, 2026-11-20
+
+On the field inits where the fit converges, the fixed build fits the floor closer to its measured
+size. The old build overshoots by 0.15 m, the fixed build undershoots by 0.04 m.
+
+Setup: both builds at `b849162a` on x86, the old arm with the two preprocessing lines reverted
+(BGR passed through, ImageNet statistics). Six MassD SVOs, 5 start frames each, spread evenly from
+frame 0 to 450 frames before the end, with `svo_start_frame` pinned in the overlay. One field init per
+run, 60 runs. The init lands 4 to 14 frames after the start frame. Many MassD starts point the
+camera away from the cage, so I labelled each start frame by eye: 17 show the floor well, 13
+are off the cage or blocked (`assets/deeplab_preprocessing_2026-11-19/field_fit_start_frames_2026-11-20.jpg`).
+Per-run sides: `field_fit_2026-11-20.csv`. Error is mean absolute side error against 2.26 m.
+
+| Subset | Inits | Old MAE (m) | Fixed MAE (m) | Fixed minus old, 95% CI |
+| --- | --- | --- | --- | --- |
+| All starts | 30 | 0.485 | 0.541 | +0.056 (-0.026 to +0.143) |
+| Good view | 17 | 0.479 | 0.469 | -0.009 (-0.101 to +0.078) |
+| Bad or partial view | 13 | 0.494 | 0.634 | +0.141 (+0.006 to +0.299) |
+| Good view, both fits within 0.4 m | 9 | 0.188 | 0.119 | side bias +0.146 to -0.038 |
+
+- Most of the error has nothing to do with preprocessing. 8 of the 17 good-view inits miss by
+  0.4 m or more in both builds: all of 09-05-14, three of 11-17-26 (sides down to 0.4 m), and
+  13-20-08 frame 4033. The rectangle fit fails there whichever mask it gets.
+- On the 9 converged inits the fixed build is smaller on 17 of 18 sides, by 0.185 m on average.
+  The old fit's 2.41 m mean side is too big, so the tighter mask moves it toward 2.26 m
+  (2.22 m, spread 0.17 m in both builds).
+- On bad views the fixed build does worse (+0.14 m MAE). Those inits fit a rectangle to
+  whatever floor-like region is in view. A tighter mask gives a smaller wrong rectangle.
+- The 2026-11-19 reading of 2.09 m against 2.32 m mixed bad-view inits (frame 0 of 08-48-33,
+  09-05-14, 09-50-47 and 11-17-26 is off the cage) with good ones.
+
 ## Limitations
 
 - One checkpoint. A model trained on BGR by accident would show the opposite; this one was trained on
   RGB (`semantic_train.py` converts with `cv2.COLOR_BGR2RGB`).
-- The Jetson check (2026-11-20) is SVO playback of one recording, not a live camera session. The
-  e-CAM25 path (`V4l2RgbCamera`, UYVY to BGR) was not run.
+- The Jetson check (2026-11-20) is SVO playback of one recording, not a live camera session.
 - The field-fit comparison is 6 inits from 6 SVOs, with no ground-truth field pose.
 
 ## Next
 
-1. Score field-fit accuracy over many inits per recording (vary `svo_start_frame`) before reading
-   anything into the 2.09 m mean side.
+1. Find why the field fit fails on good views (all of 09-05-14, most of 11-17-26) in both builds.
+2. Gate field init on view quality, so an init pointed away from the cage is retried.
