@@ -431,14 +431,3 @@ python training/model_eval/score.py training/data/nhrl_keypoints_eval_test \
 - `box_pose_vs_blob_2026-07-14.md` and `all_robots_pose_2026-07-14.md` cover the keypoint model that
   produces the aim point at runtime. Result 3 is the argument for keeping it: the 0.088 gap between
   any box center and the keypoint midpoint is what that model exists to close.
-
-## Notes moved from code comments (2026-11-15)
-
-- `training/model_eval/mask_centroid_vs_box.py`, `range_band_table`:
-  Aim-point error in millimetres per estimator, split into equal-count range bands.
-  Bands are quantiles of the robot's ground range from the camera rather than fixed distances, so each row carries the same weight instead of the far band holding a handful of robots.
-- `training/model_eval/mask_centroid_vs_box.py`, `collect` (`above identity = dict(enumerate(range(len(gt_boxes))))`):
-  The GT box center is itself an estimator of the aim point, and the best any box-based method can do: it is the label, with no detection error in it.
-- `training/model_eval/mask_centroid_vs_box.py`, `keypoint_midpoints`:
-  (N, 2) front/back keypoint midpoint per GT box, NaN where either end is unlabeled.
-  This is the point the aim controller actually wants: the middle of the robot chassis along its heading axis, which is not the same as the center of its bounding box.

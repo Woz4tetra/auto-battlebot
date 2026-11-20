@@ -167,9 +167,10 @@ passes a single `--labels` list to every candidate as `num_classes`, and `trt_yo
 would misparse a 4-class output tensor. R1 is therefore scored alone and compared descriptively;
 baseline + R2 + R3 share one properly paired bootstrap.
 
-**Two taxonomy views.** Common-class (`exclude: object, mrs_buff_mk3`) is the no-regression check and
-the only fair way to compare a 4-class model against 5-class ones — without it R1 takes 389
-automatic misses on the eval set's `mrs_buff_mk3` boxes. New-class (`mrs_buff_mk3` only) measures
+**Two taxonomy views.** Common-class (`exclude: object, mrs_buff_mk3`) is a no-regression check between
+two models that share a class vocabulary, such as two 5-class runs, where the exclusion applies
+symmetrically. It is invalid for comparing a 4-class model against a 5-class one (see the
+correction under the results below). New-class (`mrs_buff_mk3` only) measures
 acquisition.
 
 ---
@@ -748,29 +749,3 @@ Three readings:
    the eval set's 389 `mrs_buff_mk3` boxes are a category it does not have. New-class view: **0.000**
    recall, by construction. This is the gap R2 and R3 have to close, and it confirms the experiment
    is not degenerate.
-
-## Notes moved from code comments (2026-11-15)
-
-- `training/model_eval/taxonomy_common_class.yaml` (`above archetypes:`):
-
-  ```text
-  Common-class scoring view: excludes mrs_buff_mk3 alongside object (debris).
-
-  !! DO NOT use this to compare a 4-class model against a 5-class one. !!
-
-  It was written for exactly that purpose in category_addition_2026-07-25 and is invalid for it.
-  Excluding mrs_buff_mk3 removes the class from the GROUND TRUTH but not from a model's
-  PREDICTIONS. A 4-class model has no mrs_buff_mk3 head, so it detects our robot and emits
-  `opponent`; that prediction is not excluded, matches no GT, and is counted as a false positive.
-  A 5-class model is unaffected, its mrs_buff_mk3 predictions are excluded symmetrically. The
-  view therefore penalises only the model it was meant to make comparable. Measured on identical
-  engines: the 4-class run scored precision 0.887 under taxonomy.yaml and 0.573 here.
-
-  For 4-vs-5-class comparison use taxonomy.yaml at the AGNOSTIC level: it collapses all classes to
-  "a robot is here", so a model that finds our robot and misnames it is correctly scored as having
-  found it, and the naming failure surfaces at the instance level where it belongs.
-
-  This file remains valid for comparing two models that share the same class vocabulary, where the
-  exclusion applies symmetrically, e.g. a no-regression check between two 5-class runs.
-  ```
-

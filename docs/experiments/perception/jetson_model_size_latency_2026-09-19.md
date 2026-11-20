@@ -305,13 +305,3 @@ and would have corrupted the run had it overlapped.
   `data/models/yolo26{n,s,m,l,x}_nhrl_robots_bbox_2class_2026-09-04_aarch64_sm87.engine`
 - Benchmark tool: `training/model_eval/benchmark_engines.py`, extended in this run with the
   stage breakdown and `--csv`
-
-## Notes moved from `src/` comments (2026-11-15)
-
-Each entry names the file and the code it described.
-
-### `src/tensorrt_inference/trt_engine.cpp`
-
-Beside `nvinfer1::ICudaEngine* eng = rt->deserializeCudaEngine(reader);`:
-
-Streaming rather than whole-file: an engine built for another GPU architecture or TensorRT version is rejected once the header has been read, so EngineSelector can try a candidate list without paying a full read per miss.

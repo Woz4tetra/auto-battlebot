@@ -179,6 +179,9 @@ Only `exact` and `interpolated` transforms are usable. `unavailable` has no pose
 
 - Inference runs through ultralytics on the `.pt` weights, not the TensorRT engine, because `TrtYoloModel` discards the mask coefficients. Detection metrics from this path differ slightly from `score.py`'s engine numbers. The offsets are self-consistent because centroid and box come from the same forward pass.
 - `floor_errors` repeats the errors in millimetres on the arena floor. Each estimate's pixel is projected onto the plane the robot sits on and the distance is taken between floor points. Perspective makes a pixel worth far more at the far wall than at the camera, so a single mm-per-pixel factor would misstate both ends.
+- `range_band_table()` prints the aim-point error in millimetres per estimator, split into equal-count range bands. The bands are quantiles of each robot's ground range from the camera, not fixed distances, so every row carries the same weight instead of the far band holding a handful of robots.
+- The GT box center is itself an estimator of the aim point. It is the label, with no detection error in it, so it is the best any box-based method can do.
+- `keypoint_midpoints()` returns the (N, 2) front/back keypoint midpoint per GT box, NaN where either end is unlabeled. It is the middle of the chassis along its heading axis, which is not the center of the bounding box.
 
 ## Context vs appearance probes
 
@@ -190,6 +193,20 @@ Only `exact` and `interpolated` transforms are usable. `unavailable` has no pose
 4. Grad-CAM: gradient saliency at the P3 neck layer for the opponent score at each GT box, which corroborates RISE with the inside-box mass fraction.
 
 All probes define the target as the max opponent class score (channels object and robot) among head anchors whose center falls inside the target box.
+
+## Recall by object size
+
+`training/model_eval/recall_by_size.py` splits agnostic recall by ground-truth object size for two or more engines. `score.py` reports one recall over the whole eval set, which says whether an arm is better but not where it differs. INT8 quantization is expected to fail unevenly: a distant robot produces low-amplitude activations, and if a tensor's INT8 scale is set wide those activations round to zero before the head, while a close robot survives. That is a claim about the size distribution of the misses, which one recall number cannot confirm or refute.
+
+- Boxes are binned by sqrt(area) in source pixels, the measure COCO's small/medium/large split uses (32 px and 96 px).
+- Matching is the class-blind greedy IoU matcher from `score.py` at the same threshold, so the totals row reproduces that report's agnostic recall.
+
+```bash
+venv/bin/python training/model_eval/recall_by_size.py training/data/nhrl_keypoints_eval_test \
+  --candidate B16=data/models/<fp16>.engine --candidate B8=data/models/<int8>.engine \
+  --labels "opponent,house_bot" --taxonomy training/model_eval/taxonomy_merged.yaml \
+  --conf 0.5 --baseline B16 --output <dir>
+```
 
 ## Paired scoring scripts
 

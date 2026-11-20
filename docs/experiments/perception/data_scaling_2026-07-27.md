@@ -240,11 +240,3 @@ taxonomy at `training/model_eval/taxonomy_merged.yaml`.
 The arm `.txt` lists in the archive point at the **pre-split** layout (`train/images/…` for every
 frame). Scene assignments survive in `manifest.json`, so the arms are reconstructible, but the lists
 themselves will not resolve against the current train/val layout.
-
-## Notes moved from code comments (2026-11-15)
-
-- `training/yolo/make_scaling_splits.py`, `summarize` (`above return {"frames": len(frames), "scenes": len(scenes), "scene_list": scenes}`):
-  class counts are per-scene, so only exact for whole-scene arms; report frames either way
-- `training/yolo/make_scaling_splits.py`, `choose_val_scenes`:
-  Pick ``count`` scenes whose frame share is near ``frac`` and whose house_bot share matches.
-  Searched rather than taken in order because scene sizes are so uneven that any fixed rule lands far off the target; a random search over whole-scene combinations gets within a fraction of a percent on both axes.
