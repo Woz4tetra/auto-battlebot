@@ -71,3 +71,12 @@ None of these were flashed. Verified by native PlatformIO tests or compile only.
 | `semantic_train.py` drops `seed_worker` | `764e5e8b` | Two short seeded training runs reproduce |
 | GPU queue moved to `auto_battlebot/gpu_queue.py`, `training/gpu_queue.py` is an entry point | `be3a4302` | On megamind, after the next pull: restart the queue worker, `status` and one `submit` work |
 
+## Ledger rows that need a device
+
+Workarounds whose last check needs hardware. Delete a row once the check passes.
+
+| Change | Commit | Check (device, steps, pass) |
+| --- | --- | --- |
+| NVJPG plugin installs next to `libauto_battlebot_lib.so` (CMakeLists.txt) | `8ad8c7a4` | Jetson, Release build with `HAVE_NVJPG` ON: plugin sits beside `libauto_battlebot_lib.so`, `scripts/check_no_nvjpeg_link.sh` passes, JPEG encoder loads the plugin |
+| nlohmann `DOWNLOAD_EXTRACT_TIMESTAMP` gated on CMake >= 3.24 | `8ad8c7a4` | compute-1 (JetPack 6, CMake 3.22): clean `cmake` configure succeeds |
+| ZED sources build with `-U_DEBUG` only, no forced `-O2 -DNDEBUG`, in debug builds | `8ad8c7a4` | ZED box, debug build: camera opens and streams at full rate |
