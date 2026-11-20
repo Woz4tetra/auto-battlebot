@@ -806,8 +806,7 @@ Notes from code comments:
   angle (front = the end you drag toward).  Front/back snap to the footprint's
   extremes along that direction, centered on the body.  Confirmed sidecars are
   marked ``reviewed: true`` so recompute never clobbers them.  Bad meshes can be
-  marked ``rejected: true``; ``archive_rejected_nhrl.py`` then moves them out of
-  the pool so they never render.
+  marked ``rejected: true``; distractor discovery skips them so they never render.
 
   The review starts on the first model that is neither reviewed nor rejected, so
   re-running the tool resumes where the last pass left off.

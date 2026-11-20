@@ -64,3 +64,38 @@ def test_house_bot_lookup_scoped_to_stage(
     assert house_bot is not None
     assert house_bot.parent is own_bot
     assert cage_scene._house_bot(False, [SimpleNamespace(name="mat")]) is None
+
+
+def test_render_state_round_trips_fov_through_lens_and_sensor_only(
+    blender_stubs: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from synthgen import cage_scene
+
+    cam = SimpleNamespace(
+        lens=35.0,
+        sensor_width=36.0,
+        sensor_height=24.0,
+        sensor_fit="HORIZONTAL",
+        shift_x=0.1,
+        shift_y=-0.2,
+        clip_start=0.1,
+        clip_end=100.0,
+    )
+    scene = MagicMock()
+    scene.camera.data = cam
+    blender_stubs.bpy.context.scene = scene
+    state = cage_scene.snapshot_render_state()
+    cam.lens = 12.0
+    cam.sensor_width = 5.0
+    cam.sensor_height = 3.0
+    cam.sensor_fit = "VERTICAL"
+    monkeypatch.setattr(cage_scene, "write_denoiser_without_availability_check", lambda *_a: None)
+    cage_scene.restore_render_state(state)
+    assert (cam.lens, cam.sensor_width, cam.sensor_height, cam.sensor_fit) == (
+        35.0,
+        36.0,
+        24.0,
+        "HORIZONTAL",
+    )
+    assert not hasattr(cam, "lens_unit")
+    assert not hasattr(cam, "angle")

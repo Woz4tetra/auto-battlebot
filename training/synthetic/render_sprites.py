@@ -115,11 +115,8 @@ def upright_matrix(robot_config: RobotConfig, inverted: bool = False) -> mathuti
     return pitch @ roll
 
 
-def propagate_parent_transform_to_children() -> None:
-    bpy.context.view_layer.update()
-
-
 def world_bounds(meshes: list[bproc.types.MeshObject]) -> tuple[mathutils.Vector, mathutils.Vector]:
+    bpy.context.view_layer.update()
     lo = mathutils.Vector((math.inf,) * 3)
     hi = mathutils.Vector((-math.inf,) * 3)
     for mesh in meshes:
@@ -186,7 +183,6 @@ def render_sprite(
     print(f"  front {front_rounded} -> yaw {math.degrees(yaw_rad):+.1f} deg")
     yaw = mathutils.Matrix.Rotation(yaw_rad, 4, "Z")
     parent.matrix_world = yaw @ upright @ parent.matrix_world
-    propagate_parent_transform_to_children()
 
     lo, hi = world_bounds(meshes)
     center = (lo + hi) / 2.0

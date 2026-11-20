@@ -122,7 +122,7 @@ class Model:
         self.rejected = False
 
     def reject(self) -> None:
-        """Mark the sidecar ``rejected`` so archive_rejected_nhrl.py can pull it."""
+        """Mark the sidecar ``rejected`` so distractor discovery skips it."""
         data = dict(self.existing)
         data["reviewed"] = False
         data["rejected"] = True
@@ -286,8 +286,6 @@ def main() -> None:
         f"\n{reviewed_count}/{len(models)} models reviewed, {rejected_count} rejected. "
         f"Sidecars written to {models_dir}."
     )
-    if rejected_count:
-        print("Run archive_rejected_nhrl.py to move rejected models out of the pool.")
 
 
 if __name__ == "__main__":

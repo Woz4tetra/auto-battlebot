@@ -89,9 +89,10 @@ class RenderState:
     transparent_max_bounces: int
     world_color: tuple[float, float, float]
     world_strength: float
-    lens_unit: str
     lens: float
-    angle: float
+    sensor_width: float
+    sensor_height: float
+    sensor_fit: str
     shift_x: float
     shift_y: float
     clip_start: float
@@ -121,9 +122,10 @@ def snapshot_render_state() -> RenderState:
         transparent_max_bounces=int(scene.cycles.transparent_max_bounces),
         world_color=color,
         world_strength=strength,
-        lens_unit=cam.lens_unit,
         lens=float(cam.lens),
-        angle=float(cam.angle),
+        sensor_width=float(cam.sensor_width),
+        sensor_height=float(cam.sensor_height),
+        sensor_fit=str(cam.sensor_fit),
         shift_x=float(cam.shift_x),
         shift_y=float(cam.shift_y),
         clip_start=float(cam.clip_start),
@@ -158,9 +160,10 @@ def restore_render_state(state: RenderState) -> None:
         transparent_max_bounces=state.transparent_max_bounces,
     )
     bproc.renderer.set_world_background(list(state.world_color), state.world_strength)
-    cam.lens_unit = state.lens_unit
     cam.lens = state.lens
-    cam.angle = state.angle
+    cam.sensor_width = state.sensor_width
+    cam.sensor_height = state.sensor_height
+    cam.sensor_fit = state.sensor_fit
     cam.shift_x = state.shift_x
     cam.shift_y = state.shift_y
     cam.clip_start = state.clip_start

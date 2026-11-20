@@ -57,3 +57,29 @@ def test_upright_matrix_matches_pose_single_robot(
     robots.pose_single_robot(robot, rand_cfg, arena_radius=1.0)
     assert posed[0][0] == pytest.approx(math.radians(pitch_deg))
     assert posed[0][1] == pytest.approx(math.radians(roll_deg))
+
+
+def test_world_bounds_updates_the_depsgraph_before_reading_matrix_world(
+    blender_stubs: Any,
+) -> None:
+    import render_sprites
+
+    order: list[str] = []
+    blender_stubs.bpy.context.view_layer.update.side_effect = lambda: order.append("update")
+
+    class Obj:
+        bound_box: list[tuple[float, float, float]] = []
+
+        @property
+        def matrix_world(self) -> Any:
+            order.append("read")
+            return blender_stubs.mathutils.Matrix()
+
+    mesh = SimpleNamespace(blender_obj=Obj())
+    Obj.bound_box = [(0.0, 0.0, 0.0)]
+    try:
+        render_sprites.world_bounds([mesh])
+    except Exception:
+        pass
+    assert order[0] == "update"
+    assert "read" in order

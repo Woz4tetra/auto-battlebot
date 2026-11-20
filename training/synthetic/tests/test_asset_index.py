@@ -62,6 +62,16 @@ class TestDiscoverModelFiles:
         groups = discover_model_files(sources, _identity_resolve)
         assert groups[0].kind == "objaverse"
 
+    def test_rejected_sidecar_excludes_the_model(self, tmp_path: Path) -> None:
+        d = tmp_path / "robots"
+        d.mkdir()
+        for name in ("keep.glb", "drop.glb", "plain.glb"):
+            (d / name).touch()
+        (d / "keep.json").write_text(json.dumps({"rejected": False}))
+        (d / "drop.json").write_text(json.dumps({"rejected": True}))
+        groups = discover_model_files((DistractorSource(path=d),), _identity_resolve)
+        assert sorted(f.name for f in groups[0].files) == ["keep.glb", "plain.glb"]
+
 
 class TestComputeSourceBudgets:
     def test_proportional_split(self) -> None:

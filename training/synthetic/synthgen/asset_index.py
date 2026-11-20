@@ -54,6 +54,17 @@ class OutputLayout:
     manifest_path: Path
 
 
+def is_rejected_model(model_path: Path) -> bool:
+    """True when the model's JSON sidecar is marked ``rejected: true``."""
+    sidecar = model_path.with_suffix(".json")
+    try:
+        with sidecar.open() as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(data, dict) and bool(data.get("rejected"))
+
+
 def discover_model_files(
     sources: tuple[DistractorSource, ...], resolve: PathResolveFn
 ) -> list[SourceModelFiles]:
@@ -66,7 +77,7 @@ def discover_model_files(
             continue
         files: list[Path] = []
         for ext in MODEL_EXTENSIONS:
-            files.extend(d.glob(f"*{ext}"))
+            files.extend(f for f in d.glob(f"*{ext}") if not is_rejected_model(f))
         if files:
             groups.append(
                 SourceModelFiles(
