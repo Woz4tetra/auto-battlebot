@@ -49,6 +49,8 @@ class CameraTrack:
 
 def decode_full_frame(jpeg: bytes, width: int, height: int) -> np.ndarray | None:
     """The decoded BGR frame, or None for a truncated or wrong-sized JPEG."""
+    if not jpeg:
+        return None
     img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
     if img is None or img.shape != (height, width, 3):
         return None
