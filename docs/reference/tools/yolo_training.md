@@ -102,6 +102,135 @@ The `yolo26n` entry in `training/yolo/train.py` sets `imgsz` 640, the same as `y
 - Cache is `ram`, not `disk`. The disk cache writes one full-resolution `.npy` per image, about 200 GB against 12 GB of JPEGs on this corpus (the blowup described under `reclaim_stale_caches()`). The resized RAM cache is about 17 GB per DDP process.
 - Batch defaults to 64, safe for a single-GPU run. The size sweep (`model_size_2026-09-04.md`) overrode it to 96 with `--batch`, because 96 splits evenly over 3 GPUs (32 per GPU, measured at 32.4 GB for `yolo26x`) and 64 and 128 do not. On one GPU, `yolo26x` at batch 96 needs about 93 GB, and `yolo26m` and `yolo26l` do not fit either.
 
+## `training/yolo/train.py` configuration
+
+`train.py` sets `MPLBACKEND=Agg` before ultralytics imports matplotlib. Training is headless, and an inherited DISPLAY (for example an SSH-forwarded one) otherwise makes matplotlib pick TkAgg, which ultralytics fails to restore after plotting metrics, and the run crashes.
+
+`resolve_dataset()` accepts a dataset directory and returns the yaml inside it. Ultralytics wants the yaml file: handed a directory it falls through to its archive check and dies with `IsADirectoryError`, several seconds into a job that has already claimed all three GPUs. CLAUDE.md and the experiment plans document the directory form, so `train.py` resolves it instead of every command line changing.
+
+### Per-model entries
+
+| Entry | Meaning |
+| --- | --- |
+| `yolo26s-pose` | Pose size-sweep arm (`pose_model_size`), between `yolo26n-pose` and `yolo26x-pose`. The sweep passes `--batch 96 --epochs 200` itself, so 64 and 500 are only the single-GPU defaults. Batch 64 fits in one A6000's memory. |
+| `yolo26m-pose` | Middle of the pose size ladder (`pose_model_size_ladder_plan_2026-09-24.md`). Copied from `yolo26s-pose`. `run_domain_mix_arm.sh` passes batch, epochs, size and cache itself. |
+
+### Command line flags
+
+| Flag | Meaning |
+| --- | --- |
+| `--batch` | Total batch across GPUs, as Ultralytics defines it. Lets a model-size sweep hold batch constant without editing the per-model recipes. |
+| `--imgsz` | A single int. Ultralytics `check_imgsz` rejects an `[h, w]` pair for training. With `--rect` the long side becomes `IMGSZ` and the short side rounds to stride 32. |
+| `--rect` | Sizes each batch to the images' own aspect ratio. On this uniformly 16:9 corpus `--imgsz 640` gives 384x640 and `--imgsz 1024` gives 576x1024, which cuts the 43.8% of a square tensor that is grey padding. |
+| `--cache` | `ram` avoids per-epoch disk IO if the resized cache fits in RAM. `disk` reads the full-resolution `.npy` each epoch and starves the GPUs if it exceeds RAM. Beats the model's own setting. |
+| `--save-period` | Writes `weights/epoch{0,N,2N,...}.pt` besides `last.pt` and `best.pt`. Turns one long run into the epoch-vs-metric ladder for the `data_epoch_min` experiment. |
+| `--fraction` | Subsamples one dataset. It cannot set a real:synthetic ratio, use `pool_datasets.py` for that. |
+| `--seed` | Vary it to measure run-to-run variance. `data_epoch_min` Exp 1 found about 0.05 recall, which can exceed the parity margin. |
+| `--lrf` | Default 0.1, raised from the Ultralytics 0.01. `category_addition_2026-07-25` found every fully annealed 150-epoch endpoint failed the parity gate while epochs 75 to 100 cleared it, so a less annealed endpoint generalizes better on the robot-camera eval. |
+| `--cos-lr` | Untested on this data. Use it to A/B the schedule shape against linear decay. |
+| `--close-mosaic` | The Ultralytics default of 10 overlaps the steepest part of the late external-eval decline. Pass 0 to test whether it contributes. |
+| `--patience` | Only meaningful once val represents the deployment camera. Training data is NHRL overhead cage footage and the eval is the robot's own ZED, so val fitness keeps improving while eval recall collapses and this never fires (`category_addition_2026-07-25`). |
+| `--flipud` | Default 0.0, lowered from 0.5. The deployment ZED has a fixed up-vector and never sees the arena inverted, so flipped batches train on an orientation that cannot occur at inference. |
+
+### Hyperparameters
+
+`hyper_params` mirrors the Ultralytics cfg keys. `lr0`, `lrf`, `cos_lr`, `close_mosaic`, `patience`, `degrees` and `flipud` come from the flags above. The rest are fixed.
+
+| Key | Meaning |
+| --- | --- |
+| `lr0` | Initial learning rate. Ultralytics suggests 1e-2 for SGD and 1e-3 for Adam. |
+| `momentum` | SGD momentum, or Adam beta1. |
+| `weight_decay` | Optimizer weight decay, 5e-4. |
+| `warmup_epochs` | Fractions allowed. |
+| `warmup_momentum` | Momentum at the start of warmup. |
+| `warmup_bias_lr` | Bias learning rate at the start of warmup. |
+| `box`, `cls`, `dfl`, `pose`, `kobj` | Loss gains for box, class, distribution focal loss, pose and keypoint objectness. `cls` scales with pixels. |
+| `label_smoothing` | Fraction. |
+| `nbs` | Nominal batch size, the batch the loss is normalized to. |
+| `hsv_h`, `hsv_s`, `hsv_v` | HSV hue, saturation and value augmentation, as fractions. |
+| `degrees` | Rotation, plus or minus degrees. |
+| `translate` | Translation, plus or minus fraction of the image. |
+| `scale` | Scale, plus or minus gain. |
+| `shear` | Shear, plus or minus degrees. |
+| `perspective` | Perspective, plus or minus fraction. Valid range 0 to 0.001. |
+| `flipud`, `fliplr` | Vertical and horizontal flip probability. |
+| `bgr` | Probability of swapping the colour channels to BGR. |
+| `mosaic`, `mixup`, `copy_paste` | Probability of each augmentation. `copy_paste` applies to segmentation labels. |
+| `copy_paste_mode` | `flip` or `mixup`. |
+
+`auto_augment`, `erasing` and `crop_fraction` are left out on purpose. Ultralytics reads them only in `ClassificationDataset` and `classify_transforms` (`data/dataset.py:753`), so they do nothing for detect and pose and only made the config look more tuned than it was. `crop_fraction` is also deprecated upstream.
+
+## `training/yolo/fine_tune_train.py` configuration
+
+`fine_tune_train.py` warm-starts from `--checkpoint` at a reduced learning rate. `--lr0` defaults to 0.001, 10x lower than from scratch.
+
+| Entry or flag | Meaning |
+| --- | --- |
+| `yolo26n` config | Detect head. Its batch (128) matches `train.py`'s `yolo26n`, so a warm-start arm is comparable to the cold-start runs it is graded against (`data_epoch_min` Exp 2). |
+| `--save-period` | Writes `weights/epoch{0,N,2N,...}.pt` besides `last.pt` and `best.pt`. Produces the warm-start epochs-to-parity ladder for the `data_epoch_min` experiment. 0 disables. |
+| `--fraction` | Fine-tunes on the first FRACTION of the shuffled train split, val untouched. The single-source real-data lever for the warm-regime data-floor sweep (Exp 3, Phase A). |
+
+Its `hyper_params` use the `train.py` keys and meanings above with these differences:
+
+| Key | Value here | Meaning |
+| --- | --- | --- |
+| `lr0` | `--lr0` | Initial learning rate. |
+| `lrf` | 0.01 | Final rate is `lr0 * lrf`. |
+| `warmup_bias_lr` | 0.01 | Lowered from 0.1 because this is a fine-tune. |
+| `degrees` | 180.0 | Rotation, plus or minus degrees. |
+| `flipud` | 0.5 | Vertical flip probability. |
+| `auto_augment`, `erasing`, `crop_fraction` | `randaugment`, 0.4, 0.2 | Passed through. They are classification-only (see above) and do nothing for pose. |
+
+## `training/yolo/remap_config_2class.toml`
+
+Read by `remap_labels_by_name.py` to map the archived `nhrl_seg_indiv_labeled` scenes into the 2-class Option B vocabulary. It does not work with `remap_labels.py` (see "Merging scenes by class name").
+
+| Key | Meaning |
+| --- | --- |
+| `target_names` | Output vocabulary, `robot` then `house_bot`. |
+| `default` | `robot`. Every competitor robot name falls through to it. |
+| `[map]` | Per-name rules. A value of `__drop__` removes the name. |
+
+- `robot` means anything in the field that is not the house bot: every competitor, our own machines and the two Flight Controller objects. Instance identity is the keypoint model's job.
+- `Floor` and `Floor letter word` are dropped. They are field segmentation (88,823 polygons) and belong to the deeplab task.
+- `House Bot` and its seasonal liveries map to `house_bot`. It is neutral, never a target, and the only class kept separate.
+- The five exhibition machines (`Beater Bot`, `Horizontal Spinner`, `Noob Toob`) NHRL runs against entrants are House-operated and play the same role, so they map to `house_bot`. Newer SegmentFlow exports declare them but no instances are labelled yet, so those rules are for the corpus that is coming, not for anything on disk.
+- `Flight Controller 1` and `2` were the `object` class and now fold into `robot`.
+- `object` is deliberately not a class. It held 246 boxes from a single 2024 mini-bot scene, far too few to learn, and the distinction it encoded is not one the detector is asked to make.
+
+## `training/yolo/remap_config_seg.toml`
+
+Index map for `remap_labels.py`, source class id to target class id. It is index-stale and unused: `docs/experiments/perception/category_addition_2026-07-25.md` and `data_epoch_min_plan.md` record that it carries 111 entries for an 84-class source and was regenerated by name. Targets: 1 robot, 2 house bot, 3 mr stabs mk2, 4 mrs buff mk3, 5 floor.
+
+| Source ids | Target |
+| --- | --- |
+| 39 | 5 (floor) |
+| 44 to 47 | 2 (house bot) |
+| 69 | 3 (mr stabs mk2) |
+| 70 | 4 (mrs buff mk3) |
+| every other id from 0 to 110 | 1 (robot) |
+
+One index map cannot serve scenes whose indices are shifted, which is why `remap_config_2class.toml` maps by name.
+
+## `training/yolo/remap_config_synthetic.toml`
+
+Index map over the synthetic renders (checked by `training/synthetic/tests/test_annotations.py`), source class id to target class id.
+
+| Source id | Source class | Target id |
+| --- | --- | --- |
+| 0 | background | 5 |
+| 1 | floor | 6 |
+| 2 | object | 0 |
+| 3 | robot | 1 |
+| 4 | mr stabs mk2 | 3 |
+| 5 | mrs buff mk3 | 4 |
+
+No source id maps to target 2 (house bot), so the synthetic renders carry no house bot class.
+
+## `training/yolo/configs/seg_merged_robot_house_floor.yaml`
+
+Read by `make_seg_dataset`. In the `merged_classes` mode, `remaining_to_group` is the catch-all: any class name not listed under `groups` maps to it (`combat_robot` here).
+
 ## Synthetic arm runs
 
 `training/yolo/run_synthetic_arms.sh` trains the three synthetic-vs-real arms of `docs/experiments/perception/synthetic_arms_plan.md` one after another, not in parallel. Each arm gets the same 3-GPU DDP recipe, so arm-to-arm differences come from the training set and nothing else. It renames each run directory per arm afterwards, because `train.py` names every run by date and model key alone.

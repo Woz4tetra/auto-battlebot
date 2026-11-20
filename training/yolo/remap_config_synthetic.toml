@@ -1,8 +1,7 @@
 [label_map]
-0 = 5 # background
-1 = 6 # floor
-2 = 0 # object
-3 = 1 # robot
-# 2 house bot 
-4 = 3 # mr stabs mk2
-5 = 4 # mrs buff mk3
+0 = 5
+1 = 6
+2 = 0
+3 = 1
+4 = 3
+5 = 4

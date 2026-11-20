@@ -11,7 +11,6 @@ mask_size: 2048
 
 modes:
   merged_classes:
-    # Optional catch-all: any class name not listed under groups maps here.
     remaining_to_group: combat_robot
     output_names:
       - floor

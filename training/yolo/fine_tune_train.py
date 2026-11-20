@@ -16,8 +16,6 @@ def main() -> None:
             "epochs": 150,
             "imgsz": 640,
         },
-        # Detect head; batch matches train.py's yolo26n so a warm-start arm is comparable to the
-        # cold-start runs it is graded against (data_epoch_min Exp 2).
         "yolo26n": {
             "batch": 128,
             "epochs": 50,
@@ -71,17 +69,13 @@ def main() -> None:
         "--save-period",
         default=0,
         type=int,
-        help="Save a checkpoint every N epochs (weights/epoch{0,N,2N,...}.pt) in addition to "
-        "last.pt/best.pt. Default 0 disables periodic saving. Produces the warm-start "
-        "epochs-to-parity ladder for the data_epoch_min experiment.",
+        help="Save a checkpoint every N epochs besides last.pt/best.pt (0 disables).",
     )
     parser.add_argument(
         "--fraction",
         default=1.0,
         type=float,
-        help="Fine-tune on the first FRACTION of the (shuffled) train split; val untouched. "
-        "Default 1.0 uses all data. Single-source real-data lever for the warm-regime data-floor "
-        "sweep (Exp 3, Phase A).",
+        help="Fine-tune on the first FRACTION of the shuffled train split (default 1.0).",
     )
     args = parser.parse_args()
 
@@ -98,34 +92,34 @@ def main() -> None:
 
     hyper_params = dict(
         lr0=lr0,
-        lrf=0.01,  # (float) final learning rate (lr0 * lrf)
-        momentum=0.937,  # (float) SGD momentum/Adam beta1
-        weight_decay=0.0005,  # (float) optimizer weight decay 5e-4
-        warmup_epochs=3.0,  # (float) warmup epochs (fractions ok)
-        warmup_momentum=0.8,  # (float) warmup initial momentum
-        warmup_bias_lr=0.01,  # (float) warmup initial bias lr (lowered for fine-tuning)
-        box=7.5,  # (float) box loss gain
-        cls=0.5,  # (float) cls loss gain (scale with pixels)
-        dfl=1.5,  # (float) dfl loss gain
-        pose=12.0,  # (float) pose loss gain
-        kobj=1.0,  # (float) keypoint obj loss gain
-        label_smoothing=0.0,  # (float) label smoothing (fraction)
-        nbs=64,  # (int) nominal batch size
-        hsv_h=0.015,  # (float) image HSV-Hue augmentation (fraction)
-        hsv_s=0.7,  # (float) image HSV-Saturation augmentation (fraction)
-        hsv_v=0.4,  # (float) image HSV-Value augmentation (fraction)
-        degrees=180.0,  # (float) image rotation (+/- deg)
-        translate=0.5,  # (float) image translation (+/- fraction)
-        scale=0.5,  # (float) image scale (+/- gain)
-        shear=10.0,  # (float) image shear (+/- deg)
-        perspective=0.001,  # (float) image perspective (+/- fraction), range 0-0.001
-        flipud=0.5,  # (float) image flip up-down (probability)
-        fliplr=0.5,  # (float) image flip left-right (probability)
-        bgr=0.0,  # (float) image channel BGR (probability)
-        mosaic=0.4,  # (float) image mosaic (probability)
-        mixup=0.1,  # (float) image mixup (probability)
-        copy_paste=0.2,  # (float) segment copy-paste (probability)
-        copy_paste_mode="flip",  # (str) the method to do copy_paste augmentation (flip, mixup)
+        lrf=0.01,
+        momentum=0.937,
+        weight_decay=0.0005,
+        warmup_epochs=3.0,
+        warmup_momentum=0.8,
+        warmup_bias_lr=0.01,
+        box=7.5,
+        cls=0.5,
+        dfl=1.5,
+        pose=12.0,
+        kobj=1.0,
+        label_smoothing=0.0,
+        nbs=64,
+        hsv_h=0.015,
+        hsv_s=0.7,
+        hsv_v=0.4,
+        degrees=180.0,
+        translate=0.5,
+        scale=0.5,
+        shear=10.0,
+        perspective=0.001,
+        flipud=0.5,
+        fliplr=0.5,
+        bgr=0.0,
+        mosaic=0.4,
+        mixup=0.1,
+        copy_paste=0.2,
+        copy_paste_mode="flip",
         auto_augment="randaugment",
         erasing=0.4,
         crop_fraction=0.2,

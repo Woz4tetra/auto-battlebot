@@ -3,9 +3,6 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-# Training is headless. Force a non-interactive matplotlib backend before ultralytics
-# imports matplotlib: an inherited (e.g. SSH-forwarded) DISPLAY otherwise makes it pick
-# TkAgg, which ultralytics fails to restore after plotting metrics and crashes the run.
 os.environ["MPLBACKEND"] = "Agg"
 
 import yaml
@@ -39,13 +36,7 @@ def reclaim_stale_caches(dataset_yaml: str, max_age_days: float) -> None:
 
 
 def resolve_dataset(dataset: str) -> str:
-    """Accept a dataset directory and return the yaml inside it.
-
-    Ultralytics wants the yaml file: handed a directory it falls through to its archive
-    check and dies with `IsADirectoryError`, several seconds into a job that has already
-    claimed all three GPUs. The directory form is what CLAUDE.md and the experiment plans
-    document, so resolve it here rather than fixing every command line.
-    """
+    """Return the yaml inside a dataset directory, or the path unchanged."""
     path = Path(dataset)
     if not path.is_dir():
         return dataset
@@ -93,16 +84,11 @@ def main() -> None:
             "epochs": 500,
             "imgsz": 640,
         },
-        # Pose size-sweep arm (pose_model_size). Sits between yolo26n-pose and yolo26x-pose;
-        # the sweep holds batch at 96 and epochs at 200 via --batch/--epochs, so the values
-        # here are only the single-GPU default. Batch 64 keeps it in one A6000's memory.
         "yolo26s-pose": {
             "batch": 64,
             "epochs": 500,
             "imgsz": 640,
         },
-        # The middle of the pose size ladder (pose_model_size_ladder_plan_2026-09-24.md). Copied
-        # from yolo26s-pose; run_domain_mix_arm.sh passes batch, epochs, size and cache itself.
         "yolo26m-pose": {
             "batch": 64,
             "epochs": 500,
@@ -176,87 +162,65 @@ def main() -> None:
         "--batch",
         default=0,
         type=int,
-        help="Override the model's configured batch size (total across GPUs, as Ultralytics "
-        "defines it). Default 0 keeps the per-model config. Needed to hold batch constant across "
-        "a model-size sweep without mutating the canonical per-model recipes.",
+        help="Override the model's batch size (total across GPUs). 0 keeps the per-model config.",
     )
     parser.add_argument(
         "--imgsz",
         default=0,
         type=int,
-        help="Override the model's configured input size (a single int; Ultralytics' "
-        "check_imgsz rejects a [h, w] pair for training). Combine with --rect to train "
-        "rectangular: the long side becomes IMGSZ and the short side rounds to stride 32.",
+        help="Override the model's input size (a single int). 0 keeps the per-model config.",
     )
     parser.add_argument(
         "--rect",
         action="store_true",
-        help="Rectangular training: size each batch to the images' own aspect ratio instead of "
-        "letterboxing to a square. On this uniformly-16:9 corpus --imgsz 640 gives 384x640 and "
-        "--imgsz 1024 gives 576x1024, cutting the 43.8%% of a square tensor that is grey padding.",
+        help="Rectangular training: size batches to the images' aspect ratio, no letterbox.",
     )
     parser.add_argument(
         "--cache",
         default=None,
         choices=["ram", "disk", "false"],
-        help="Image cache: 'ram' avoids per-epoch disk IO if the resized cache fits in RAM. "
-        "'disk' reads full-res .npy each epoch, starving GPUs if it exceeds RAM. Overrides the "
-        f"model's own setting; models that do not set one default to '{DEFAULT_CACHE}'.",
+        help=f"Image cache, overrides the model's setting (default '{DEFAULT_CACHE}').",
     )
     parser.add_argument(
         "--save-period",
         default=0,
         type=int,
-        help="Save a checkpoint every N epochs (weights/epoch{0,N,2N,...}.pt) in addition to "
-        "last.pt/best.pt. Default 0 disables periodic saving (current behavior). Turns one long "
-        "run into an epoch-vs-metric ladder for the data_epoch_min experiment.",
+        help="Save a checkpoint every N epochs besides last.pt/best.pt (0 disables).",
     )
     parser.add_argument(
         "--fraction",
         default=1.0,
         type=float,
-        help="Train on the first FRACTION of the (shuffled) train split; val untouched. Default "
-        "1.0 uses all data. Cheap single-source real-data lever for the data-floor sweeps. Note: "
-        "this subsamples one dataset and cannot set a real:synthetic ratio (use pool_datasets.py).",
+        help="Train on the first FRACTION of the shuffled train split (default 1.0).",
     )
     parser.add_argument(
         "--seed",
         default=0,
         type=int,
-        help="Training RNG seed (default 0 = Ultralytics default). Vary it to measure run-to-run "
-        "variance, which data_epoch_min Exp 1 found (~0.05 recall) can exceed the parity margin.",
+        help="Training RNG seed (0 = Ultralytics default).",
     )
     parser.add_argument(
         "--lrf",
         default=0.1,
         type=float,
-        help="Final LR as a fraction of lr0 (final = lr0 * lrf). Default 0.1, raised from "
-        "Ultralytics' 0.01: category_addition_2026-07-25 found every fully-annealed 150-epoch "
-        "endpoint failed the parity gate while ep75-100 cleared it, so a less-annealed endpoint "
-        "is what generalizes on the robot-camera eval.",
+        help="Final LR as a fraction of lr0 (final = lr0 * lrf), default 0.1.",
     )
     parser.add_argument(
         "--cos-lr",
         action="store_true",
-        help="Cosine LR decay instead of linear. Untested on this data; use to A/B the schedule "
-        "shape against the default linear decay.",
+        help="Cosine LR decay instead of linear.",
     )
     parser.add_argument(
         "--close-mosaic",
         default=0,
         type=int,
-        help="Disable mosaic for the final N epochs (0 = never disable). Ultralytics' default 10 "
-        "overlaps the steepest part of the late external-eval decline; pass 0 to test whether it "
-        "contributes.",
+        help="Disable mosaic for the final N epochs (0 = never disable).",
     )
     parser.add_argument(
         "--patience",
         default=100,
         type=int,
-        help="Early-stop patience on val fitness. Only meaningful once val represents the "
-        "deployment camera: training data is NHRL overhead cage footage while the eval is the "
-        "robot's own ZED, so val fitness keeps improving while eval recall collapses and this "
-        "never fires. See category_addition_2026-07-25.",
+        help="Early-stop patience on val fitness.",
     )
     parser.add_argument(
         "--degrees",
@@ -281,9 +245,7 @@ def main() -> None:
         "--flipud",
         default=0.0,
         type=float,
-        help="Vertical-flip probability. Default 0.0, lowered from 0.5: the deployment ZED has a "
-        "fixed up-vector and never sees the arena inverted, so those batches train on an "
-        "orientation that cannot occur at inference.",
+        help="Vertical-flip probability; default 0.0, Ultralytics uses 0.5.",
     )
     args = parser.parse_args()
 
@@ -311,42 +273,38 @@ def main() -> None:
     session_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     hyper_params = dict(
-        lr0=0.01,  # (float) initial learning rate (i.e. SGD=1E-2, Adam=1E-3)
-        lrf=args.lrf,  # (float) final learning rate (lr0 * lrf); see --lrf
-        cos_lr=args.cos_lr,  # (bool) cosine LR schedule instead of linear
-        close_mosaic=args.close_mosaic,  # (int) disable mosaic for the last N epochs
-        patience=args.patience,  # (int) early-stop patience on val fitness
-        momentum=0.937,  # (float) SGD momentum/Adam beta1
-        weight_decay=0.0005,  # (float) optimizer weight decay 5e-4
-        warmup_epochs=3.0,  # (float) warmup epochs (fractions ok)
-        warmup_momentum=0.8,  # (float) warmup initial momentum
-        warmup_bias_lr=0.1,  # (float) warmup initial bias lr
-        box=7.5,  # (float) box loss gain
-        cls=0.5,  # (float) cls loss gain (scale with pixels)
-        dfl=1.5,  # (float) dfl loss gain
-        pose=12.0,  # (float) pose loss gain
-        kobj=1.0,  # (float) keypoint obj loss gain
-        label_smoothing=0.0,  # (float) label smoothing (fraction)
-        nbs=64,  # (int) nominal batch size
-        hsv_h=0.015,  # (float) image HSV-Hue augmentation (fraction)
-        hsv_s=0.7,  # (float) image HSV-Saturation augmentation (fraction)
-        hsv_v=0.4,  # (float) image HSV-Value augmentation (fraction)
-        degrees=args.degrees,  # (float) image rotation (+/- deg); see --degrees
-        translate=0.5,  # (float) image translation (+/- fraction)
-        scale=0.5,  # (float) image scale (+/- gain)
-        shear=10.0,  # (float) image shear (+/- deg)
-        flipud=args.flipud,  # (float) image flip up-down (probability); see --flipud
-        perspective=0.001,  # (float) image perspective (+/- fraction), range 0-0.001
-        fliplr=0.5,  # (float) image flip left-right (probability)
-        bgr=0.0,  # (float) image channel BGR (probability)
-        mosaic=0.4,  # (float) image mosaic (probability)
-        mixup=0.1,  # (float) image mixup (probability)
-        copy_paste=0.2,  # (float) segment copy-paste (probability)
-        copy_paste_mode="flip",  # (str) the method to do copy_paste augmentation (flip, mixup)
-        # `auto_augment`, `erasing` and `crop_fraction` are deliberately absent: Ultralytics only
-        # reads them in ClassificationDataset / classify_transforms (data/dataset.py:753), so they
-        # are inert for detect and pose and were only making this config look more tuned than it
-        # was. `crop_fraction` is additionally deprecated upstream.
+        lr0=0.01,
+        lrf=args.lrf,
+        cos_lr=args.cos_lr,
+        close_mosaic=args.close_mosaic,
+        patience=args.patience,
+        momentum=0.937,
+        weight_decay=0.0005,
+        warmup_epochs=3.0,
+        warmup_momentum=0.8,
+        warmup_bias_lr=0.1,
+        box=7.5,
+        cls=0.5,
+        dfl=1.5,
+        pose=12.0,
+        kobj=1.0,
+        label_smoothing=0.0,
+        nbs=64,
+        hsv_h=0.015,
+        hsv_s=0.7,
+        hsv_v=0.4,
+        degrees=args.degrees,
+        translate=0.5,
+        scale=0.5,
+        shear=10.0,
+        flipud=args.flipud,
+        perspective=0.001,
+        fliplr=0.5,
+        bgr=0.0,
+        mosaic=0.4,
+        mixup=0.1,
+        copy_paste=0.2,
+        copy_paste_mode="flip",
     )
 
     for model_key in models:
