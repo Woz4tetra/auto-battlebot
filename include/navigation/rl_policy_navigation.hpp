@@ -15,29 +15,6 @@
 
 namespace auto_battlebot {
 
-/**
- * Drives with a policy from a model bundle (docs/reference/control/rl_policy_bundle.md).
- *
- * This class finds our robot and the target opponent, schedules policy steps and logs. The
- * bundle decides everything else: the policy kind, the network runtime, the decoder and the
- * observation spec. Every policy_period_ticks control ticks it builds the observation, runs the
- * policy and stores the action; every tick it returns the stored action. By default nothing edits
- * the action on its way to the transmitter and hazards reach the policy only as observations.
- * With hazard_barrier_enable the motion profile's velocity barrier clips linear_x every tick
- * against the measured speed; the action history keeps the policy's own output, which is what
- * training saw.
- *
- * initialize() loads and checks the bundle the first time it runs and throws naming what failed:
- * opponent_mode must be KALMAN, the manifest must parse with known values, a builder must exist
- * for its obs_spec_version and make the tensors the network reads, and the self-test must pass.
- * Every call resets the policy, the history and the schedule.
- *
- * Once our robot has gone unmeasured for longer than max_our_unmeasured_s it commands zero, the
- * same as when our robot is missing. The coasted track keeps reporting the last yaw rate, so the
- * policy otherwise holds whatever it was doing when the keypoints dropped, usually a full-rate
- * spin, and the motion blur from that spin keeps the keypoint model from reacquiring the robot.
- * Stopping lets it reacquire, and the next policy step runs on the first measured tick.
- */
 class RlPolicyNavigation : public NavigationInterface {
    public:
     RlPolicyNavigation(const RlPolicyNavigationConfiguration &config,

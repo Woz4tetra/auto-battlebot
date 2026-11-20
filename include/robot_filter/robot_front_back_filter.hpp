@@ -78,14 +78,6 @@ class RobotFrontBackFilter : public RobotFilterInterface {
         const RobotKeypointDetection &blob,
         const std::vector<RobotDescription> &keypoint_measurements) const;
 
-    /**
-     * Drops blobs that fall within our_keypoint_dropout_blob_radius_meters_ of our robot's held
-     * pose while no OUR_ROBOT_1 keypoint measurement exists this frame. The blob model has no
-     * class for our robot, so such a blob would otherwise be assigned an opponent FrameId at our
-     * own location and steered into. Does nothing when our keypoint is present (the existing
-     * is_blob_suppressed_by_keypoint rule covers that case) or when the anchor is stale.
-     * Returns the number of blobs removed.
-     */
     int suppress_blobs_near_our_anchor(double stamp,
                                        const std::vector<RobotDescription> &keypoint_measurements,
                                        std::vector<RobotKeypointDetection> &blobs) const;

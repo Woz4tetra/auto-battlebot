@@ -20,7 +20,6 @@ class StatusBus;
 
 class BatteryMonitor {
    public:
-    /** Read one battery sample; false on failure. */
     using SampleReader = std::function<bool(BatterySample& sample)>;
 
     BatteryMonitor(BatteryOptions options, SampleReader reader,

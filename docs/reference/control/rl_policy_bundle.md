@@ -87,3 +87,13 @@ Output pre-activations: -0.52763*1.0 + 0.05*0.5 + 1.625*-1.0 + -0.89974*0.2 + 0.
 Little-endian: the bytes `RLST`, uint32 version (1), uint32 pair count N, uint32 observation size D, uint32 action size A, then N x D float32 observations, then N x A float32 decoded actions (`scale * tanh(network output)`), both row-major.
 
 `run_selftest` runs every observation through the runtime and decoder on the box and compares with the PyTorch actions. The runtime is reset before each pair, so a recurrent network sees each observation from a zero state, and again at the end. A size mismatch with the runtime input or the decoder throws `PolicyBundleError`; a numeric disagreement is reported in the result. `NetworkPolicy::load` runs it and throws when it fails, naming the worst pair and its error.
+
+## RlPolicyNavigation
+
+`RlPolicyNavigation` finds our robot and the target opponent, schedules policy steps, and logs. The bundle decides the policy kind, the network runtime, the decoder, and the observation spec.
+
+- Every `policy_period_ticks` control ticks it builds the observation, runs the policy, and stores the action. Every tick it returns the stored action.
+- By default nothing edits the action on its way to the transmitter, and hazards reach the policy only as observations.
+- With `hazard_barrier_enable` the motion profile's velocity barrier clips `linear_x` every tick against the measured speed. The action history keeps the policy's own output, which is what training saw.
+- `initialize()` loads and checks the bundle the first time it runs and throws naming what failed: `opponent_mode` must be `KALMAN`, the manifest must parse with known values, a builder must exist for its `obs_spec_version` and make the tensors the network reads, and the self-test must pass. Every call resets the policy, the history, and the schedule.
+- Once our robot has gone unmeasured for longer than `max_our_unmeasured_s` it commands zero, the same as when our robot is missing. The coasted track keeps reporting the last yaw rate, so the policy otherwise holds whatever it was doing when the keypoints dropped, usually a full-rate spin. Motion blur from that spin keeps the keypoint model from reacquiring the robot. Stopping lets it reacquire, and the next policy step runs on the first measured tick.

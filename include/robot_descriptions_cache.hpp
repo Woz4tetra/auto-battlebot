@@ -6,13 +6,6 @@ namespace auto_battlebot {
 
 class RobotDescriptionsCache {
    public:
-    /**
-     * @brief Non-owning view of the resolved robot set.
-     *
-     * `robots` references either the `current` argument passed to resolve() or the cache's
-     * internal `previous_` snapshot. The reference is valid until the next call to resolve()
-     * or reset(), and (for the `current` branch) the lifetime of the caller's argument.
-     */
     struct Resolved {
         const RobotDescriptionsStamped &robots;
         bool using_previous;

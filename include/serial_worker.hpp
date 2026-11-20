@@ -9,7 +9,6 @@
 
 namespace auto_battlebot {
 
-/** Runs posted jobs in order on its own thread. */
 class SerialWorker {
    public:
     SerialWorker() : thread_([this] { run(); }) {}

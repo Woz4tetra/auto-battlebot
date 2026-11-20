@@ -59,9 +59,6 @@ class VizSink {
     void run();
     bool try_connect();
     void lose_connection(const char* reason, bool closed_by_relay = false);
-    /** The relay has read some of what this connection sent. A frozen relay's listen backlog
-     *  still completes connect() and buffers the first sends, so a connection alone proves
-     *  nothing. */
     bool relay_has_read() const;
     void disconnect();
     void wait_for_wake(int timeout_ms);

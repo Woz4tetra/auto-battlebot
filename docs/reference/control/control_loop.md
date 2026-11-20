@@ -45,3 +45,23 @@ The transmitter reports its health each cycle. The control loop samples it once 
 - The substitute expires `robot_cache_max_age_s` after its own stamp (`[control_loop]`). Past that the current set goes through as is, so a navigator sees our robot is gone and runs its no-robot path.
 - Replaying the frozen snapshot forever kept `RlPolicyNavigation` feeding the policy one unchanging observation, and it held a full-rate spin that kept the robot invisible to the camera.
 - `resolve()` returns a `Resolved` whose `robots` reference points at either the `current` argument or the cache's snapshot. It is valid until the next `resolve()` or `reset()`, and for the `current` branch only as long as the caller's argument.
+
+## Control loop surface
+
+The control loop interface forwards the rest of the loop's calls so callers deal with one object and not with the split between the two halves. Each forwarded call is safe from another thread while a driver is cycling.
+
+## Host actions
+
+The UI can ask for a host action (`SystemAction`). Every action stops the runner loop. `main.cpp` runs the host command once the loop and the UI are down.
+
+## Runner signals and recording ticks
+
+- `Runner` is `Quittable` so SIGINT and SIGTERM can stop the run. The UI manager used to be the only quittable. With `ui.enable = false` nothing was registered, both signals were no-ops, and only SIGKILL could end the process.
+- `ticks_started_` is incremented at the top of `tick()`. The recording worker uses it to tell when frames taken before a recording toggle have been published.
+
+## OpenTX transmitter behaviour
+
+- The init button fires once per rising edge on the configured init button channel. The channel value must cross `init_button_threshold` to count as a press.
+- `channels_fresh()` is true while complete 32-channel updates keep arriving. It is seeded on port open, so a fresh (re)connect gets one timeout window of grace before it reports a stall. It assumes the port is open, so callers pair it with `serial_.is_open()`.
+- `log_switch_states()` logs decoded switch flags with the raw channel value next to each, once on the first channel frame and then on every change. Recordings then show what the transmitter believed even when the driver never touched a switch.
+- `limit_linear_acceleration()` slew-limits the normalized linear command so wheel-surface acceleration stays under the configured RPM/s cap. It uses the logical clock for dt and passes the command through unchanged when the limiter is disabled or on the first tick after (re)enabling. The limit applies only while the trainer enable channel (`trainer_enable_channel`) reads negative. Until then the baseline is held at standstill, so motion ramps from zero once the trainer switch engages.

@@ -14,7 +14,6 @@ class ChannelsParser {
    public:
     ChannelsParser() = default;
 
-    /** Append bytes and return each complete 32-channel update. */
     std::vector<std::array<int16_t, kMaxChannels>> process(const uint8_t* data, size_t length);
     std::vector<std::array<int16_t, kMaxChannels>> process(const std::vector<uint8_t>& data);
 

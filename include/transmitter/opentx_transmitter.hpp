@@ -30,10 +30,6 @@ class OpenTxTransmitter : public TransmitterInterface {
 
     void send(VelocityCommand command) override;
 
-    /**
-     * Returns true once per rising edge on the configured init button channel.
-     * The channel value must cross init_button_threshold to count as a press.
-     */
     bool did_init_button_press() override;
 
     TransmitterStatus get_status() const override;
@@ -62,25 +58,13 @@ class OpenTxTransmitter : public TransmitterInterface {
         std::chrono::steady_clock::now();
     HardwareTimePoint last_channel_time_{};
 
-    /** True while complete 32-channel updates keep arriving. Seeded on port open so a fresh
-     *  (re)connect gets one timeout window of grace before it reports a stall. Assumes the
-     *  port is open; callers pair it with serial_.is_open(). */
     bool channels_fresh() const;
     bool reconnect_if_needed();
     void process_channel_updates(const std::vector<uint8_t>& bytes);
 
-    /** Log decoded switch flags (with the raw channel value next to each) once on the first
-     *  channel frame and then on every change, so recordings show what the transmitter
-     *  believed even when the driver never touched a switch. */
     void log_switch_states();
     void write_trainer_channels(int channel_a_value, int channel_b_value);
 
-    /** Slew-limit the normalized linear command so wheel-surface acceleration stays under the
-     *  configured RPM/s cap. Uses the logical clock for dt and passes the command through
-     *  unchanged when the limiter is disabled or on the first tick after (re)enabling. The limit
-     *  only applies while the trainer enable channel (config_.trainer_enable_channel) reads
-     *  negative; until then the baseline is held at standstill so motion ramps from zero once the
-     *  trainer switch engages. */
     double limit_linear_acceleration(double linear_command);
 
     void handle_packet(const CrsfLinkStatistics& pkt);

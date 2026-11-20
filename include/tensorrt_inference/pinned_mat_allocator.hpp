@@ -10,7 +10,6 @@ namespace auto_battlebot {
 
 class PinnedMatAllocator : public cv::MatAllocator {
    public:
-    /** Process-wide instance. Never destroyed: Mats can outlive static destruction order. */
     static PinnedMatAllocator *instance();
 
     cv::UMatData *allocate(int dims, const int *sizes, int type, void *data, size_t *step,

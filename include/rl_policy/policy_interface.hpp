@@ -11,7 +11,6 @@
 
 namespace auto_battlebot::rl_policy {
 
-/** One policy step's output, in the normalized [-1, 1] units every navigation emits. */
 struct ActionCommand {
     double linear = 0.0;
     double angular = 0.0;

@@ -54,9 +54,6 @@ struct RunnerRemote {
     remote::ResolvedConfigMessage resolved_config;
 };
 
-// Quittable so SIGINT and SIGTERM can stop the run. The UI manager used to be the only
-// quittable, which meant that with ui.enable = false nothing was registered at all and
-// both signals became no-ops: the process could then only be killed with SIGKILL.
 class Runner : public Quittable {
    public:
     using SystemActionCallback = std::function<void(SystemAction)>;
@@ -100,10 +97,6 @@ class Runner : public Quittable {
     void set_recording(bool enabled) const;
     void apply_recording(bool enabled, bool wait_for_inflight_ticks) const;
     void wait_for_frames_in_flight() const;
-    /** Counted at the top of tick(), so the recording worker can tell when frames taken before
-     *  a toggle have been published. */
-    /** Counted at the top of tick(), so the recording worker can tell when frames taken before
-     *  a toggle have been published. */
     std::atomic<uint64_t> ticks_started_{0};
     std::string select_profile(const std::string &name);
     void run_system_action(SystemAction action);

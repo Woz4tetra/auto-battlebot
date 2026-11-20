@@ -116,3 +116,7 @@ Rendering costs wall-clock time but cannot corrupt a run. The sim owns logical t
 | `render_every` | Tick decimation. |
 | `realtime` | Pace `sim.dt` to a human. `false` free-runs. |
 | `mujoco` | Also open MuJoCo's 3D viewer on the plant's contact geometry (`auto_battlebot/kinematic_sim/mujoco_window.py`). Needs `enable = true` and `[our_robot] plant = "mujoco"`. Ignored otherwise. |
+
+## Fixed mask model
+
+`FixedMaskModel` returns a constant non-empty FIELD mask for the headless kinematic sim. The Runner's field-init gate requires a non-empty mask. The field size comes from `FixedFieldFilter`, not from perception, so the constant mask satisfies the gate without running a segmentation model.

@@ -253,3 +253,17 @@ since they capture one frame per tick.
 
 The sensing file's `dropout.enabled` is true by default. False delivers every captured frame, so the robot never drops out.
 
+
+## Our-robot dropout blob drop
+
+`suppress_blobs_near_our_anchor` removes blobs within `our_keypoint_dropout_blob_radius_meters_` of our robot's held pose while no `OUR_ROBOT_1` keypoint measurement exists this frame. The blob model has no class for our robot, so such a blob would be assigned an opponent FrameId at our own location and navigation would steer into it. It does nothing when our keypoint is present (`is_blob_suppressed_by_keypoint` covers that case) or when the anchor is stale. It returns the number of blobs removed.
+
+## Ground-truth filter slots
+
+- A non-finite pose in a ground-truth slot means the sim did not observe the robot on this frame. The filter emits a held pose flagged stale. A slot never observed emits nothing, because inventing a pose would hand consumers a fabricated position.
+- Velocity is the pose delta since the last measurement, divided by the measured-to-measured interval. Dividing a dropout-spanning delta by one frame interval would scale the velocity by the number of frames missed. The first measurement and an unusable interval give zero.
+- The last measurement and its stamp are never written by the coast branch, so a returning frame differences against real data and not against the pose the coast just propagated.
+
+## Robot descriptions cache view
+
+The resolved robot set is a non-owning view. `robots` references either the `current` argument passed to `resolve()` or the cache's internal `previous_` snapshot. It stays valid until the next `resolve()` or `reset()`, and for the `current` branch also for the lifetime of the caller's argument.

@@ -283,3 +283,7 @@ All pair with a sim-side config under `simulation/` and run through `./scripts/r
 - `simulation/*` profiles with a fixed field: `field_filter.size_x` / `size_y` match the sim
   config's `[arena]`.
 - `playback/brettzone_cage_high.toml` is generated; change `scripts/nhrl_to_recordings.py` along with it.
+
+## Home path expansion
+
+`expand_home` in `include/config/profile_selection.hpp` expands a leading `$HOME` or `~` against the current user's home directory and leaves other paths as they are. It throws when a home-relative path cannot be resolved. Returning the unexpanded literal would write it as a relative path under the working directory. Under a systemd service with a stripped environment that is inside the repo, and the next deploy wipes it.

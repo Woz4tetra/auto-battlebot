@@ -25,9 +25,6 @@ class ControlLoopInterface {
 
     virtual bool is_healthy() const { return true; }
 
-    // The rest of the loop's surface, forwarded so callers deal with one object rather than
-    // having to know which half of the split each call lives on. Every one of these is safe to
-    // call from another thread while a driver is cycling.
     void submit_measurement(ControlMeasurement measurement) {
         loop_->submit_measurement(std::move(measurement));
     }

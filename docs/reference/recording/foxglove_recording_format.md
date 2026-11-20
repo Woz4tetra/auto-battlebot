@@ -1072,3 +1072,7 @@ The ROS 1 wire format is little-endian. A header is `uint32 seq`, `uint32 stamp_
 
 - `scripts/combine_mcap_svo.py` reads `svo_path` straight off the `/camera/frame_meta` JSON instead of through `mcap_io.decode_frame_meta`. Once video moved into the MCAP the field stopped being part of `FrameMeta`, and only the recordings this script combines still carry it.
 - Any parse failure means the file is damaged. Truncation surfaces as an `McapError`, but a corrupt chunk can also come out of the decompressor.
+
+## Viz relay attach check
+
+`VizSink` treats the relay as attached only after the relay has read some of what the connection sent. A frozen relay's listen backlog still completes `connect()` and buffers the first sends, so a connection alone proves nothing.
