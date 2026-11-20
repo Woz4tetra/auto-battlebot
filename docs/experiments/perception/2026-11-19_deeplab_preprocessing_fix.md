@@ -129,6 +129,28 @@ comparison runs PyTorch on the recorded JPEG.
 | `bgr, imagenet, deployed` (before) | 0.2953 | 0.2869 | 0.853, 0.738 |
 | `rgb, dataset, deployed` (after) | 0.2797 | 0.2843 | 0.889, 0.838 |
 
+### Jetson engine check, 2026-11-20
+
+The fixed build on the Jetson matches the RGB arms, as the x86 replay does. I deployed `60fc8d49`
+to auto-battlebot-compute-1 (Orin NX, L4T R36.4.4, TensorRT 10.3.0) and built
+`field_deeplabv3p_r50_2026-07-29_aarch64_sm87.engine` there from the `.pth`. I replayed
+`data/svo/MassD_2026-08-29/2026-08-29T11-17-26.svo2` through `mr_stabs_mk2_jetson` with
+`ZedSvoPlaybackCamera`, the playback transmitter, and `ignored_topics = []` so `/camera/image` was
+recorded. There were five runs, `svo_start_frame` 0, 600, 1200, 1800 and 2400, each stopped 8 s after
+its field init. That gives 5 field-init masks and 10 sampled frames. Live ZED and SVO playback share
+`ZedDevice`'s BGRA-to-BGR conversion, so the mask model gets the same frame layout in both.
+
+| Arm | IoU with recorded mask, 5 field inits |
+| --- | --- |
+| `rgb, dataset, deployed` (fixed C++) | 0.9949 |
+| `rgb, imagenet, deployed` | 0.9934 |
+| `rgb, *, training` | 0.9556 to 0.9564 |
+| `bgr, dataset, deployed` | 0.9122 |
+| `bgr, *` others | 0.9049 to 0.9111 |
+
+The old Jetson recordings gave BGR 0.880 against RGB 0.822 to 0.827; this build flips it. The 0.9949
+is closer than the x86 replay's 0.9895, on 5 frames against its larger sample.
+
 ### Field fit on replays
 
 `PointCloudFieldFilter` output after the first field init, six MassD SVOs from frame 0, before
@@ -151,12 +173,11 @@ The contour shrinks in 5 of 6, matching the smaller floor fraction above.
 
 - One checkpoint. A model trained on BGR by accident would show the opposite; this one was trained on
   RGB (`semantic_train.py` converts with `cv2.COLOR_BGR2RGB`).
-- The Jetson's own engine was not run. The aarch64 engine against the x86 one is unchecked here.
+- The Jetson check (2026-11-20) is SVO playback of one recording, not a live camera session. The
+  e-CAM25 path (`V4l2RgbCamera`, UYVY to BGR) was not run.
 - The field-fit comparison is 6 inits from 6 SVOs, with no ground-truth field pose.
 
 ## Next
 
-1. Deploy to the Jetson and confirm the recorded `/field_mask` matches the `rgb, dataset, deployed`
-   arm the way the x86 replay does.
-2. Score field-fit accuracy over many inits per recording (vary `svo_start_frame`) before reading
+1. Score field-fit accuracy over many inits per recording (vary `svo_start_frame`) before reading
    anything into the 2.09 m mean side.
