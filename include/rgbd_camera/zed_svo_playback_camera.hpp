@@ -12,7 +12,9 @@ namespace auto_battlebot {
 
 class ZedSvoPlaybackCamera : public RgbdCameraInterface {
    public:
-    explicit ZedSvoPlaybackCamera(const ZedSvoPlaybackCameraConfiguration &config);
+    explicit ZedSvoPlaybackCamera(
+        const ZedSvoPlaybackCameraConfiguration &config,
+        std::unique_ptr<ZedDevice> device = std::make_unique<ZedDevice>());
     ~ZedSvoPlaybackCamera() override;
 
     bool initialize() override;
@@ -24,7 +26,7 @@ class ZedSvoPlaybackCamera : public RgbdCameraInterface {
     bool is_recording_enabled() const override { return false; }
 
    private:
-    ZedDevice device_;
+    std::unique_ptr<ZedDevice> device_;
     CameraData latest_data_;
     std::string svo_path_;
     int svo_start_frame_ = 0;

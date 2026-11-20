@@ -32,6 +32,7 @@ struct ZedRgbdCameraConfiguration : public RgbdCameraConfiguration {
     bool svo_recording = true;
     uint64_t svo_max_size_gb = 10;
     uint64_t svo_holding_dir_max_size_gb = 50;
+    double capture_join_timeout_s = 10.0;
 
     ZedRgbdCameraConfiguration() { type = "ZedRgbdCamera"; }
 
@@ -44,6 +45,7 @@ struct ZedRgbdCameraConfiguration : public RgbdCameraConfiguration {
             PARSE_FIELD_BOOL(svo_recording)
             PARSE_FIELD(svo_max_size_gb)
             PARSE_FIELD(svo_holding_dir_max_size_gb)
+        PARSE_FIELD(capture_join_timeout_s)
         )
     // clang-format on
 };

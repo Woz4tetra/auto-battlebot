@@ -22,6 +22,8 @@ class YoloBboxRobotBlobModel : public RobotBlobModelInterface {
     DetectionsStamped last_detections_original_px() const override { return last_detections_; }
 
    private:
+    friend struct YoloBboxRobotBlobModelTestAccess;
+
     struct Detection {
         float x1 = 0.0f;
         float y1 = 0.0f;
@@ -73,6 +75,8 @@ class YoloBboxRobotBlobModel : public RobotBlobModelInterface {
     void append_detection_keypoints(const Detection &det, cv::Size original_size,
                                     cv::Size input_size, int detection_index,
                                     ModelResultStamped &output) const;
+    void record_detections(const std::vector<Detection> &detections, const cv::Mat &image,
+                           cv::Size original_size, cv::Size input_size, ModelResultStamped &result);
     void append_box_for_every_detection(const Detection &det, cv::Size original_size,
                                         cv::Size input_size, ModelResultStamped &result) const;
 };

@@ -24,7 +24,6 @@ constexpr double kOpenWaitWarnMs = 2000.0;
 constexpr double kJoinWaitWarnMs = 1000.0;
 constexpr double kCaptureLockWarnMs = 150.0;
 constexpr double kGetWaitWarnMs = 500.0;
-constexpr auto kJoinHardTimeout = std::chrono::seconds(10);
 
 double elapsed_ms(const std::chrono::steady_clock::time_point &start) {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
@@ -40,8 +39,8 @@ void warn_if_slow(const std::chrono::steady_clock::time_point &start, const char
 }
 
 bool join_with_timeout(std::thread &thread, const std::atomic<bool> &done_flag,
-                       const char *context) {
-    const auto deadline = std::chrono::steady_clock::now() + kJoinHardTimeout;
+                       std::chrono::milliseconds timeout, const char *context) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
     while (std::chrono::steady_clock::now() < deadline) {
         if (done_flag.load(std::memory_order_acquire)) {
             thread.join();
@@ -51,15 +50,19 @@ bool join_with_timeout(std::thread &thread, const std::atomic<bool> &done_flag,
     }
     spdlog::critical(
         "{}: capture thread stuck in ZED grab() after {}s; detaching for soft shutdown", context,
-        kJoinHardTimeout.count());
+        std::chrono::duration<double>(timeout).count());
     spdlog::default_logger()->flush();
     thread.detach();
     return false;
 }
 }  // namespace
 
-ZedRgbdCamera::ZedRgbdCamera(const ZedRgbdCameraConfiguration &config)
-    : capture_running_(false),
+ZedRgbdCamera::ZedRgbdCamera(const ZedRgbdCameraConfiguration &config,
+                             std::unique_ptr<ZedDevice> device)
+    : device_(std::move(device)),
+      capture_join_timeout_(std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::duration<double>(config.capture_join_timeout_s))),
+      capture_running_(false),
       shutdown_requested_(false),
       stop_capture_thread_(false),
       last_grab_ok_(false),
@@ -69,9 +72,9 @@ ZedRgbdCamera::ZedRgbdCamera(const ZedRgbdCameraConfiguration &config)
     diagnostics_logger_ = DiagnosticsLogger::get_logger("zed_rgbd_camera");
     reset_capture_timing_stats();
 
-    device_.set_tracking_enabled(config.position_tracking);
+    device_->set_tracking_enabled(config.position_tracking);
     svo_recorder_ = std::make_unique<SvoRecorder>(
-        device_.handle(), get_project_path("data/temp_svo"), config.svo_max_size_gb * kBytesPerGb,
+        device_->handle(), get_project_path("data/temp_svo"), config.svo_max_size_gb * kBytesPerGb,
         config.svo_holding_dir_max_size_gb * kBytesPerGb);
     svo_recorder_->set_desired(config.svo_recording);
 
@@ -81,31 +84,33 @@ ZedRgbdCamera::ZedRgbdCamera(const ZedRgbdCameraConfiguration &config)
     params.depth_mode = get_zed_depth_mode(config.depth_mode);
     params.coordinate_system = sl::COORDINATE_SYSTEM::IMAGE;
     params.coordinate_units = sl::UNIT::METER;
-    device_.set_params(params);
+    device_->set_params(params);
 }
 
 ZedRgbdCamera::~ZedRgbdCamera() {
     cancel_open_ = true;
-    if (device_.has_pending_open()) {
-        if (!device_.await_or_leak_open("ZedRgbdCamera destructor",
-                                        "pending_open_wait_destructor")) {
+    if (device_->has_pending_open()) {
+        if (!device_->await_or_leak_open("ZedRgbdCamera destructor",
+                                         "pending_open_wait_destructor")) {
             return;
         }
     }
+    if (capture_thread_abandoned_) return;
     if (capture_running_) {
         stop_capture_thread_ = true;
         if (capture_thread_.joinable()) {
             data_cv_.notify_all();
             const auto join_start = std::chrono::steady_clock::now();
-            const bool joined = join_with_timeout(capture_thread_, capture_thread_done_,
-                                                  "ZedRgbdCamera destructor");
+            const bool joined =
+                join_with_timeout(capture_thread_, capture_thread_done_, capture_join_timeout_,
+                                  "ZedRgbdCamera destructor");
             warn_if_slow(join_start, "capture_thread_join_destructor", kJoinWaitWarnMs);
             if (!joined) {
                 return;
             }
         }
         svo_recorder_->stop();
-        device_.close();
+        device_->close();
     }
 }
 
@@ -118,10 +123,11 @@ bool ZedRgbdCamera::initialize() {
         stop_capture_thread_ = true;
         data_cv_.notify_all();
         const auto join_start = std::chrono::steady_clock::now();
-        const bool joined =
-            join_with_timeout(capture_thread_, capture_thread_done_, "ZedRgbdCamera::initialize");
+        const bool joined = join_with_timeout(capture_thread_, capture_thread_done_,
+                                              capture_join_timeout_, "ZedRgbdCamera::initialize");
         warn_if_slow(join_start, "capture_thread_join_initialize", kJoinWaitWarnMs);
         if (!joined) {
+            capture_thread_abandoned_ = true;
             shutdown_requested_ = true;
             return false;
         }
@@ -129,22 +135,22 @@ bool ZedRgbdCamera::initialize() {
 
     if (capture_running_) {
         svo_recorder_->stop();
-        device_.close();
+        device_->close();
         capture_running_ = false;
     }
 
     reset_runtime_state();
 
-    const ZedDevice::OpenResult open_result = device_.open(cancel_open_);
+    const ZedDevice::OpenResult open_result = device_->open(cancel_open_);
     if (open_result == ZedDevice::OpenResult::Leaked) {
         shutdown_requested_ = true;
         return false;
     }
     if (open_result != ZedDevice::OpenResult::Opened) return false;
 
-    if (!device_.enable_tracking()) return false;
+    if (!device_->enable_tracking()) return false;
 
-    const std::optional<CameraInfo> camera_info = device_.read_camera_info();
+    const std::optional<CameraInfo> camera_info = device_->read_camera_info();
     if (!camera_info) return false;
     latest_data_.camera_info = *camera_info;
 
@@ -168,7 +174,7 @@ void ZedRgbdCamera::reset_runtime_state() {
     frame_counter_ = 0;
     last_returned_frame_counter_ = 0;
     grab_health_.reset();
-    device_.reset_runtime_state();
+    device_->reset_runtime_state();
     reset_capture_timing_stats();
 }
 
@@ -197,7 +203,7 @@ bool ZedRgbdCamera::capture_frame() {
 
     auto capture_start = std::chrono::steady_clock::now();
 
-    const ZedDevice::GrabStatus grab_status = device_.grab();
+    const ZedDevice::GrabStatus grab_status = device_->grab();
 
     if (grab_status == ZedDevice::GrabStatus::TransientError) {
         std::this_thread::sleep_for(kTransientErrorBackoff);
@@ -232,7 +238,7 @@ bool ZedRgbdCamera::capture_frame() {
     const auto lock_hold_start = std::chrono::steady_clock::now();
     std::lock_guard<std::mutex> lock(data_mutex_);
 
-    if (!device_.retrieve(latest_data_)) {
+    if (!device_->retrieve(latest_data_)) {
         return false;
     }
 

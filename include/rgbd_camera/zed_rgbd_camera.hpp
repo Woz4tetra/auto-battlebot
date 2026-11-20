@@ -22,7 +22,8 @@
 namespace auto_battlebot {
 class ZedRgbdCamera : public RgbdCameraInterface {
    public:
-    explicit ZedRgbdCamera(const ZedRgbdCameraConfiguration &config);
+    explicit ZedRgbdCamera(const ZedRgbdCameraConfiguration &config,
+                           std::unique_ptr<ZedDevice> device = std::make_unique<ZedDevice>());
     ~ZedRgbdCamera();
     bool initialize() override;
     void cancel_initialize() override;
@@ -43,12 +44,14 @@ class ZedRgbdCamera : public RgbdCameraInterface {
     std::atomic<bool> cancel_open_{false};
     std::atomic<bool> capture_thread_done_{false};
 
-    ZedDevice device_;
+    std::unique_ptr<ZedDevice> device_;
+    std::chrono::milliseconds capture_join_timeout_;
     CameraData latest_data_;
     mutable std::mutex data_mutex_;
     mutable std::condition_variable data_cv_;
     std::thread capture_thread_;
 
+    std::atomic<bool> capture_thread_abandoned_{false};
     std::atomic<bool> capture_running_;
     std::atomic<bool> shutdown_requested_;
     std::atomic<bool> stop_capture_thread_;

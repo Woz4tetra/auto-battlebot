@@ -100,6 +100,4 @@ Little-endian: the bytes `RLST`, uint32 version (1), uint32 pair count N, uint32
 
 ## Workarounds
 
-- `wrap_like_torch_remainder` in `observation_v1.cpp` mirrors `obs_spec.wrap`: `torch.remainder(a + pi, 2 pi) - pi`. `torch.remainder` takes the divisor's sign, so a negative input wraps up into `[0, 2 pi)` the way `std::fmod` alone would not. The output only feeds sin and cos, so the negative branch cannot be observed from a test.
-- `check_layers` in `rtneural_runtime.cpp` rejects what `RTNeural::json_parser::parseJson` accepts silently and builds wrong. An unknown activation name becomes a null layer that crashes on the first forward pass (`AnActivationRtNeuralCannotBuildIsNamed` feeds `gelu`). A shape error surfaces only as an out-of-range exception, or not at all for a short kernel, which is zero-padded.
 - `tests/rl_policy/test_rtneural_runtime.cpp` asserts median inference under `kLoadedBoxMedianCeilingUs` (2000 us), far above the real value. A ceiling near the median fails on a loaded dev box. The printed median is the result.

@@ -64,36 +64,39 @@ class ZedDevice {
     enum class OpenResult { Opened, Cancelled, Failed, Leaked };
 
     ZedDevice() = default;
+    virtual ~ZedDevice() = default;
     ZedDevice(const ZedDevice &) = delete;
     ZedDevice &operator=(const ZedDevice &) = delete;
 
     void set_params(const sl::InitParameters &params) { params_ = params; }
     sl::InitParameters &params() { return params_; }
 
-    OpenResult open(const std::atomic<bool> &cancel);
+    virtual OpenResult open(const std::atomic<bool> &cancel);
 
-    bool await_or_leak_open(const char *context, const char *validation_label);
-    bool has_pending_open() const { return pending_open_.valid(); }
-    void close() { zed_.close(); }
+    virtual bool await_or_leak_open(const char *context, const char *validation_label);
+    virtual bool has_pending_open() const { return pending_open_.valid(); }
+    virtual void close() { zed_.close(); }
 
     void set_tracking_enabled(bool enabled) { tracking_enabled_ = enabled; }
     bool tracking_enabled() const { return tracking_enabled_; }
-    bool enable_tracking();
+    virtual bool enable_tracking();
 
-    std::optional<CameraInfo> read_camera_info() const;
+    virtual std::optional<CameraInfo> read_camera_info() const;
 
-    GrabStatus grab();
+    virtual GrabStatus grab();
 
-    bool retrieve(CameraData &out);
+    virtual bool retrieve(CameraData &out);
 
     bool is_svo_input() const;
-    int svo_frame_count() { return zed_.getSVONumberOfFrames(); }
-    int svo_position() { return zed_.getSVOPosition(); }
-    void set_svo_position(int frame) { zed_.setSVOPosition(frame); }
+    virtual int svo_frame_count() { return zed_.getSVONumberOfFrames(); }
+    virtual int svo_position() { return zed_.getSVOPosition(); }
+    virtual void set_svo_position(int frame) { zed_.setSVOPosition(frame); }
 
     sl::Camera &handle() { return zed_; }
 
-    void reset_runtime_state() { prev_tracking_state_ = sl::POSITIONAL_TRACKING_STATE::LAST; }
+    virtual void reset_runtime_state() {
+        prev_tracking_state_ = sl::POSITIONAL_TRACKING_STATE::LAST;
+    }
 
    private:
     sl::Camera zed_;

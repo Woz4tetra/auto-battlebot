@@ -10,11 +10,13 @@
 
 namespace auto_battlebot {
 
-ZedSvoPlaybackCamera::ZedSvoPlaybackCamera(const ZedSvoPlaybackCameraConfiguration &config)
-    : svo_start_frame_(config.svo_start_frame),
+ZedSvoPlaybackCamera::ZedSvoPlaybackCamera(const ZedSvoPlaybackCameraConfiguration &config,
+                                           std::unique_ptr<ZedDevice> device)
+    : device_(std::move(device)),
+      svo_start_frame_(config.svo_start_frame),
       rebase_stamps_(config.rebase_stamps),
       diagnostics_logger_(DiagnosticsLogger::get_logger("zed_svo_playback_camera")) {
-    device_.set_tracking_enabled(config.position_tracking);
+    device_->set_tracking_enabled(config.position_tracking);
 
     const std::filesystem::path svo_abs_path =
         std::filesystem::absolute(std::filesystem::path(config.svo_file_path.c_str()));
@@ -40,32 +42,32 @@ ZedSvoPlaybackCamera::ZedSvoPlaybackCamera(const ZedSvoPlaybackCameraConfigurati
     params.coordinate_units = sl::UNIT::METER;
     params.input.setFromSVOFile(svo_abs_path.c_str());
     params.svo_real_time_mode = config.svo_real_time_mode;
-    device_.set_params(params);
+    device_->set_params(params);
 }
 
 ZedSvoPlaybackCamera::~ZedSvoPlaybackCamera() {
     cancel_open_ = true;
-    if (device_.has_pending_open()) {
-        if (!device_.await_or_leak_open("ZedSvoPlaybackCamera destructor",
-                                        "pending_open_wait_destructor")) {
+    if (device_->has_pending_open()) {
+        if (!device_->await_or_leak_open("ZedSvoPlaybackCamera destructor",
+                                         "pending_open_wait_destructor")) {
             return;
         }
     }
-    if (is_initialized_) device_.close();
+    if (is_initialized_) device_->close();
 }
 
 void ZedSvoPlaybackCamera::cancel_initialize() { cancel_open_ = true; }
 
 bool ZedSvoPlaybackCamera::initialize() {
     if (is_initialized_) {
-        device_.close();
+        device_->close();
         is_initialized_ = false;
     }
     should_close_ = false;
     stamp_offset_initialized_ = false;
-    device_.reset_runtime_state();
+    device_->reset_runtime_state();
 
-    const ZedDevice::OpenResult open_result = device_.open(cancel_open_);
+    const ZedDevice::OpenResult open_result = device_->open(cancel_open_);
     if (open_result == ZedDevice::OpenResult::Leaked) {
         should_close_ = true;
         return false;
@@ -73,7 +75,7 @@ bool ZedSvoPlaybackCamera::initialize() {
     if (open_result != ZedDevice::OpenResult::Opened) return false;
 
     if (svo_start_frame_ > 0) {
-        const int n_frames = device_.svo_frame_count();
+        const int n_frames = device_->svo_frame_count();
         if (n_frames > 0 && svo_start_frame_ >= n_frames) {
             throw ConfigValidationError("rgbd_camera.svo_start_frame is " +
                                         std::to_string(svo_start_frame_) + " but " + svo_path_ +
@@ -82,13 +84,13 @@ bool ZedSvoPlaybackCamera::initialize() {
         }
         if (n_frames > 0) {
             spdlog::info("SVO starting at frame {} of {}", svo_start_frame_, n_frames);
-            device_.set_svo_position(svo_start_frame_);
+            device_->set_svo_position(svo_start_frame_);
         }
     }
 
-    if (!device_.enable_tracking()) return false;
+    if (!device_->enable_tracking()) return false;
 
-    const std::optional<CameraInfo> camera_info = device_.read_camera_info();
+    const std::optional<CameraInfo> camera_info = device_->read_camera_info();
     if (!camera_info) return false;
     latest_data_.camera_info = *camera_info;
     is_initialized_ = true;
@@ -98,7 +100,7 @@ bool ZedSvoPlaybackCamera::initialize() {
 bool ZedSvoPlaybackCamera::get(CameraData &data) {
     if (!is_initialized_ || should_close_) return false;
 
-    const ZedDevice::GrabStatus status = device_.grab();
+    const ZedDevice::GrabStatus status = device_->grab();
     if (status == ZedDevice::GrabStatus::EndOfFile) {
         spdlog::info("End of SVO file reached.");
         should_close_ = true;
@@ -110,10 +112,10 @@ bool ZedSvoPlaybackCamera::get(CameraData &data) {
         return false;
     }
 
-    if (!device_.retrieve(latest_data_)) return false;
+    if (!device_->retrieve(latest_data_)) return false;
 
     const int grabbed_frame_offset = 1;
-    const int svo_position = device_.svo_position();
+    const int svo_position = device_->svo_position();
     latest_data_.frame_identity.video_frame_index =
         svo_position > 0 ? svo_position - grabbed_frame_offset : -1;
 

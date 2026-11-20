@@ -110,10 +110,17 @@ ModelResultStamped YoloBboxRobotBlobModel::update(RgbImage image) {
         detections.resize(static_cast<size_t>(max_detections_));
     }
 
+    record_detections(detections, image.image, original_size, input_size, result);
+    return result;
+}
+
+void YoloBboxRobotBlobModel::record_detections(const std::vector<Detection> &detections,
+                                               const cv::Mat &image, cv::Size original_size,
+                                               cv::Size input_size, ModelResultStamped &result) {
     cv::Mat debug_vis;
-    const bool render_debug = debug_visualization_ && !image.image.empty();
+    const bool render_debug = debug_visualization_ && !image.empty();
     if (render_debug) {
-        debug_vis = image.image.clone();
+        debug_vis = image.clone();
     }
 
     int detection_index = 0;
@@ -156,8 +163,6 @@ ModelResultStamped YoloBboxRobotBlobModel::update(RgbImage image) {
         cv::imshow("YOLO Bbox Robot Blob Debug", debug_vis);
         cv::waitKey(1);
     }
-
-    return result;
 }
 
 void YoloBboxRobotBlobModel::map_detection_box_to_original(const Detection &det,

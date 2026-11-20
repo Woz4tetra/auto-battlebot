@@ -20,13 +20,6 @@ double cap(double x) {
     return std::clamp(x, 0.0, 1.0);
 }
 
-double wrap_like_torch_remainder(double a) {
-    const double divisor = 2.0 * M_PI;
-    double r = std::fmod(a + M_PI, divisor);
-    if (r < 0.0) r += divisor;
-    return r - M_PI;
-}
-
 double nan_min(double a, double b) {
     if (std::isnan(a) || std::isnan(b)) return kNaN;
     return std::min(a, b);
@@ -134,7 +127,7 @@ void build_observation_v1(const ObservationInputsV1 &in, std::span<double, obs_v
     body.rotate(in.opp_x - in.our_x, in.opp_y - in.our_y, rx, ry);
     const double distance = std::hypot(rx, ry);
     const double bearing = std::atan2(ry, rx);
-    const double heading = wrap_like_torch_remainder(in.opp_yaw - in.our_yaw);
+    const double heading = in.opp_yaw - in.our_yaw;
     double vx = 0.0;
     double vy = 0.0;
     body.rotate(in.opp_vx, in.opp_vy, vx, vy);
