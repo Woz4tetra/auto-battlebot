@@ -442,10 +442,7 @@ class DistractorPoolManager:
             src_paths = [str(s.path) for s in self._cfg.sources]
             raise RuntimeError(
                 f"distractors.min_per_scene is {self._cfg.min_per_scene} but only "
-                f"{len(self.pool)} distractor model(s) were found.\n"
-                f"  Searched directories: {src_paths}\n"
-                f"  Either add distractor models to those directories, or set "
-                f"min_per_scene <= {len(self.pool)} in config.toml."
+                f"{len(self.pool)} model(s) found in {src_paths}"
             )
         for distractor in self.pool:
             hide_distractor(distractor)

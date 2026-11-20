@@ -242,9 +242,7 @@ def validate(args: argparse.Namespace) -> bool:
     use_atime = bool(args.time_source == "atime")
     if use_atime and not relatime_enabled():
         raise SystemExit(
-            "root filesystem is mounted noatime, so atime is frozen and every cache would "
-            "look stale. Re-run with --time-source mtime (and note mtime records when the "
-            "cache was written, not when it was last used)."
+            "root filesystem is mounted noatime, so atime is frozen; re-run with --time-source mtime"
         )
     return use_atime
 

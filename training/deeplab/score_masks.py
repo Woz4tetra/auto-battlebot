@@ -416,9 +416,7 @@ def main() -> None:
     parser.add_argument(
         "--exclude-field",
         default=UNCLASSIFIED,
-        help="fields to drop entirely, comma-separated. 'unclassified' is a grab-bag of "
-        "scenes whose arena could not be read off the filename, so by default it does not "
-        "get a vote in a macro-average over field types (pass '' to keep it)",
+        help="comma-separated fields to drop; pass '' to keep the unclassified scenes",
     )
     parser.add_argument("--boundary-tol", default="2,5,10", help="boundary F1 tolerances in pixels")
     parser.add_argument("--bootstrap", type=int, default=1000, help="resamples (0 disables)")

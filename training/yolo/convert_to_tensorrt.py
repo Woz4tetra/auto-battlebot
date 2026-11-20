@@ -334,9 +334,7 @@ def main() -> None:
     parser.add_argument(
         "--int8",
         action="store_true",
-        help="Build an INT8 engine, calibrated on --calib-dir frames. FP16 stays enabled so "
-        "layers TensorRT will not quantize fall back to FP16 rather than FP32. The output "
-        "filename gains an _int8 tag ahead of the platform tag.",
+        help="Build an INT8 engine calibrated on --calib-dir frames, with FP16 fallback",
     )
     parser.add_argument(
         "--calib-dir",
@@ -351,9 +349,7 @@ def main() -> None:
         "--calib-partition",
         type=str,
         metavar="I/N",
-        help="Draw only from every Nth frame of each scene, starting at I (e.g. 1/2). Two "
-        "partitions of the same N share no frames, which is how a disjoint second "
-        "calibration sample is built from one directory.",
+        help="Draw only every Nth frame of each scene, starting at I (e.g. 1/2)",
     )
     parser.add_argument(
         "--calib-cache",
@@ -375,9 +371,7 @@ def main() -> None:
         "--timing-cache",
         type=str,
         default=str(DEFAULT_TIMING_CACHE),
-        help=f"TensorRT timing cache file (default: {DEFAULT_TIMING_CACHE}). Tactic timings are "
-        "reusable across models of the same architecture, so the first build pays the autotuning "
-        "cost and the rest do not.",
+        help=f"TensorRT timing cache file (default: {DEFAULT_TIMING_CACHE})",
     )
     parser.add_argument(
         "--no-timing-cache",

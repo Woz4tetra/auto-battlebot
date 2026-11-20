@@ -107,10 +107,8 @@ def load_session(session_path: Path) -> Session:
     data = _read_csv(session_path)
     if "cmd_lin" not in data:
         raise SystemExit(
-            f"{session_path} has no command columns. fit_plant_calib needs an apriltag_track.py "
-            f"--drive "
-            "recording analyzed by analyze_apriltag_mcap.py (read-only stick captures are not "
-            "enough)."
+            f"{session_path} has no command columns; analyze an apriltag_track.py --drive "
+            "recording with analyze_apriltag_mcap.py"
         )
 
     cmd_t = np.array(data["t"], dtype=float)

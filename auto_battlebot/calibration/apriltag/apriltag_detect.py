@@ -102,11 +102,8 @@ def solve_floor_extrinsic(
         used += 1
     if used == 0:
         raise SystemExit(
-            "Floor grid not detected in the floor frames. Make sure the grid board was flat and "
-            "fully in "
-            "view at lock time, and that --floor-cols/--floor-rows/--floor-first-id match it "
-            "(default 3x5, "
-            "ids 160..174)."
+            "Floor grid not detected in the floor frames: check the board was flat and in view "
+            "and that --floor-cols/--floor-rows/--floor-first-id match it."
         )
     ok, rvec, tvec = cv2.solvePnP(np.vstack(obj_all), np.vstack(img_all), k, d)
     if not ok:

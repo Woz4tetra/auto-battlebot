@@ -694,9 +694,7 @@ def main() -> None:
         "--preview-output",
         type=Path,
         default=Path("../data/previews"),
-        help="Output path for preview image(s) (default: previews/ directory); "
-        "render 3 off-axis views and save concatenated image "
-        "(with multiple robots, the robot name is appended)",
+        help="Output path for the 3-view preview image (robot name appended per robot)",
     )
     parser.add_argument(
         "--skip-preview",

@@ -389,3 +389,24 @@ Mr Stabs Mk2 has no jig fit. Its table comes from the MuJoCo fit through distill
 - `KinematicPlant.step`: Coupling multiplies the steady-state target, not the achieved speed: turning costs a fraction of the forward command's authority and driving costs a fraction of the turn's, but neither brakes a robot that is already coasting.
 - `KinematicPlant._substep`: Pose uses the velocity at the start of the substep, so the arc is exact for the v and w actually held over it.
 - `KinematicPlant._substep`: Accel or decel is decided per channel by whether the target is further from zero than the current speed. Braking into a reversal uses the decel constant until the sign flips, as the drivetrain does: friction first, then torque.
+
+### `playground/calibration/fit_jig_plant.py` options
+
+- `--fit-hz`: the pose integration lands the response within half a grid step, so a 200 Hz grid resolves the delay to about 5 ms and a 500 Hz grid to about 1 ms, at 2.5x the fit time.
+- `--smooth-ms`: a wider window is quieter against encoder count quantization but rounds the corner of a step, which the fit pays back as a few ms of extra transport delay. Sweep it once on real data.
+- `--pin`: use it where a dedicated excitation measures a parameter directly. The window objective only sees that parameter through its effect on everything else, which is where the two disagree worst.
+- `--commands`: `measured` is the radio's own report of what it sent, which is what the robot received. Use `requested` when a run's readback was mis-decoded, since a wrong channel sign corrupts the measured stream and leaves the requested one exact.
+- `--max-saturation`: 0 rejects any clipped IMU sample, because a clipped sample means an impact and its true value is unknown. Raise it to keep a run anyway.
+- `--bootstrap`: resamples for the learning curve, which answers how much more data is needed. 0 runs the leave-one-run-out jackknife only. 8 is a sensible start.
+
+### `playground/calibration/fit_match_plant.py` options
+
+- `--cmd-lead-ms`: the channel readback reaches the log tens of ms after the RF frame carrying the same values left the radio, so the effective transport delay on the logged timeline can be negative. A lead moves the delay profile minimum back inside the searchable range. Effective delay on the logged timeline is the fitted delay minus this lead.
+
+### `playground/calibration/velocity_jig_drive.py` session directory
+
+- `--out` defaults to `<DEFAULT_OUT_ROOT>/<date>-<name>`, so repeated runs on the same day land in one session. The session is the unit leave-one-out validation holds out.
+
+### `playground/calibration/fit_plant_calib.py` input
+
+- `load_session` needs a CSV from an `apriltag_track.py --drive` recording analyzed by `analyze_apriltag_mcap.py`. Read-only stick captures have no command columns.

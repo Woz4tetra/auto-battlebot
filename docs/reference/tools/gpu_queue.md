@@ -24,3 +24,10 @@ Design facts behind `training/gpu_queue.py`. Usage is in `CLAUDE.md` ("GPU train
 `follow_log` streams a job's log until it ends, then rolls onto whatever runs next. The queue runs one job at a time for hours, so the log path worth watching changes several times over a sweep, and a plain `tail -f` on one path goes quiet when the next arm starts. With an explicit job id (`pinned`) it stops when that job does.
 
 Bytes are copied straight through rather than line-buffered, so the progress bar's carriage returns still redraw in place.
+
+## submit options
+
+- `--work`: job size in any consistent unit, frames x epochs for a training arm. The queue divides what past jobs of the same profile took by their own work to get a rate, so a 58,447-frame arm does not inherit the estimate of an 18,447-frame one. Rates compare only within a profile.
+- `--profile`: the cost class a rate is learned within, e.g. `yolo26x-pose@640`. Two jobs share a profile when one unit of work costs them the same. The default is the model and input size read off the command.
+- `--eta`: used until the job's own progress takes over. Give it for the first run of a model family, where no measured rate exists and the queue would otherwise say it does not know.
+- `logs -f` without a job id rolls onto the next job when one ends, so a whole sweep can be watched with one command. With a job id it stops when that job does.

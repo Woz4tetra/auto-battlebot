@@ -730,11 +730,7 @@ def main() -> int:
         action="append",
         type=Path,
         default=None,
-        help=(
-            "Additional directory to search recursively for SVOs by basename if the "
-            "path logged in /log is missing. Repeatable. Defaults: data/svo, "
-            "data/temp_svo (under the project root)."
-        ),
+        help="extra directory searched for SVOs by basename; repeatable",
     )
     parser.add_argument(
         "--overwrite",

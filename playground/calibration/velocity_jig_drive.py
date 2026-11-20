@@ -841,11 +841,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         type=Path,
         default=None,
-        help=(
-            "session output directory. Defaults to "
-            f"{DEFAULT_OUT_ROOT}/<date>-<name>, so repeated runs on the same day land in "
-            "one session, which is the unit leave-one-out validation holds out."
-        ),
+        help=f"session output directory (default {DEFAULT_OUT_ROOT}/<date>-<name>)",
     )
     parser.add_argument("--session", type=Path, default=None, help="session metadata TOML")
     parser.add_argument("--reps", type=int, default=1, help="repetitions of each waveform")

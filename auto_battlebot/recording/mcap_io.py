@@ -61,9 +61,8 @@ def _require_current_format(data: bytes) -> None:
     if encoding in (ENCODING_PROTOBUF, ENCODING_JSON):
         return
     raise ValueError(
-        f"Message encoding {encoding or 'untagged'!r} is not readable: only the layout in "
-        "docs/reference/recording/foxglove_recording_format.md is supported. A recording from "
-        "before the Foxglove migration must be rewritten with scripts/convert_ros1_mcap.py first."
+        f"Message encoding {encoding or 'untagged'!r} is not readable; "
+        "convert old recordings with scripts/convert_ros1_mcap.py"
     )
 
 

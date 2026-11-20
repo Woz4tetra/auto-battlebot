@@ -260,9 +260,8 @@ def main() -> None:
         nargs="?",
         default=None,
         const=OVERLAY_DEFAULT,
-        help="also write a Foxglove overlay MCAP (camera frames + CameraInfo + TF + pose "
-        "markers) for eyeballing the solved poses on the video. Pass a path, or give "
-        "the flag with no argument to write <mcap stem>_overlay.mcap next to the recording",
+        help="write a Foxglove overlay MCAP of the solved poses; no argument means "
+        "<mcap stem>_overlay.mcap",
     )
     args = parser.parse_args()
 

@@ -993,25 +993,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--work",
         type=float,
         default=None,
-        help="How much work this job is, in any unit you use consistently. For a training "
-        "arm, frames x epochs. The queue divides what past jobs of the same profile took "
-        "by their own work to get a rate, so a 58,447-frame arm no longer inherits the "
-        "estimate of an 18,447-frame one. Only compared within a profile.",
+        help="job size in one consistent unit, frames x epochs for training",
     )
     submit.add_argument(
         "--profile",
         default=None,
-        help="Cost class this job's rate is learned within, e.g. yolo26x-pose@640. Two jobs "
-        "share a profile when one unit of work costs them the same. Defaults to the model "
-        "and input size read off the command.",
+        help="cost class a rate is learned within, e.g. yolo26x-pose@640",
     )
     submit.add_argument(
         "--eta",
         type=parse_duration,
         default=None,
-        help="What you expect this to take (6h30m, 90m, 3600s), used until the job's own "
-        "progress takes over. Give this for the first run of a model family, where no "
-        "measured rate exists and the queue would otherwise say it does not know.",
+        help="expected duration (6h30m, 90m, 3600s) until real progress takes over",
     )
     submit.add_argument("command", nargs=argparse.REMAINDER, help="command after --")
     submit.set_defaults(func=cmd_submit)
@@ -1048,9 +1041,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-f",
         "--follow",
         action="store_true",
-        help="stream new output as it is written. Without JOB_ID this follows the queue: "
-        "when the running job ends it rolls onto the next one, so a whole sweep can be "
-        "watched with one command. With JOB_ID it stops when that job does.",
+        help="stream new output; without JOB_ID, roll onto the next job when one ends",
     )
     logs.set_defaults(func=cmd_logs)
 

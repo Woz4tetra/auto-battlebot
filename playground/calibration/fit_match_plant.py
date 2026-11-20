@@ -638,11 +638,7 @@ def main() -> None:
         "--cmd-lead-ms",
         type=float,
         default=0.0,
-        help="shift command timestamps this much earlier before fitting. The channel readback"
-        " reaches the log tens of ms after the RF frame carrying the same values left the"
-        " radio, so the effective transport delay on the logged timeline can be negative;"
-        " a lead moves the delay profile minimum back inside the searchable range."
-        " Effective delay on the logged timeline = fitted delay minus this lead.",
+        help="shift command timestamps this many ms earlier before fitting",
     )
     args = parser.parse_args()
 

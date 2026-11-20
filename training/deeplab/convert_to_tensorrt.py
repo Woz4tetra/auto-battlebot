@@ -135,9 +135,7 @@ def main() -> None:
         "--timing-cache",
         type=str,
         default=str(DEFAULT_TIMING_CACHE),
-        help=f"TensorRT timing cache file (default: {DEFAULT_TIMING_CACHE}). Tactic timings are "
-        "reusable across models of the same architecture, so the first build pays the autotuning "
-        "cost and the rest do not.",
+        help=f"TensorRT timing cache file (default: {DEFAULT_TIMING_CACHE})",
     )
     parser.add_argument(
         "--no-timing-cache",

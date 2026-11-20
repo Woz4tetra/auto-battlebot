@@ -27,3 +27,12 @@
 ## Engine filename tags
 
 `engine_path_with_platform_tag` in `auto_battlebot/tensorrt_build.py` appends `_<arch>_sm<XX>` to the engine stem, for example `model_x86_64_sm89.engine`. The `sm` tag stops an engine built for a different GPU architecture from loading silently. A precision tag goes ahead of it (`model_int8_x86_64_sm89.engine`) so the trailing `_<arch>_sm<XX>.engine` shape that the config candidate lists match on is unchanged, and FP16 filenames stay byte-identical to what `config/_jetson.toml` already names (`test_engine_name_tags`).
+
+## YOLO and DeepLab build options
+
+- `--int8` (YOLO): calibrates on `--calib-dir` frames. FP16 stays enabled so layers TensorRT will not quantize fall back to FP16 rather than FP32. The output filename gains an `_int8` tag ahead of the platform tag.
+- `--calib-dir` (YOLO): stratified across scenes by `--calib-count`. Use the val split of the training corpus, never the eval set being scored.
+- `--calib-partition I/N` (YOLO): draws every Nth frame of each scene starting at I. Two partitions of the same N share no frames, which builds a disjoint second calibration sample from one directory.
+- `--calib-cache` (YOLO): platform independent but keyed to the TensorRT version and algorithm name.
+- `--calib-algo` (YOLO): `entropy2` clips outliers to keep resolution on the common case. `minmax` never clips.
+- `--timing-cache` (YOLO and DeepLab): tactic timings are reusable across models of the same architecture, so the first build pays the autotuning cost and the rest do not.

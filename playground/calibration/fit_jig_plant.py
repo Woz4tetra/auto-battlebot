@@ -71,21 +71,13 @@ def main() -> None:
         "--fit-hz",
         type=float,
         default=200.0,
-        help=(
-            "uniform analysis grid rate. This sets how finely the delay can be resolved: the pose"
-            " integration lands the response within half a grid step, so a 200 Hz grid reports"
-            " the delay to about 5 ms and a 500 Hz grid to about 1 ms, at 2.5x the fit time."
-        ),
+        help="uniform analysis grid rate; sets the delay resolution (200 Hz is about 5 ms)",
     )
     parser.add_argument(
         "--smooth-ms",
         type=float,
         default=20.0,
-        help=(
-            "encoder velocity smoothing. Wider is quieter against count quantization but rounds"
-            " the corner of a step, which the fit pays back as a few ms of extra transport delay."
-            " Worth sweeping once on real data."
-        ),
+        help="encoder velocity smoothing window; wider adds a few ms of fitted delay",
     )
     parser.add_argument("--stride-ms", type=float, default=50.0, help="window start stride")
     parser.add_argument("--max-windows", type=int, default=4000)
@@ -106,10 +98,7 @@ def main() -> None:
     parser.add_argument(
         "--pin",
         default="",
-        help="comma-separated parameters to hold at their stage A values instead of letting the"
-        " joint fit move them. Use it where a dedicated excitation measures a parameter"
-        " directly and the window objective only sees it through its effect on everything"
-        " else, which is where the two disagree worst.",
+        help="comma-separated parameters to hold at their stage A values in the joint fit",
     )
     parser.add_argument("--ladder", action="store_true", help="fit and score every model rung")
     parser.add_argument("--no-joint", action="store_true", help="stop after stage A")
@@ -119,22 +108,13 @@ def main() -> None:
         "--commands",
         choices=("measured", "requested"),
         default="measured",
-        help=(
-            "which command stream to fit. 'measured' is the radio's own report of what it"
-            " sent, which is what the robot received. Use 'requested' when a run's readback"
-            " was mis-decoded, since a wrong channel sign corrupts the measured stream while"
-            " leaving what the tool asked for exact."
-        ),
+        help="command stream to fit: the radio's readback or the tool's requested sticks",
     )
     parser.add_argument(
         "--max-saturation",
         type=float,
         default=0.0,
-        help=(
-            "fraction of clipped IMU samples a run may have. 0 rejects any saturation, on"
-            " the grounds that a clipped sample means an impact and its true value is"
-            " unknown. Raise it to keep a run anyway."
-        ),
+        help="fraction of clipped IMU samples a run may have before it is rejected",
     )
     parser.add_argument("--name", default="", help="report title")
     parser.add_argument(
@@ -147,10 +127,7 @@ def main() -> None:
         "--bootstrap",
         type=int,
         default=0,
-        help=(
-            "bootstrap resamples for the learning curve, which answers how much more data is"
-            " needed. 0 runs the cheap leave-one-run-out jackknife only; 8 is a sensible start."
-        ),
+        help="bootstrap resamples for the learning curve; 0 runs the jackknife only",
     )
     parser.add_argument(
         "--write-calibration-template",

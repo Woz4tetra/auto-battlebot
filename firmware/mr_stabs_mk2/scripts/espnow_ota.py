@@ -202,9 +202,8 @@ def finish_transfer(port: serial.Serial, reader: FrameReader, md5: bytes) -> Non
     status = wait_for_status(reader, VALIDATE_TIMEOUT_S, {OTA_VALIDATED})
     if status is None:
         raise OtaError(
-            f"no validation within {VALIDATE_TIMEOUT_S:.0f} s: the new image is installed but did "
-            "not report running for 10 s with the dongle in range. There is no rollback; if the "
-            "robot is not driving, recover over USB with scripts/upload."
+            f"no validation within {VALIDATE_TIMEOUT_S:.0f} s; the new image is installed, "
+            "recover over USB with scripts/upload if the robot is not driving"
         )
     if status.running_md5 != md5:
         raise OtaError(f"robot validated an image with md5 {status.running_md5.hex()}, not ours")
