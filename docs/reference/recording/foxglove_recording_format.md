@@ -1077,10 +1077,6 @@ The ROS 1 wire format is little-endian. A header is `uint32 seq`, `uint32 stamp_
 
 `VizSink` treats the relay as attached only after the relay has read some of what the connection sent. A frozen relay's listen backlog still completes `connect()` and buffers the first sends, so a connection alone proves nothing.
 
-## Workarounds
-
-- **`_decoder_from_fresh_factory`.** `mcap_io` builds a new protobuf `DecoderFactory` per schema and caches the decoder by schema name. A shared factory caches decoders by the file-local schema id, which collides across files: id 1 is `CompressedImage` in one recording and `RawImage` in another.
-
 ## Workarounds in the recorder and relay
 
 - `McapRecorder::handle(WriteOp&)` logs only the first write failure per file and counts the rest. A disk error repeats on every message, and each log line is itself a `/log` message headed for the same failing file. Unverified: nothing makes `RawChannel::log` fail on demand.

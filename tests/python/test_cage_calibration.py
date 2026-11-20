@@ -139,6 +139,20 @@ def test_pose_summary_and_priors(near_wall_camera: np.ndarray) -> None:
     assert abs(prior_summary["yaw_deg"]) < 1e-6
 
 
+@pytest.mark.parametrize(
+    "forward,expected_deg",
+    [((0.0, 1.0, 0.0), 0.0), ((1.0, 0.0, 0.0), 90.0), ((-1.0, 0.0, 0.0), -90.0)],
+)
+def test_pose_summary_yaw_is_zero_along_plus_y_and_positive_toward_plus_x(
+    forward: tuple[float, float, float], expected_deg: float
+) -> None:
+    right = np.cross(np.array(forward), [0.0, 0.0, 1.0])
+    down = np.cross(np.array(forward), right)
+    tf = np.eye(4)
+    tf[:3, :3] = np.column_stack([right, down, np.array(forward)])
+    assert math.isclose(pose_summary(tf)["yaw_deg"], expected_deg, abs_tol=1e-9)
+
+
 def test_cage_calibration_toml_round_trip(tmp_path: Path, near_wall_camera: np.ndarray) -> None:
     calibration = CageCalibration("unit_test", 2.35, 2.30, camera_from_world(near_wall_camera))
     path = tmp_path / "cage.toml"

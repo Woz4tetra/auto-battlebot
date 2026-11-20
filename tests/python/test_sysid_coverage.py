@@ -28,7 +28,7 @@ from auto_battlebot.recording.foxglove_ws import FoxgloveSubscriber
 from auto_battlebot.recording.mcap_io import decode_json
 from auto_battlebot.recording.sysid_io import parse_robot_tags
 
-HEADING_QUANTIZATION_TOL = 1.0
+HEADING_QUANTIZATION_TOL = 0.05
 THROTTLE_LEVELS = (0.0, -30.0, 40.0, 3.0)
 TURN_LEVELS = (0.0, 0.5, 25.0, -60.0)
 HOLD_M_AT_500MS_LIMIT = 0.03

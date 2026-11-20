@@ -621,10 +621,7 @@ def test_lockstep_slew_and_guard_stages() -> None:
     np.testing.assert_allclose(guard[:, 1], neither[:, 1])
     k = _first_step_tick(neither[:, 2])
     assert guard[k, 2] == pytest.approx(0.5 * neither[k, 2], rel=0.05)
-    assert neither[EARLY_REVERSE_STEP, 2] < -50.0
-
-
-EARLY_REVERSE_STEP = 10
+    assert neither[k, 2] < -50.0
 
 
 def _first_step_tick(wheel_command: np.ndarray) -> int:

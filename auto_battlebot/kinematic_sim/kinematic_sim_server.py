@@ -10,7 +10,7 @@ import struct
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import cv2
 import numpy as np
@@ -30,6 +30,7 @@ from auto_battlebot.kinematic_sim.config.kinematic import (
 )
 from auto_battlebot.kinematic_sim.config.loader import load_config
 from auto_battlebot.kinematic_sim.hazards import load_hazards
+from auto_battlebot.kinematic_sim.mujoco_window import MujocoWindow
 from auto_battlebot.kinematic_sim.plants import PlantInterface, Pose, make_plant
 from auto_battlebot.kinematic_sim.plants.base import footprint_center
 from auto_battlebot.kinematic_sim.policy_opponent import PolicyOpponent, our_robot_box
@@ -55,9 +56,6 @@ from auto_battlebot.perception.sensing_model import (
     TruePoses,
 )
 from auto_battlebot.rl.envs.trained_opponent import TrainedOpponent
-
-if TYPE_CHECKING:
-    from auto_battlebot.kinematic_sim.mujoco_window import MujocoWindow
 
 DEFAULT_OPPONENT_RADIUS_M = 0.106
 
@@ -348,8 +346,6 @@ class KinematicServer:
         self._mujoco_window: MujocoWindow | None = None
         if cfg.viewer.enable and cfg.viewer.mujoco:
             if cfg.our_robot.plant == PlantType.MUJOCO:
-                from auto_battlebot.kinematic_sim.mujoco_window import MujocoWindow
-
                 self._mujoco_window = MujocoWindow(cfg.arena.width, cfg.arena.height)
             else:
                 print('sim: [viewer] mujoco needs [our_robot] plant = "mujoco"; not opening it.')
@@ -400,6 +396,11 @@ class KinematicServer:
         us = footprint_center(Pose(x, y, yaw), self._plant.footprint_center_offset)
         others = [o.pose() for o in self._opponents if o.hazard_radius > 0.0 and o is not opponent]
         policy.observe(Pose(*us, yaw), self._plant.w_radps, others)
+
+    def _moving_block_poses(self) -> list[tuple[float, float, float, float]]:
+        return [
+            (o.x, o.y, o.yaw, o.hazard_radius) for o in self._opponents if o.hazard_radius > 0.0
+        ]
 
     def _make_plant(self) -> PlantInterface:
         cfg = self._cfg
@@ -481,13 +482,7 @@ class KinematicServer:
 
             self._cmd_buf.append((request.linear_x, request.angular_z))
             applied = self._cmd_buf[0]
-            self._plant.set_moving_blocks(
-                [
-                    (o.x, o.y, o.yaw, o.hazard_radius)
-                    for o in self._opponents
-                    if o.hazard_radius > 0.0
-                ]
-            )
+            self._plant.set_moving_blocks(self._moving_block_poses())
             self._plant.step(applied[0], applied[1], cfg.sim.dt)
             x, y, yaw = self._plant.pose()
             us_v = (self._plant.v_mps * math.cos(yaw), self._plant.v_mps * math.sin(yaw))

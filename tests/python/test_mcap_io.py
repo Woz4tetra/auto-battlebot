@@ -389,3 +389,20 @@ def test_sysid_io_rejects_malformed_arrays() -> None:
         sysid_io.FieldFromCamera(np.array([2, 1]), np.zeros((2, 4, 4)))
     with pytest.raises(ValueError, match="matrices"):
         sysid_io.FieldFromCamera(np.array([1, 2]), np.zeros((3, 4, 4)))
+
+
+def test_schema_id_reused_across_recordings_decodes_each_message_type(tmp_path: Path) -> None:
+    first = tmp_path / "compressed_first.mcap"
+    second = tmp_path / "raw_first.mcap"
+    with mcap_write.McapWriter(first) as writer:
+        writer.log("/camera/image", mcap_write.compressed_image(1, "cam", b"jpeg-bytes"), 1)
+    with mcap_write.McapWriter(second) as writer:
+        writer.log(
+            "/camera/image",
+            mcap_write.raw_image(2, "cam", np.zeros((2, 3, 3), dtype=np.uint8)),
+            2,
+        )
+    ((_, _, compressed),) = mcap_io.iter_messages(first)
+    ((_, _, raw),) = mcap_io.iter_messages(second)
+    assert mcap_io.decode_compressed_image_bytes(compressed)[3] == b"jpeg-bytes"
+    assert mcap_io.decode_raw_image_bytes(raw).pixels.shape == (2, 3, 3)

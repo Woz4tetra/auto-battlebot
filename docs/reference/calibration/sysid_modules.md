@@ -1762,5 +1762,4 @@ Reads a bundle written by ``smooth_tag_poses.py`` and writes, under ``<bundle>/p
 
 ## Workarounds in tests
 
-- `test_sysid_coverage.py` compares the mirror's steer output to the reported one within `HEADING_QUANTIZATION_TOL` (1.0). The reported heading is quantized to 1/16 degree and the heading hold sees that. Unverified: the telemetry encoder was not traced.
 - `test_tag_pose_smoother.py` allows `MAX_CLEAN_FIXES_AT_GATE` (3) rejected clean fixes. The fused IMU's sigma is its spin residual (about 0.26 rad/s in the scenario), so a few clean fixes at the blackout edge and mid-spin sit right at the innovation gate.

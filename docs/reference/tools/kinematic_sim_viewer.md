@@ -21,7 +21,3 @@ The outlines are window-only, like the overlays. The camera frame is built from 
 ## Mouse
 
 Press inside an opponent to drag it. Release resumes its configured behaviour from the drop point. Our robot is not draggable: its pose is the plant's integrated state, and moving it out from under the plant desynchronises the EKF in ways that read as control bugs.
-
-## Workarounds
-
-- **`MujocoWindow._close_before_glfw_terminate`.** `launch_passive` does not return its render thread, and `Handle.close()` only asks it to stop. Exiting while it still renders races the `glfw.terminate` atexit hook and segfaults. `launch_passive` registers `glfw.terminate` at atexit, so the window unregisters and re-registers `close` after it to run first (atexit is LIFO). Unverified: the segfault was not reproduced with the order reversed.

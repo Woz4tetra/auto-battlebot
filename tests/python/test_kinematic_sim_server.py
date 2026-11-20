@@ -96,6 +96,21 @@ def test_plant_moving_blocks_follow_runtime_opponent_order() -> None:
     assert built == runtime
 
 
+def test_moving_block_poses_match_the_blocks_the_plant_was_built_with() -> None:
+    from auto_battlebot.kinematic_sim.config.kinematic import KinematicSimConfig, OpponentConfig
+
+    cfg = KinematicSimConfig()
+    cfg.opponents = [
+        OpponentConfig(behavior="static", start_pos=[0.5, 0.5], hazard_radius=0.0),
+        OpponentConfig(behavior="static", start_pos=[-0.5, 0.5], hazard_radius=0.2),
+        OpponentConfig(behavior="static", start_pos=[-0.5, -0.5], hazard_radius=0.3),
+    ]
+    server = kinematic_sim_server.KinematicServer(cfg)
+    server._reset()
+    poses = server._moving_block_poses()
+    assert [(x, y, r) for x, y, _, r in poses] == [(-0.5, 0.5, 0.2), (-0.5, -0.5, 0.3)]
+
+
 def test_importing_the_plants_package_does_not_import_mujoco() -> None:
     code = "import sys, auto_battlebot.kinematic_sim.plants; sys.exit(int('mujoco' in sys.modules))"
     result = subprocess.run([sys.executable, "-c", code], cwd=REPO_ROOT, check=False)
