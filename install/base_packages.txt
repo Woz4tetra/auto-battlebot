@@ -15,6 +15,7 @@ libboost-all-dev
 libeigen3-dev
 unzip
 wget
+curl
 libpcl-dev
 libffi-dev
 valgrind
