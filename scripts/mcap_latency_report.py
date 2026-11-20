@@ -372,9 +372,8 @@ def main() -> None:
     parser.add_argument(
         "--include-field-init",
         action="store_true",
-        help="Report the whole recording. By default the startup ticks up to and including "
-        f"field initialization (first {FIELD_INIT_STAGE} sample) are trimmed, because the "
-        "one-shot field computation costs hundreds of ms and skews every summary stat.",
+        help="Report the whole recording instead of trimming startup ticks through the first "
+        f"{FIELD_INIT_STAGE} sample",
     )
     args = parser.parse_args()
 

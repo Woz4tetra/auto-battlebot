@@ -72,12 +72,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bbox-xyxy",
         action="store_true",
-        help=(
-            "Treat raw bbox output as already-decoded xyxy (x1, y1, x2, y2) and skip "
-            "conversion.  By default the script converts from Ultralytics-standard "
-            "cx, cy, w, h (center format) to xyxy.  Only pass this flag if your model "
-            "bakes the decoding step into its output."
-        ),
+        help="Treat raw bbox output as already-decoded xyxy; default converts from cx, cy, w, h",
     )
     parser.add_argument(
         "--show",

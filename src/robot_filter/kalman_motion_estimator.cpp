@@ -789,10 +789,8 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
             now - last_clock_gap_warning_ > config_.clock_gap_warn_period_s) {
             last_clock_gap_warning_ = now;
             spdlog::warn(
-                "Coast span is {:.3f}s ({}): no forward propagation is happening, so the emitted "
-                "estimate sits at the shutter instead of leading it. The control clock and the "
-                "frame stamps are not on the same timeline; SVO playback needs [clock] type = "
-                "'CameraFollowingClock'.",
+                "Coast span {:.3f}s ({}): control clock and frame stamps disagree; SVO playback "
+                "needs [clock] type = 'CameraFollowingClock'",
                 worst_span, too_far ? "past the integration cap" : "not positive");
         }
     }

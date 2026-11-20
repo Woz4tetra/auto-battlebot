@@ -147,9 +147,9 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
     void apply_plant(const PlantConfiguration &plant_config) override {
         if (!plant_config.params.has_value()) {
             throw ConfigValidationError(
-                "navigation type = 'MotionProfileNavigation' requires the top-level [plant] "
-                "table: its brake schedule and inverse-plant feedforward are derived from the "
-                "jig fit and have no defaults. See docs/reference/control/plant_backed_control.md");
+                "navigation type = 'MotionProfileNavigation' requires the top-level [plant] table; "
+                "see "
+                "docs/reference/control/plant_backed_control.md");
         }
         plant = *plant_config.params;
     }
@@ -206,9 +206,8 @@ struct RlPolicyNavigationConfiguration : public NavigationConfiguration {
         plant = plant_config.params;
         if (hazard_barrier_enable && !plant.has_value()) {
             throw ConfigValidationError(
-                "navigation type = 'RlPolicyNavigation' with hazard_barrier_enable = true "
-                "requires the top-level [plant] table: the barrier's stopping envelope is "
-                "tau_lin_d + delay_s from the fit");
+                "type = 'RlPolicyNavigation' with hazard_barrier_enable = true requires the "
+                "top-level [plant] table; see docs/reference/control/plant_backed_control.md");
         }
     }
 

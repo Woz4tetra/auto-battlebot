@@ -49,9 +49,7 @@ def main() -> None:
         default=[],
         metavar="NAME=LABELS",
         help="comma-separated GT label per engine class index for one candidate, overriding "
-        "--labels. A grid that mixes 2-class and 3-class engines needs this: the label count "
-        "sets num_classes, which is what splits the raw tensor into scores and keypoints, so "
-        "a 2-class engine read with three labels parses to num_keypoints=0. Repeatable.",
+        "--labels. Repeatable.",
     )
     parser.add_argument(
         "--field-boxes",
@@ -59,8 +57,7 @@ def main() -> None:
         default=[],
         metavar="NAME=JSON",
         help="candidate trained on field-cropped images; crop each frame to the box for its "
-        "stem in JSON before inference. Written by build_field_crop_dataset.py masks "
-        "--recursive. Repeatable.",
+        "stem in JSON before inference. Repeatable.",
     )
     parser.add_argument(
         "--crop-margin",

@@ -74,8 +74,8 @@ void CalibratedFieldFilter::run_seating_check(const CameraData &camera_data,
     if (worst > config_.max_seating_error_px) {
         spdlog::warn(
             "Seating check: live field outline is {:.1f} px from calibration '{}' (limit {:.1f} "
-            "px). The fixture may not have seated or the cage may have moved. Publishing the "
-            "stored calibration anyway.",
+            "px); "
+            "publishing the stored calibration",
             worst, calibration_.calibration_id, config_.max_seating_error_px);
     } else {
         spdlog::info("Seating check: live field outline within {:.1f} px of calibration '{}'",

@@ -23,15 +23,13 @@ ZedSvoPlaybackCamera::ZedSvoPlaybackCamera(ZedSvoPlaybackCameraConfiguration &co
 
     if (!rebase_stamps_) {
         spdlog::warn(
-            "rebase_stamps = false: SVO frame stamps stay on the recording's clock, which does "
-            "not match the control clock. Latency compensation and any stamp-difference "
-            "diagnostic are invalid for this run.");
+            "rebase_stamps = false: SVO stamps stay on the recording's clock; latency "
+            "compensation and stamp-difference diagnostics are invalid");
     }
     if (!config.svo_real_time_mode) {
         spdlog::warn(
-            "svo_real_time_mode = false: frames are decoded as fast as the pipeline allows, so "
-            "the wall-clock gap between shutter and control tick is a property of this machine, "
-            "not of the robot. Field timing, including latency compensation, is not reproduced.");
+            "svo_real_time_mode = false: field timing, including latency compensation, is not "
+            "reproduced");
     }
 
     sl::InitParameters params;
@@ -79,11 +77,10 @@ bool ZedSvoPlaybackCamera::initialize() {
     if (svo_start_frame_ > 0) {
         const int n_frames = device_.svo_frame_count();
         if (n_frames > 0 && svo_start_frame_ >= n_frames) {
-            throw ConfigValidationError(
-                "rgbd_camera.svo_start_frame is " + std::to_string(svo_start_frame_) + " but " +
-                svo_path_ + " has only " + std::to_string(n_frames) +
-                " frames. A config that overrides svo_file_path must set svo_start_frame too; it "
-                "is inherited from the config being extended otherwise.");
+            throw ConfigValidationError("rgbd_camera.svo_start_frame is " +
+                                        std::to_string(svo_start_frame_) + " but " + svo_path_ +
+                                        " has only " + std::to_string(n_frames) +
+                                        " frames; set svo_start_frame alongside svo_file_path");
         }
         if (n_frames > 0) {
             spdlog::info("SVO starting at frame {} of {}", svo_start_frame_, n_frames);

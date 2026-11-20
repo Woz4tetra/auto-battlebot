@@ -62,9 +62,7 @@ def main() -> None:
         type=int,
         default=0,
         help="Class count of the head. 0 auto-infers, which only works for single-class "
-        "engines: a 4-class 2-keypoint pose head has the same 14 feature columns as a "
-        "1-class 3-keypoint one, and the guess picks the latter. Pass it for multi-class "
-        "pose engines and check the printed layout line.",
+        "engines; check the printed layout line",
     )
     parser.add_argument(
         "--num-keypoints",

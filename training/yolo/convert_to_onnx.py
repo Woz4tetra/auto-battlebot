@@ -31,11 +31,7 @@ def main() -> None:
         nargs="+",
         default=[640],
         metavar="N",
-        help="Input size: one value for square, or 'H W' for rectangular (default: 640). "
-        "Both must be multiples of 32. A 16:9 source letterboxed into a square 640x640 wastes "
-        "44%% of the tensor on grey padding; '--imgsz 384 640' cuts that to 6%% at the same "
-        "detection scale. The C++ model reads the shape from the engine, so a rectangular "
-        "engine is a drop-in swap.",
+        help="Input size: one value for square, or 'H W'; both multiples of 32 (default: 640)",
     )
     args = parser.parse_args()
 

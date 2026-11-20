@@ -117,8 +117,7 @@ def main() -> None:
         "--reset-log-std",
         type=float,
         default=None,
-        help="after --resume, set the policy's action log-std (exploration) to this; a long run "
-        "shrinks it to almost nothing, and fine-tuning on a changed reward needs it back",
+        help="after --resume, set the policy's action log-std (exploration) to this value",
     )
     ap.add_argument(
         "--min-log-std",

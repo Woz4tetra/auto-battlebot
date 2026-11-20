@@ -348,11 +348,8 @@ def main() -> None:
         "--min-blob-image-fraction",
         type=float,
         default=0.01,
-        help=(
-            "Keep a blob regardless of the relative test when it covers at least this "
-            "fraction of the whole image. Preserves the smaller side of a field that an "
-            "occluder split unevenly (default: 0.01)"
-        ),
+        help="Keep a blob covering at least this fraction of the image, whatever the relative "
+        "test says (default: 0.01)",
     )
     parser.add_argument(
         "--skip-validated",

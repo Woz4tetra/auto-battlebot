@@ -100,11 +100,8 @@ def _parse_render_args() -> argparse.Namespace:
         "--view",
         choices=VIEWS,
         default=None,
-        help=(
-            "Frame every cage scene writes: 'pinhole' at the rectified matrix, 'distorted' as the"
-            " sensor sees it, 'rectified' through the C++ Rectifier's maps. Overrides each"
-            " [[cages]] view; the HDRI arena half stays pinhole."
-        ),
+        help="Frame every cage scene writes: pinhole, distorted, or rectified. Overrides each "
+        "[[cages]] view",
     )
     parser.add_argument(
         "--damage-parts",

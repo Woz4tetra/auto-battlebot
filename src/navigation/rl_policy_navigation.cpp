@@ -78,8 +78,9 @@ void RlPolicyNavigation::load() {
                                       ? std::string(magic_enum::enum_name(*config_.opponent_mode))
                                       : std::string("not set");
         throw ConfigValidationError(
-            "RlPolicyNavigation needs [robot_filter.motion_estimator] opponent_mode = 'KALMAN': "
-            "the policy is trained against the 6-state opponent filter. Found opponent_mode " +
+            "RlPolicyNavigation needs [robot_filter.motion_estimator] opponent_mode = 'KALMAN' "
+            "(6-state "
+            "opponent filter); found opponent_mode " +
             found + " from " + config_.opponent_mode_source);
     }
 

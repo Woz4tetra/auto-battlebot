@@ -660,10 +660,8 @@ def main() -> None:
         "--seed",
         type=int,
         default=4176,
-        help="RNG seed. Note that this does NOT make a run reproducible: seed_everything "
-        "leaves cudnn.benchmark on, so kernel selection varies run to run and two runs at "
-        "the same seed diverge. A seed pair therefore measures seed variation plus that "
-        "nondeterminism, which together are the real run-to-run noise floor",
+        help="RNG seed. Does not make a run reproducible: cudnn.benchmark stays on, so "
+        "same-seed runs diverge",
     )
     parser.add_argument(
         "--amp",

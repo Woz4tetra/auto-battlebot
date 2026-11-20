@@ -172,9 +172,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--drop-empty",
         action="store_true",
-        help="Drop frames that end up with no annotations. They are valid background negatives and "
-        "help precision, but they are also unreviewable by eye, so drop them when the corpus is "
-        "headed for manual validation.",
+        help="Drop frames left with no annotations (valid background negatives, but "
+        "unreviewable by eye)",
     )
     parser.add_argument("--dry-run", action="store_true", help="Report only, write nothing")
     return parser

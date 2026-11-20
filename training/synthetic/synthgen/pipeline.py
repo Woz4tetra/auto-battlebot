@@ -899,9 +899,8 @@ def run(args: argparse.Namespace) -> None:
     arena_share = 1.0 - sum(cage.probability for cage in cfg.cages if cage.active)
     if warped_cages and arena_share > 1e-9:
         logger.warning(
-            "cages %s write warped frames, but the HDRI arena half (%.0f%% of images) has no"
-            " lens model and stays pinhole; pin the run to a cage (--venue or only_cage) to keep"
-            " one view",
+            "cages %s write warped frames but the HDRI arena half (%.0f%% of images) stays "
+            "pinhole; pin the run to a cage",
             warped_cages,
             100 * arena_share,
         )

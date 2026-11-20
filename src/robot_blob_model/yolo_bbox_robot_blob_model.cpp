@@ -52,8 +52,7 @@ bool YoloBboxRobotBlobModel::initialize() {
     if (their_robot_labels_.empty() && neutral_robot_labels_.empty()) {
         spdlog::warn(
             "YoloBboxRobotBlobModel: their_robot_labels and neutral_robot_labels are both empty, "
-            "so every detection will be dropped before it reaches the filter. Set "
-            "robot_mask_model.their_robot_labels to the labels that count as opponents.");
+            "so every detection is dropped; set robot_mask_model.their_robot_labels");
     }
     spdlog::info("YoloBboxRobotBlobModel initialized (their={}, neutral={}, field={})",
                  their_robot_labels_.size(), neutral_robot_labels_.size(), field_labels_.size());

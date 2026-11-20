@@ -214,7 +214,8 @@ std::shared_ptr<FieldDescriptionWithInlierPoints> FiducialFieldFilter::compute_f
     if (error > config_.max_reprojection_error_px) {
         spdlog::warn(
             "FiducialFieldFilter: {:.1f} px reprojection error over {} correspondences (limit "
-            "{:.1f} px). Check marker_size, that the board printed at 100%, and that it was flat.",
+            "{:.1f} px); "
+            "check marker_size and that the board is flat at 100% scale",
             error, correspondences, config_.max_reprojection_error_px);
         return failed;
     }

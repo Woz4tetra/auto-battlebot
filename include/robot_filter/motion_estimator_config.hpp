@@ -32,10 +32,8 @@ struct DeadReckoningMotionEstimatorConfiguration : public MotionEstimatorConfigu
     void apply_plant(const PlantConfiguration &plant_config) override {
         if (!plant_config.params.has_value()) {
             throw ConfigValidationError(
-                "type = 'DeadReckoningMotionEstimator' requires the top-level [plant] table: it "
-                "scales the normalized stick command to body velocity with the fitted "
-                "k_fwd/k_rev/k_ang and has no defaults for them. A zero plant would freeze every "
-                "prediction without saying so. See docs/reference/control/plant_backed_control.md");
+                "type = 'DeadReckoningMotionEstimator' requires the top-level [plant] table; see "
+                "docs/reference/control/plant_backed_control.md");
         }
         plant = *plant_config.params;
     }
@@ -126,10 +124,8 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
         plant_noise = plant_config.noise;
         if (!plant.has_value()) {
             throw ConfigValidationError(
-                "type = 'KalmanMotionEstimator' requires the top-level [plant] table: the EKF "
-                "our-robot arm propagates through JigPlantModel and the dead-reckoning arm scales "
-                "stick to body velocity with the fitted gains. Neither has defaults. See "
-                "docs/experiments/control/kalman_filter/plant_model_poc_plan.md");
+                "type = 'KalmanMotionEstimator' requires the top-level [plant] table; see "
+                "docs/reference/control/plant_backed_control.md");
         }
     }
 };
