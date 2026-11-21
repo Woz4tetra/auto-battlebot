@@ -13,6 +13,7 @@
 #include "foxglove_adapters/camera_info.hpp"
 #include "foxglove_adapters/json_schemas.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
+#include "nvidia_codec_under_tsan.hpp"
 #include "publisher/output_channel.hpp"
 #include "rgbd_camera/camera_calibration.hpp"
 #include "rgbd_camera/config.hpp"
@@ -155,11 +156,13 @@ VideoPlaybackCameraConfiguration make_config(
 class VideoPlaybackCameraTest : public ::testing::Test {
    protected:
     static void SetUpTestSuite() {
+        if (kNvidiaCodecCrashesUnderThisBuild) return;
         fixture_ = std::make_unique<RecordingWithEmbeddedAndFileCalibration>();
     }
     static void TearDownTestSuite() { fixture_.reset(); }
 
     void SetUp() override {
+        if (kNvidiaCodecCrashesUnderThisBuild) GTEST_SKIP() << kNvidiaCodecTsanSkipReason;
         if (!fixture_ || !fixture_->started()) {
             GTEST_SKIP() << "No H.264 encoder available to build the test recording";
         }
@@ -328,6 +331,7 @@ TEST(CameraCalibrationTest, ParseNamesTheSourceOfAMissingField) {
 }
 
 TEST(VideoPlaybackCameraJoinTest, ImageStampJoinsFrameMetaOnOrdinalNotLogTime) {
+    if (kNvidiaCodecCrashesUnderThisBuild) GTEST_SKIP() << kNvidiaCodecTsanSkipReason;
     constexpr uint64_t kVideoLogOffsetNs = 5000000000ULL;
     RecordingWithEmbeddedAndFileCalibration fixture(kVideoLogOffsetNs);
     if (!fixture.started()) GTEST_SKIP() << "No H.264 encoder available to build the recording";

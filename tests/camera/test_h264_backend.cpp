@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "nvidia_codec_under_tsan.hpp"
 #include "rgbd_camera/h264_backend.hpp"
 
 namespace auto_battlebot {
@@ -44,6 +45,7 @@ struct NamedOpener {
     std::string name;
     std::function<bool()> available;
     BackendOpener open;
+    bool nvidia = false;
 };
 
 bool ffmpeg_h264_available(const std::string &codec) {
@@ -69,11 +71,19 @@ std::vector<NamedOpener> openers() {
     result.push_back({"ffmpeg_nvenc", [] { return ffmpeg_h264_available("h264_nvenc"); },
                       [](const VideoEncoderOptions &options, H264Backend::PacketSink sink) {
                           return open_ffmpeg_h264("h264_nvenc", options, std::move(sink));
-                      }});
+                      },
+                      true});
 #ifdef AUTO_BATTLEBOT_HAVE_GSTREAMER
     result.push_back({"gst_x264", [] { return gst_x264_installed(); }, open_gst_x264});
 #endif
     return result;
+}
+
+const char *skip_reason(size_t index) {
+    const NamedOpener opener = openers()[index];
+    if (opener.nvidia && kNvidiaCodecCrashesUnderThisBuild) return kNvidiaCodecTsanSkipReason;
+    if (!opener.available()) return "encoder not installed";
+    return nullptr;
 }
 
 class H264BackendTest : public ::testing::TestWithParam<size_t> {
@@ -114,13 +124,13 @@ class H264BackendTest : public ::testing::TestWithParam<size_t> {
 };
 
 TEST_P(H264BackendTest, FlushDeliversAllFrames) {
-    if (!openers()[GetParam()].available()) GTEST_SKIP() << "encoder not installed";
+    if (const char *reason = skip_reason(GetParam())) GTEST_SKIP() << reason;
     const std::vector<Packet> packets = encode_all();
     ASSERT_EQ(packets.size(), static_cast<size_t>(kFrames));
 }
 
 TEST_P(H264BackendTest, EveryIdrCarriesSpsPps) {
-    if (!openers()[GetParam()].available()) GTEST_SKIP() << "encoder not installed";
+    if (const char *reason = skip_reason(GetParam())) GTEST_SKIP() << reason;
     const std::vector<Packet> packets = encode_all();
     ASSERT_EQ(packets.size(), static_cast<size_t>(kFrames));
     int keyframes = 0;
@@ -134,7 +144,7 @@ TEST_P(H264BackendTest, EveryIdrCarriesSpsPps) {
 }
 
 TEST_P(H264BackendTest, PacketsLeaveInCaptureOrderBecauseThereAreNoBFrames) {
-    if (!openers()[GetParam()].available()) GTEST_SKIP() << "encoder not installed";
+    if (const char *reason = skip_reason(GetParam())) GTEST_SKIP() << reason;
     const std::vector<Packet> packets = encode_all();
     ASSERT_EQ(packets.size(), static_cast<size_t>(kFrames));
     for (size_t i = 0; i < packets.size(); ++i) {
@@ -143,7 +153,7 @@ TEST_P(H264BackendTest, PacketsLeaveInCaptureOrderBecauseThereAreNoBFrames) {
 }
 
 TEST_P(H264BackendTest, ForcedKeyframeIsAnIdr) {
-    if (!openers()[GetParam()].available()) GTEST_SKIP() << "encoder not installed";
+    if (const char *reason = skip_reason(GetParam())) GTEST_SKIP() << reason;
     constexpr int kForcedFrame = 5;
     const std::vector<Packet> packets = encode_all(1000, kForcedFrame);
     ASSERT_EQ(packets.size(), static_cast<size_t>(kFrames));

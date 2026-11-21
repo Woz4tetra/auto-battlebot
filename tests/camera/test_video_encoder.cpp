@@ -9,6 +9,7 @@
 #include <thread>
 #include <vector>
 
+#include "nvidia_codec_under_tsan.hpp"
 #include "rgbd_camera/h264_backend.hpp"
 #include "rgbd_camera/video_encoder.hpp"
 
@@ -117,14 +118,6 @@ class HoldUntilFinishBackend : public H264Backend {
     std::string name_ = "hold_until_finish";
 };
 
-bool real_encoder_crashes_under_this_build() {
-#ifdef AUTO_BATTLEBOT_THREAD_SANITIZED
-    return true;
-#else
-    return false;
-#endif
-}
-
 TEST(VideoEncoderTest, ASlowBackendDropsAndCountsInsteadOfBlockingSubmit) {
     VideoEncoderOptions options;
     options.width = 32;
@@ -222,9 +215,7 @@ TEST(VideoEncoderTest, StopFlushesTheBackendSoQueuedFramesReachTheSink) {
 }
 
 TEST(VideoEncoderTest, RequestKeyframeMakesTheNextFrameAKeyframe) {
-    if (real_encoder_crashes_under_this_build()) {
-        GTEST_SKIP() << "libnvcuvid threads crash ThreadSanitizer inside calloc";
-    }
+    if (kNvidiaCodecCrashesUnderThisBuild) GTEST_SKIP() << kNvidiaCodecTsanSkipReason;
     VideoEncoder encoder;
     VideoEncoderOptions options;
     options.width = 320;
@@ -269,9 +260,7 @@ TEST(VideoEncoderTest, RequestKeyframeMakesTheNextFrameAKeyframe) {
 }
 
 TEST(VideoEncoderTest, SubmitIndexIsPacketPositionMinusOneWhenRefusedResetPerSession) {
-    if (real_encoder_crashes_under_this_build()) {
-        GTEST_SKIP() << "libnvcuvid threads crash ThreadSanitizer inside calloc";
-    }
+    if (kNvidiaCodecCrashesUnderThisBuild) GTEST_SKIP() << kNvidiaCodecTsanSkipReason;
     VideoEncoderOptions options;
     options.width = 320;
     options.height = 240;

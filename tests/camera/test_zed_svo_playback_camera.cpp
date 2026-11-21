@@ -9,6 +9,7 @@
 
 #include "config/config_parser.hpp"
 #include "data_structures.hpp"
+#include "nvidia_codec_under_tsan.hpp"
 #include "rgbd_camera/config.hpp"
 #include "rgbd_camera/zed_svo_playback_camera.hpp"
 
@@ -21,6 +22,7 @@ class ZedSvoPlaybackCameraTest : public ::testing::Test {
     ZedSvoPlaybackCameraConfiguration config_;
 
     void SetUp() override {
+        if (kNvidiaCodecCrashesUnderThisBuild) GTEST_SKIP() << kNvidiaCodecTsanSkipReason;
         std::filesystem::path test_dir = std::filesystem::path(__FILE__).parent_path();
         svo_file_path = (test_dir / "test.svo2").string();
 

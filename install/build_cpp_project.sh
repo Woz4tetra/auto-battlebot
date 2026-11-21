@@ -37,7 +37,7 @@ build_cpp_project() {
     fi
 
     echo "Building project..."
-    make -j"$(nproc)"
+    make -j"$(nproc)" ${AUTO_BATTLEBOT_MAKE_TARGET:-}
 
     echo "Build complete!"
 }

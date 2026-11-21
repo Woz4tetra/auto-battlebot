@@ -68,7 +68,10 @@ elif [ "$SANITIZER" = thread ]; then
 fi
 
 source "$PROJECT_ROOT/install/build_cpp_project.sh"
-AUTO_BATTLEBOT_BUILD_DIR="$BUILD_DIR" AUTO_BATTLEBOT_SANITIZER="$SANITIZER" build_cpp_project --test
+MAKE_TARGET=""
+[ "$SANITIZER" != none ] && MAKE_TARGET=auto_battlebot_test
+AUTO_BATTLEBOT_BUILD_DIR="$BUILD_DIR" AUTO_BATTLEBOT_SANITIZER="$SANITIZER" \
+    AUTO_BATTLEBOT_MAKE_TARGET="$MAKE_TARGET" build_cpp_project --test
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -104,6 +107,7 @@ elif [ "$SANITIZER" = address ]; then
     export ASAN_OPTIONS="protect_shadow_gap=0:replace_intrin=0${ASAN_OPTIONS:+:$ASAN_OPTIONS}"
     TEST_CMD="$TEST_EXECUTABLE"
 elif [ "$SANITIZER" = thread ]; then
+    export TSAN_OPTIONS="suppressions=${PROJECT_ROOT}/tsan.supp${TSAN_OPTIONS:+ $TSAN_OPTIONS}"
     TEST_CMD="setarch -R $TEST_EXECUTABLE"
 else
     TEST_CMD="$TEST_EXECUTABLE"

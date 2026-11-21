@@ -1,0 +1,3 @@
+race:libopencv_core.so
+race:libopencv_objdetect.so
+thread:test_zed_device_seams.cpp

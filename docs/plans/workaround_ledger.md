@@ -166,7 +166,6 @@ Rows a batch could not settle. Each needs the action in the last column first.
 | `tests/test_kalman_motion_estimator.cpp` (`make_our_pose_measurement`, `make_opponent_pose_measurement`) | Needs a `heading_measured` field on `RobotDescription` (today inferred from `keypoints.empty()` in `kalman_motion_estimator.cpp`), touching the tracker, estimator and scene adapter. A perception behaviour change: decide whether to make it |
 | `include/mcap_recorder/mcap_recorder.hpp` (start_file_locked, mutex_) | Clang `-Wthread-safety` rejects `std::mutex` under libstdc++ as a non-capability type. Decide whether to add an annotated Mutex wrapper and lock guard to these classes |
 | `include/rgbd_camera/video_encoder.hpp`, `zed_rgbd_camera.hpp` (lock discipline) | Clang `-Wthread-safety` rejects `std::mutex` under libstdc++ as a non-capability type. Decide whether to add an annotated Mutex wrapper and lock guard to these classes |
-| `tests/camera/test_video_encoder.cpp` | Real-encoder tests now skip under TSan, but a full TSan run still SEGVs in a `libnvcuvid.so.1` thread (TSan calloc interceptor). Needs the earlier test that starts NVDEC found, or NVDEC excluded from TSan runs |
 
 ## Follow-up: purge the relocated comments from docs
 
