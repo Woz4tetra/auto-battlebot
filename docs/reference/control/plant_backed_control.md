@@ -174,31 +174,6 @@ bool rather than a second copy of the number.
 
 Nothing in C++ defaults to a fit, so a test that default-constructs a config gets a zero plant and has to ask for this one explicitly. Production code gets its plant from the `[plant]` config table.
 
-`ConfigTest.MotionProfileNavigationReadsTheSharedPlantTable` and `ConfigTest.MotionProfileNavigationWithoutPlantTableThrows` pin that one `[plant]` table feeds both the filter and the controller, so navigation cannot drift back to its own copy of the fit. `MotionProfileNavigation` has no fallback: the brake schedule and feedforward are the fit, so a missing table is a config error instead of a controller quietly inverting a zero drivetrain. The missing-table test uses `NoopRobotFilter` and checks the message, because the motion estimators demand the same table and are parsed before `[navigation]`. A bare throw check would pass on their error even if the controller stopped checking.
-
-## Components that require `[plant]`
-
-Each of these throws `ConfigValidationError` at config load when the extends chain has no `[plant]` table. None has defaults, because a zero plant would silently freeze or mis-scale the output.
-
-- `MotionProfileNavigation`: the brake schedule and inverse-plant feedforward come from the jig fit.
-- `RlPolicyNavigation` with `hazard_barrier_enable = true`: the barrier's stopping envelope is `tau_lin_d + delay_s` from the fit.
-- `DeadReckoningMotionEstimator`: it scales the normalized stick command to body velocity with `k_fwd`, `k_rev`, and `k_ang`. A zero plant would freeze every prediction without saying so.
-- `KalmanMotionEstimator`: the EKF our-robot arm propagates through `JigPlantModel`, and the dead-reckoning arm scales stick to body velocity with the fitted gains. Background: `docs/experiments/control/kalman_filter/plant_model_poc_plan.md`.
-
-## Where each piece is selected
-
-- `[plant]` in `config/robots/<robot>.toml`, the shared fit both subsystems read. Profiles load
-  it with `[plant] from = "robots/<robot>"`; `docs/reference/config/robot_plant_files.md` lists which profile
-  loads which file.
-- `[robot_filter.motion_estimator] type = "KalmanMotionEstimator"`, `our_robot_mode = "EKF"`
-  in `config/_common.toml`.
-- `[navigation] type = "MotionProfileNavigation"` in `config/_common.toml`, so every
-  profile gets it by default. Mr Stabs Mk2 has no jig fit and pins `PursuitNavigation` in
-  its own profiles; setting `type` there makes the merge replace the whole section, so
-  those profiles spell out every pursuit field rather than inheriting any.
-
-Fit stages, plant details, and distillation: `docs/reference/calibration/plant_fit_modules.md`.
-
 ## Next steps
 
 - Field-test `MotionProfileNavigation` against `PursuitNavigation` on hardware; the deltas
@@ -248,11 +223,7 @@ Fit stages, plant details, and distillation: `docs/reference/calibration/plant_f
 - The rescale by `1/(1 - deadzone)` exists so saturation still means saturation. Without it a deadzone would cap the plant's reachable authority below 1.
 - A command under `dz_ang_l` does not move the robot, so the coupling terms must not be charged for it. Half the deadzone is inside for both signs.
 - `dz_ang_r` is 1.5x `dz_ang_l`, so the same command magnitude yields less effect turning right. The jig measured that asymmetry, and a symmetric deadzone would hide it.
-- The 0.95 deadzone clip guards the `1/(1 - deadzone)` denominator against a bad refit.
-- A turn command below the angular deadzone produces no yaw, so it must not trigger a steer-brake correction. Feeding the raw command instead of the effective one charges forward speed for a turn that never happens: about 4% inflation for a command at half of `dz_ang_l`.
 - The coupling compensation divides by `1 - c_sb * |u_ang_eff|`. The fitted `c_sb` of 2.702 reaches zero authority at `|u_ang_eff|` 0.370. Past that the fit no longer describes the plant, so `steer_brake_floor` has to catch it: without the floor the divisor crosses zero and the command goes infinite, then flips sign.
-- `compensate_angular_droop` defaults off, so a default-constructed config runs the droop coefficient at 0.0. `DisabledCoefficientIsIdentity` tests that shipped path.
-- Tests carry the Mrs Buff Mk3 constants `dz_ang_l` 0.016061, `dz_ang_r` 0.0240734 and `c_sb` 2.70197 from `playground/calibration/out/plant_stageA.toml`.
 
 ## MotionProfileNavigation control law
 
@@ -301,31 +272,10 @@ The droop term reads the linear command and the steer-brake term reads the turn 
 ## Dead-reckoning gains
 
 - Config loading requires the `[plant]` table in both our-robot modes, so the dead-reckoning arm gets a physical scale for a normalized stick command from the fit.
-- Before `[plant]` was the single source of physical scaling, the factor came from transmitter-local wheel geometry. It disagreed with the fit by 24% forward and 21% in yaw, and every robot inherited Mrs Buff Mk3's numbers.
 - Reverse stick selects `k_rev`, not `k_fwd`. The Mrs Buff Mk3 fit is asymmetric (4.88 forward, 4.36 reverse), so `k_fwd * u` gets every backward coast wrong.
 - The dead-reckoning conversion is the gains and nothing else. It deliberately does not call `plant_steady_state()`: a single-frame hold carries no state, so deadzones and coupling would model a response the caller cannot represent.
-- `KalmanMotionEstimatorTest` uses the Stage A fit (`plant_stageA.toml`, 2026-08-23), the same values the config chain carries, with asymmetric non-unit gains so a unit-gain or `k_fwd`-for-reverse bug fails.
 
 ## Drive processor wheel space
 
 The static-friction barrier exists per wheel, not per body axis. The tank processor applies the lifted deadzone in wheel space, which is also the space those channels go out in.
 
-- `DriveProcessorTest.TankUnMixesToDifferentialOutput` loops over both reversal flags because the two processors apply the reversals in different stages. Tank stops in wheel space and differential converts back to body axes, but un-mixing the tank output must still land on the differential output with reversals on.
-- `DriveProcessorTest.ReadbackUndoesTheReversals`: the readback reports the command in the frame `process()` took it, so the filter predicts motion in the direction navigation asked for. The reversals only change what goes on the wire.
-
-## Transmitter feedback tests
-
-`tests/test_transmitters.cpp`.
-
-- `PlaybackTransmitterTest.FeedbackReportsStickCommand`: feedback is normalized stick space only. Physical scaling is the consumer's job, through the fitted `[plant]` gains. When the transmitter also published a pre-scaled physical map, the EKF read it and applied those gains a second time.
-- The command `{0.5, 0.0, -0.25}` sits inside the saturation budget and above the (zero) deadzones, so the drive processor round-trips it unchanged.
-
-## JigPlantModel tests
-
-`tests/test_jig_plant_model.cpp`.
-
-- The golden compare wraps theta before differencing. The Python fixture stores unwrapped theta while `propagate` wraps. The dynamics only see theta through sin/cos, so the trajectories are identical either way.
-- The chunked golden test propagates 100 ms per call, the frame-gap scale the EKF uses. The command is re-read every substep, so edges landing inside a chunk take effect at their own time and the result matches the tick-by-tick reference.
-- Jacobian entries are exact only over a single substep, because pose integrates the start-of-substep velocity: `dx/dv = dt` at theta 0, `dtheta/dw = dt`, and the pose rows are identity in themselves. This is why those checks use one 2 ms substep.
-- With no command the target is zero, so both perturbations decelerate. `dv'/dv` is therefore the decel lag factor `exp(-dt / tau_lin_d)`, not the accel one.
-- The half-stick turn in the steer-brake test is far past the zero crossing. At the fitted `c_sb` 2.70 the factor crosses zero near `|u_ang_eff|` 0.37, so the forward target must clamp to zero and not go negative.
