@@ -8,7 +8,7 @@ path, not an experiment. The deployed artifact is
 
 Every file here is one CLI. Run them from the repo root. The model builder, checkpoint
 metadata, input geometry, and filename parsing live in `auto_battlebot/segmentation/`,
-because `playground/bgsub_cage/` uses them too.
+because `auto_battlebot/datasets/annotate_cage_video.py` uses them too.
 
 Floor labels come from `training/yolo/make_seg_dataset.py` in `floor_only` mode.
 

@@ -242,4 +242,4 @@ Per-venue specs that extend `training/synthetic/config.toml` and pin one venue w
 | `only_cage` | Every scene renders in that venue: no HDRI arena scenes and no other venue's scenes. Venues render separately so an arm can draw from one or both. `config_cage_massd.toml` uses `massd_arena`, `config_cage_nhrl.toml` (the NHRL 3 lb cage) uses `nhrl_cage`, and `config_cage_meatball.toml` uses the basement drive-test box. The massd and nhrl specs serve the domain-mix experiment in `docs/experiments/perception/synthetic_domain_mix_plan_2026-09-12.md`. |
 | `[output] num_images` | 20,000 per venue for massd and nhrl, as the domain-mix experiment asks. 5,000 basement frames for the 2026-09-19 domain mix in `config_cage_meatball.toml`. `--num-images` overrides it, which suits probes. |
 
-The basement scene and how it was fitted are in `playground/basement_scene/README.md`; its mount block is in `config.toml`.
+The basement scene and how it was fitted are in `training/synthetic/scenes/basement_scene/README.md`; its mount block is in `config.toml`.

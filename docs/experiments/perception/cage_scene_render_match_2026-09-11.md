@@ -1,6 +1,6 @@
 # Cage-high Blender scene of the NHRL 3 lb cage, graded against footage
 
-Status: **built** (2026-09-11). Code: `playground/cage_scene/`, `training/synthetic/synthgen/cage.py`,
+Status: **built** (2026-09-11). Code: `training/synthetic/scenes/cage_scene/`, `training/synthetic/synthgen/cage.py`,
 `training/synthetic/synthgen/cage_spec.py`, `training/synthetic/render_cage_view.py`,
 `training/synthetic/render_cage_samples.py`, spec `training/synthetic/cage/cage2_overhead_high.toml`.
 Outputs under `runs/cage_scene/` (gitignored). Figures: `assets/2026-09-11_cage_scene/`.
@@ -66,7 +66,7 @@ gain are solved from the mat-region means of the target frames before the final 
 
 ## Grading
 
-`playground/cage_scene/grade_render.py` scores each render against its clips on the full
+`training/synthetic/scenes/cage_scene/grade_render.py` scores each render against its clips on the full
 frame, inside the mat hull, and outside it: L1 grey and RGB at quarter resolution, SSIM
 (11x11 Gaussian), symmetric Canny edge chamfer distance, Lab mean and std deltas, and the
 IoU of the rendered mat mask against the target hull. Two baselines are scored the same
@@ -322,7 +322,7 @@ of one clean seen rectangle instead. Flipped copies would match at every seam bu
 mirror axes the eye picks out at once; shifted ones with blended overlaps do not.
 
 Used by `training/synthetic/build_cage_floor_texture.py` (floor albedo) and
-`playground/basement_scene/build_wall_textures.py` (wall albedo).
+`training/synthetic/scenes/basement_scene/build_wall_textures.py` (wall albedo).
 
 #### `flatten_luminance`
 

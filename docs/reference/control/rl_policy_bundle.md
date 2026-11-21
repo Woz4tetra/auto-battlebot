@@ -51,7 +51,7 @@ One observation spec version maps robots, field, target and history to named ten
 - Nearest hazards: 4 discs by edge distance, each: centre x, y /2, raw radius /0.3, kind one-hot (hole, wall block, tracked), velocity x, y /2.5, present flag.
 - Input units: speeds in m/s, yaw rates in rad/s, `opp_velocity` in the field frame, `field_half` is the half size of the field rectangle, `hist_action` is (linear, angular).
 - Any change to the layout, a scale or a cap bumps `OBS_SPEC_VERSION`, which breaks loading of every bundle trained on the old one.
-- A layout change is a new spec version: bump the version in `obs_spec.py`, add a new builder, and regenerate `tests/rl_policy/rl_policy_golden_data.hpp` with `playground/rl/make_rl_golden_fixture.py`.
+- A layout change is a new spec version: bump the version in `obs_spec.py`, add a new builder, and regenerate `tests/rl_policy/rl_policy_golden_data.hpp` with `tests/fixtures/generators/make_rl_golden_fixture.py`.
 
 ## Manifest checks
 

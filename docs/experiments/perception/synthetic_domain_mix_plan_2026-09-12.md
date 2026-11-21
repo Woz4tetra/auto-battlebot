@@ -36,7 +36,7 @@ are scored on both, in the results writeup.
 Scoring it exposed a loader bug, now fixed: `auto_battlebot/eval/dataset.py` keyed GT frames by
 `int(stem)` and silently scored 571 of the 636, since every recording sampled from video starts at
 stamp 0. Frames are keyed by `FrameKey(dataset, stamp_ns)` and review state is matched per
-subdataset, covered by `tests/python/test_eval_dataset.py`. Sets sampled from SVO recordings carry
+subdataset, covered by `auto_battlebot/eval/tests/test_eval_dataset.py`. Sets sampled from SVO recordings carry
 unique stamps, so nothing scored on `nhrl_keypoints_eval_test` was affected.
 
 ## Status, 2026-09-13

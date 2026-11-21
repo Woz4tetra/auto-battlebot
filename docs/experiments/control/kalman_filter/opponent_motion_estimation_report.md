@@ -34,8 +34,8 @@ with every table and figure, is `opponent_filter_evaluation.md` next to this fil
 | `PoseUncertainty` on `RobotDescription` | `include/data_structures/robot.hpp` |
 | Opponent config fields | `include/robot_filter/motion_estimator_config.hpp` |
 | Batched torch mirror | `auto_battlebot/perception/opponent_filter.py` |
-| Golden fixture and its generator | `tests/robot_filter/opponent_filter_golden_data.hpp`, `playground/opponent_prediction/make_opponent_filter_golden_fixture.py` |
-| C++ tests (11 new) and Python parity tests | `tests/test_kalman_motion_estimator.cpp`, `tests/python/test_opponent_filter.py` |
+| Golden fixture and its generator | `tests/robot_filter/opponent_filter_golden_data.hpp`, `tests/fixtures/generators/make_opponent_filter_golden_fixture.py` |
+| C++ tests (11 new) and Python parity tests | `tests/test_kalman_motion_estimator.cpp`, `auto_battlebot/perception/tests/test_opponent_filter.py` |
 | 2σ ring and heading sigma on `/robot_markers` | `src/foxglove_adapters/scene.cpp`, `docs/reference/recording/foxglove_recording_format.md` |
 | `opponent_measurement_<id>` diagnostic | every opponent measurement the estimator receives, so replays rerun offline |
 | Evaluation, grid search, replays, samples, videos | `playground/opponent_prediction/` |
@@ -149,7 +149,7 @@ the same commit, and a filter change after training means a retrain.
 - Camera-overlay videos, one per scene (apartment floor with tag truth, NHRL May cage, MassD
   arena), each with a 0.2 s, 1 s and 3 s dropout at half speed:
   `playground/opponent_prediction/render_dropout_videos.py`. The videos are not committed; the
-  script regenerates them into `playground/opponent_prediction/out/videos/` from the sysid
+  script regenerates them into `data/calibration/sysid_measurements/videos/` from the sysid
   recording and the KALMAN replays (`run_replays.py`).
 
 ## Limitations

@@ -143,7 +143,8 @@ def load_robot_frames(root: Path) -> list[dict[str, Any]]:
         frames.append(frame)
     if not frames:
         raise SystemExit(
-            f"no robot frames under {root}; run playground/cage_scene/pick_robot_frames.py"
+            f"no robot frames under {root}; run "
+            "training/synthetic/scenes/cage_scene/pick_robot_frames.py"
         )
     return frames
 

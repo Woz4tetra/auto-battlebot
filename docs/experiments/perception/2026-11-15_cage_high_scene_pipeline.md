@@ -1,6 +1,6 @@
 # Cage-high scene pipeline details
 
-## Target extraction (`playground/cage_scene/extract_targets.py`)
+## Target extraction (`training/synthetic/scenes/cage_scene/extract_targets.py`)
 
 Robot-free, rectified target frames from the fixed cage-high clips.
 
@@ -18,13 +18,13 @@ Output layout:
 
 ```
 Usage:
-    venv/bin/python playground/cage_scene/extract_targets.py \
+    venv/bin/python training/synthetic/scenes/cage_scene/extract_targets.py \
         data/downloads/brettzone_cage_high --cage 2 --weight-class 3lb --out runs/cage_scene
-    venv/bin/python playground/cage_scene/extract_targets.py \
+    venv/bin/python training/synthetic/scenes/cage_scene/extract_targets.py \
         data/downloads/mrsbuff_may26 --cage 2 --out runs/cage_scene
 ```
 
-## Camera fit (`playground/cage_scene/fit_cage_camera.py`)
+## Camera fit (`training/synthetic/scenes/cage_scene/fit_cage_camera.py`)
 
 Fit the cage-high camera pose per clip from the rectified mat hull.
 
@@ -34,11 +34,11 @@ For each `targets/<clip>/` written by extract_targets.py: fit straight lines to 
 
 ```
 Usage:
-    venv/bin/python playground/cage_scene/fit_cage_camera.py runs/cage_scene --event-pose
+    venv/bin/python training/synthetic/scenes/cage_scene/fit_cage_camera.py runs/cage_scene --event-pose
 ```
 
 
-## Render grading (`playground/cage_scene/grade_render.py`)
+## Render grading (`training/synthetic/scenes/cage_scene/grade_render.py`)
 
 Grade cage renders against the robot-free target frames, per region.
 
@@ -56,9 +56,9 @@ Metrics: l1_gray, l1_rgb (0..255, at --scale), ssim_gray (11x11 Gaussian, sigma 
 
 ```
 Usage:
-    venv/bin/python playground/cage_scene/grade_render.py \
+    venv/bin/python training/synthetic/scenes/cage_scene/grade_render.py \
         --renders runs/cage_scene/renders/r001 --targets runs/cage_scene/targets \
         --out runs/cage_scene/grades/r001
-    venv/bin/python playground/cage_scene/grade_render.py --compare runs/cage_scene/grades/r001 \
+    venv/bin/python training/synthetic/scenes/cage_scene/grade_render.py --compare runs/cage_scene/grades/r001 \
         runs/cage_scene/grades/r002
 ```

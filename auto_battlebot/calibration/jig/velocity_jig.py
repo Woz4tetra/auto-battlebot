@@ -338,7 +338,7 @@ class JigCalibration:
         if float(enc["meters_per_count"]) <= 0.0:
             raise ValueError(
                 f"{path}: [encoder] meters_per_count is {enc['meters_per_count']}, must be "
-                "positive; fit it with playground/calibration/fit_encoder_scale.py"
+                "positive; fit it with auto_battlebot/calibration/jig/fit_encoder_scale.py"
             )
         return cls(
             meters_per_count=float(enc["meters_per_count"]),

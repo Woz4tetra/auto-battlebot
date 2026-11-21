@@ -1,0 +1,20 @@
+"""camera_view_matrix matches the golden file the C++ sim keypoint test checks against."""
+
+from __future__ import annotations
+
+import json
+
+import numpy as np
+
+from auto_battlebot.kinematic_sim.camera_utils import camera_view_matrix
+from auto_battlebot.paths import REPO_ROOT
+
+GOLDEN = REPO_ROOT / "tests" / "keypoint_model" / "camera_view_matrix_golden.json"
+
+
+def test_camera_view_matrix_matches_golden() -> None:
+    cases = json.loads(GOLDEN.read_text())
+    assert cases
+    for case in cases:
+        matrix = camera_view_matrix(case["position"], case["lookat"])
+        np.testing.assert_allclose(matrix, np.array(case["camera_from_world"]), atol=1e-10)

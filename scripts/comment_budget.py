@@ -21,7 +21,7 @@ from pathlib import Path, PurePosixPath
 BASELINE_NAME = ".comment-baseline.json"
 SELF_PATHS = (
     "scripts/comment_budget.py",
-    "tests/python/test_comment_budget.py",
+    "scripts/tests/test_comment_budget.py",
     "scripts/git-hooks/pre-commit",
 )
 EXCLUDE_PREFIXES = (

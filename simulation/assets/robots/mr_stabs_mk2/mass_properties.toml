@@ -1,5 +1,5 @@
 # Mr Stabs Mk2 mass properties and tag frames. Generated; do not edit by hand.
-# Regenerate: python playground/calibration/lump_mr_stabs_mass_properties.py
+# Regenerate: python -m auto_battlebot.mujoco_sim.lump_mr_stabs_mass_properties
 # Tag frames: T_body_tag maps OpenCV marker-frame points (origin at the tag center,
 # x right and y up in the printed image, z out of the face) into the body frame.
 # rotation is R_body_tag, row-major. upside_down = true for the tag that faces the
@@ -19,7 +19,7 @@ scale_mass_kg = 0.4959
 cad_mass_kg = 0.49422000000000005
 chassis_cad_mass_kg = 0.4573301
 rotor = "CAD integration of the 1806 rotor: steel flux ring, 14 magnets, aluminum end cap (a steel cap would overshoot the listed 22.4 g motor mass), steel shaft. Gearbox internals are missing from the CAD; bounding them adds at most 4%"
-generator = "playground/calibration/lump_mr_stabs_mass_properties.py"
+generator = "auto_battlebot/mujoco_sim/lump_mr_stabs_mass_properties.py"
 
 [frame]
 description = "FLU at the axle midpoint: x forward, y left, z up. x = -Y_asm, y = +X_asm, z = +Z_asm"

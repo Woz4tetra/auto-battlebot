@@ -1,0 +1,285 @@
+"""Fit the gyro scale factor from rotations through a known angle (runbook E3)."""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import numpy as np
+
+from auto_battlebot.calibration.jig.velocity_jig import (
+    JigLog,
+    StillStats,
+    find_still_segments,
+    read_jig_log,
+    still_stats,
+)
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
+    from matplotlib.gridspec import GridSpec
+
+TURN_EPS_DPS = 1.0
+
+
+@dataclass
+class Turn:
+    """One rotation through a known angle."""
+
+    path: Path
+    reference_deg: float
+    measured_deg: float
+    t: np.ndarray
+    yaw_dps: np.ndarray
+    angle_deg: np.ndarray
+    t_start_s: float
+    t_end_s: float
+    stills: int
+    bias_drift_dps: float
+    up: np.ndarray
+    peak_dps: float
+    saturated: list[str]
+
+    @property
+    def scale(self) -> float:
+        """Multiply raw gyro by this to get true angle."""
+        return self.reference_deg / self.measured_deg if self.measured_deg else float("nan")
+
+    @property
+    def error(self) -> float:
+        return self.measured_deg - self.reference_deg
+
+
+def ramped_bias(post: StillStats, pre: StillStats, log: JigLog) -> tuple[np.ndarray, float]:
+    span = max(post.t_mid - pre.t_mid, 1e-9)
+    frac = np.clip((log.t_boot_s - pre.t_mid) / span, 0.0, 1.0)[:, None]
+    bias = pre.bias_radps[None, :] * (1.0 - frac) + post.bias_radps[None, :] * frac
+    drift = float(np.degrees(np.linalg.norm(post.bias_radps - pre.bias_radps)))
+    return bias, drift
+
+
+def turn_span(yaw: np.ndarray, path: Path, angle: np.ndarray) -> tuple[int, int, float]:
+    moving = np.abs(yaw) > TURN_EPS_DPS
+    if not moving.any():
+        raise ValueError(f"{path.name}: nothing turned faster than {TURN_EPS_DPS} deg/s")
+    lo, hi = int(np.argmax(moving)), int(len(moving) - np.argmax(moving[::-1]) - 1)
+    measured = float(angle[hi] - angle[lo])
+    return lo, hi, measured
+
+
+def solve_turn(path: Path, reference_deg: float) -> Turn:
+    log = read_jig_log(path)
+    stills = find_still_segments(log)
+    if not stills:
+        raise ValueError(f"{path.name}: no still hold found, so no bias and no gravity axis")
+
+    pre = still_stats(log, stills[0])
+    up = pre.up_unit
+    if len(stills) > 1:
+        post = still_stats(log, stills[-1])
+        bias, drift = ramped_bias(post, pre, log)
+    else:
+        bias = pre.bias_radps[None, :]
+        drift = float("nan")
+
+    yaw = np.degrees((log.gyro_rad_s - bias) @ up)
+    angle = np.concatenate([[0.0], np.cumsum(0.5 * (yaw[1:] + yaw[:-1]) * np.diff(log.t_boot_s))])
+
+    lo, hi, measured = turn_span(yaw, path, angle)
+
+    return Turn(
+        path=path,
+        reference_deg=reference_deg,
+        measured_deg=measured,
+        t=log.t_boot_s - log.t_boot_s[0],
+        yaw_dps=yaw,
+        angle_deg=angle - angle[lo],
+        t_start_s=float(log.t_boot_s[lo] - log.t_boot_s[0]),
+        t_end_s=float(log.t_boot_s[hi] - log.t_boot_s[0]),
+        stills=len(stills),
+        bias_drift_dps=drift,
+        up=up,
+        peak_dps=float(np.abs(yaw).max()),
+        saturated=[a.name for a in log.saturation() if a.count],
+    )
+
+
+def _fmt(value: float, digits: int = 2) -> str:
+    return "n/a" if not np.isfinite(value) else f"{value:.{digits}f}"
+
+
+def plot_measured_vs_true(fig: Figure, gs: GridSpec, turns: list[Turn], scale: float) -> None:
+    ax = fig.add_subplot(gs[1, 0])
+    x = np.array([t.reference_deg for t in turns])
+    y = np.array([t.measured_deg for t in turns])
+    for i, turn in enumerate(turns):
+        ax.plot([turn.reference_deg], [turn.measured_deg], "o", ms=8, color=f"C{i}")
+    lim = max(np.abs(np.concatenate([x, y]))) * 1.15
+    xs = np.linspace(-lim, lim, 10)
+    ax.plot(xs, xs, "--", lw=1.0, color="0.6", label="perfect gyro")
+    ax.plot(xs, xs / scale, "-", lw=1.4, color="0.2", label=f"fitted scale {scale:.4f}")
+    ax.axhline(0.0, color="0.7", lw=0.8)
+    ax.axvline(0.0, color="0.7", lw=0.8)
+    ax.set_xlabel("true rotation (deg)", fontsize=9)
+    ax.set_ylabel("gyro integral (deg)", fontsize=9)
+    ax.set_title("Measured against true", fontsize=10)
+    ax.legend(fontsize=8)
+
+
+def plot_per_run_error(fig: Figure, gs: GridSpec, turns: list[Turn]) -> None:
+    ax = fig.add_subplot(gs[1, 1])
+    names = [t.path.name for t in turns]
+    errs = [t.error / abs(t.reference_deg) * 100.0 for t in turns]
+    colours = [f"C{i}" for i in range(len(turns))]
+    ax.bar(range(len(turns)), errs, color=colours)
+    ax.axhline(0.0, color="0.4", lw=1.0)
+    ax.axhspan(-1.0, 1.0, color="0.88", zorder=0, label="1% pass bar")
+    ax.set_xticks(range(len(turns)))
+    ax.set_xticklabels(
+        [f"{n}\n{t.reference_deg:+.0f} deg" for n, t in zip(names, turns)], fontsize=8
+    )
+    ax.set_ylabel("gyro error (%)", fontsize=9)
+    ax.set_title(
+        "Error per run. A difference between directions is a sign problem, not a scale.", fontsize=9
+    )
+    ax.legend(fontsize=8)
+
+
+def plot_yaw_rate(fig: Figure, gs: GridSpec, turns: list[Turn]) -> None:
+    ax = fig.add_subplot(gs[0, 0])
+    for i, turn in enumerate(turns):
+        ax.plot(turn.t, turn.yaw_dps, lw=0.9, color=f"C{i}", label=turn.path.name)
+        ax.axvspan(turn.t_start_s, turn.t_end_s, color=f"C{i}", alpha=0.12, lw=0)
+    ax.axhline(0.0, color="0.5", lw=1.0)
+    ax.set_xlabel("time (s)", fontsize=9)
+    ax.set_ylabel("yaw rate about gravity (deg/s)", fontsize=9)
+    ax.set_title("Yaw rate, with the integrated stretch shaded", fontsize=10)
+    ax.legend(fontsize=8)
+
+
+def plot_integral(fig: Figure, gs: GridSpec, turns: list[Turn]) -> None:
+    ax = fig.add_subplot(gs[0, 1])
+    for i, turn in enumerate(turns):
+        ax.plot(turn.t, turn.angle_deg, lw=1.2, color=f"C{i}", label=turn.path.name)
+        ax.axhline(turn.reference_deg, color=f"C{i}", ls=":", lw=1.2)
+        ax.plot([turn.t_end_s], [turn.measured_deg], "o", ms=7, color=f"C{i}")
+    ax.axhline(0.0, color="0.5", lw=1.0)
+    ax.set_xlabel("time (s)", fontsize=9)
+    ax.set_ylabel("integrated angle (deg)", fontsize=9)
+    ax.set_title(
+        "Integrated angle. Dotted is the true rotation, dot is what the gyro read.", fontsize=10
+    )
+    ax.legend(fontsize=8)
+
+
+def make_plot(path: Path, turns: list[Turn], scale: float) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig = plt.figure(figsize=(13, 8.5))
+    gs = fig.add_gridspec(2, 2, height_ratios=[1.15, 1.0], hspace=0.34, wspace=0.24)
+
+    plot_yaw_rate(fig, gs, turns)
+    plot_integral(fig, gs, turns)
+    plot_measured_vs_true(fig, gs, turns, scale)
+    plot_per_run_error(fig, gs, turns)
+
+    fig.suptitle(f"Gyro scale: {scale:.4f}  ({len(turns)} rotations)", fontsize=12)
+    fig.savefig(path, dpi=110, bbox_inches="tight")
+    plt.close(fig)
+    print(f"\nwrote {path}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--run",
+        nargs="+",
+        action="append",
+        required=True,
+        metavar=("DEGREES", "LOG"),
+        help="true rotation in degrees (signed, + is counter-clockwise) then its logs",
+    )
+    parser.add_argument("--plot", type=Path, default=None)
+    args = parser.parse_args()
+
+    turns: list[Turn] = []
+    for group in args.run:
+        if len(group) < 2:
+            parser.error(f"--run {group[0]} needs at least one log file")
+        try:
+            reference = float(group[0])
+        except ValueError:
+            parser.error(f"--run takes an angle first, got {group[0]!r}")
+        for name in group[1:]:
+            turns.append(solve_turn(Path(name), reference))
+
+    print(
+        f"{'log':<14}{'true deg':>10}{'gyro deg':>10}{'error deg':>11}"
+        f"{'error %':>9}{'scale':>8}{'peak dps':>10}{'holds':>7}{'drift dps':>11}"
+    )
+    for t in turns:
+        print(
+            f"{t.path.name:<14}{t.reference_deg:>10.1f}{t.measured_deg:>10.1f}"
+            f"{t.error:>11.2f}{t.error / abs(t.reference_deg) * 100:>9.2f}"
+            f"{t.scale:>8.4f}{t.peak_dps:>10.1f}{t.stills:>7}"
+            f"{_fmt(t.bias_drift_dps, 4):>11}"
+        )
+
+    x = np.array([t.reference_deg for t in turns])
+    y = np.array([t.measured_deg for t in turns])
+    slope = float(np.sum(x * y) / np.sum(x * x))
+    scale = 1.0 / slope
+    print(f"\ngyro scale = {scale:.4f}   (multiply integrated gyro angle by this)")
+    print(f"  the gyro reads {(slope - 1.0) * 100:+.2f}% against the reference")
+
+    ccw = [t for t in turns if t.reference_deg > 0]
+    cw = [t for t in turns if t.reference_deg < 0]
+    if ccw and cw:
+        a = float(np.mean([t.scale for t in ccw]))
+        b = float(np.mean([t.scale for t in cw]))
+        print(
+            f"\ndirection check: counter-clockwise {a:.4f}, clockwise {b:.4f}, "
+            f"{abs(a - b) / max(abs(a), 1e-9):.2%} apart"
+        )
+        if abs(a - b) > 0.01 * max(abs(a), 1e-9):
+            print(
+                "  Over 1%. That points at a mounting or axis-sign problem rather than a"
+                " scale factor. Sort that before accepting either number."
+            )
+        else:
+            print("  Under 1%, so the two directions agree and this is a scale factor.")
+    else:
+        print(
+            "\nOnly one direction was run. A scale that differs between directions is a"
+            " sign problem, and one direction cannot show it. Run the other way too."
+        )
+
+    worst = max(abs(t.error / t.reference_deg) for t in turns)
+    print(
+        f"\nworst single-run error {worst:.2%}"
+        + ("  (over the runbook's 1% bar)" if worst > 0.01 else "  (under the 1% bar)")
+    )
+    for t in turns:
+        if t.stills < 2:
+            print(
+                f"  {t.path.name}: only {t.stills} still hold, so the bias is a constant"
+                " rather than ramped. Hold still at both ends of the next one."
+            )
+        if t.saturated:
+            print(f"  {t.path.name}: SATURATED on {', '.join(t.saturated)}")
+
+    if args.plot:
+        make_plot(args.plot, turns, scale)
+
+    print(f"\n[gyro]\nscale = {scale:.4f}")
+
+
+if __name__ == "__main__":
+    main()

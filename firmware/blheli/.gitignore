@@ -1,7 +1,7 @@
 # CLI backups are per-session snapshots of the ESCs. They stay on the machine that made them.
 backups/
 
-# Only the pages tests/python/test_blheli32.py reads are tracked.
+# Only the pages auto_battlebot/blheli32/tests/test_blheli32.py reads are tracked.
 captures/*.bin
 !captures/mr_stabs_mk2_esc1_f800_2026-10-23.bin
 !captures/mr_stabs_mk2_esc2_f800_2026-10-23.bin

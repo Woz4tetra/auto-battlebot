@@ -130,7 +130,7 @@ both channels within a few ticks.
 
 ## One fit, two consumers
 
-The fitted numbers live in `playground/calibration/out/plant_stageA.toml` (sessions
+The fitted numbers live in `auto_battlebot/calibration/plant_stageA.toml` (sessions
 2026-08-19 through 2026-08-23, model M4). One C++-side copy carries them: the top-level
 `[plant]` table in `config/robots/mrs_buff_mk3.toml`, which `config/_common.toml` loads with
 `from = "robots/mrs_buff_mk3"` (`docs/reference/config/config_extends.md`). It is parsed into `PlantConfiguration`
@@ -139,7 +139,7 @@ The estimator builds a `JigPlantModel` from it; the controller inverts the same 
 its brake schedule and feedforward. Neither has C++ defaults, so a config with no `[plant]`
 is a load error rather than a subsystem running on zeros.
 
-`playground/calibration/write_plant_configs.py` rewrites the numeric literals in
+`auto_battlebot/calibration/write_plant_configs.py` rewrites the numeric literals in
 `simulation/sim_mrs_buff_mk3.toml` and `config/robots/mrs_buff_mk3.toml` in place, so the hand-written
 notes next to each number survive. `--check` reports drift without changing anything.
 

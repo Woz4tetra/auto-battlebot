@@ -4,7 +4,7 @@
 
 ## `training/synthetic/cage/meatball_basement.toml`
 
-The meatball basement drive-test box, seen from our own ZED on a stand beside it. Units are metres in the W frame: plywood floor centre at the origin, z up, +y away from the camera, the stone-wall corner at +x +y. How each number was measured is in `playground/basement_scene/README.md`.
+The meatball basement drive-test box, seen from our own ZED on a stand beside it. Units are metres in the W frame: plywood floor centre at the origin, z up, +y away from the camera, the stone-wall corner at +x +y. How each number was measured is in `training/synthetic/scenes/basement_scene/README.md`.
 
 The geometry was measured from ZED depth of 2026-04-19T17-01-18 frame 4560: the 1.52 m plywood floor (a 5 ft square), the 2x4 rails and their height, the two stone walls and the concrete floor below. The lights and the albedo gains started as guesses and are for the grade sweeps to move. The 2026-09-19 light sweep that set `albedo_gain`, `ambient_strength` and the light height is in `docs/experiments/perception/2026-09-19_basement_light_sweep.md`.
 
@@ -17,7 +17,7 @@ The geometry was measured from ZED depth of 2026-04-19T17-01-18 frame 4560: the 
 | `[frame] height_above_mat` | Pine 2x4s on edge, 0.0875 m above the plywood: the depth's rail-top band of 3.5 in, less the few millimetres the floor sits proud. Screwed from outside, so `bolt_pitch = 0.0` and no bolt heads show. |
 | `[frame] color` | Painted over the set's colour map, because untinted Wood027 is a dark stain. The grain comes from its normal map and the colour from here. |
 | `[venue] floor_drop`, `riser` | The box stands on a stand over bare concrete 0.78 m below the plywood. The space under it is open, so `riser` is false. |
-| `[[walls]]` | The two stone walls of the corner, from ZED depth: the far wall 2.5 cm behind the far rail, the right one 7 cm off the right rail, both square to the box within 1 degree. Textures come from `playground/basement_scene/build_wall_textures.py`. Everything else around the box is the panorama. |
+| `[[walls]]` | The two stone walls of the corner, from ZED depth: the far wall 2.5 cm behind the far rail, the right one 7 cm off the right rail, both square to the box within 1 degree. Textures come from `training/synthetic/scenes/basement_scene/build_wall_textures.py`. Everything else around the box is the panorama. |
 | `[[blocks]]` `name = "leg"` | Four 2x4 legs from the concrete to the box's underside, 0.1 m in from each corner. They are a stand-in, not measured: the target shows the box's own support only as dark shapes behind a bucket and a bag, so the legs are there to stop the box floating. |
 | `[world] hdri` | A RICOH THETA V panorama shot from inside the basement on 2024-09-01 (`simulation/assets/panoramas/drive_test_box_1.JPG`), before the box went into the corner. It is an 8-bit JPEG, so the tubes in it clip: it is backdrop and fill, and the key light is `[lights.grid]`. |
 | `[world] hdri_rotation_deg` | Turns the panorama so the shelving and boiler side lands left of the box, where the real frame shows the hoist and shelves. Its sink and stone wall end up behind the camera. |
@@ -112,7 +112,7 @@ A rows x cols array of identical LED tubes, the ceiling rig as one knob. Shadow 
 
 ## `training/synthetic/cage/cage2_overhead_high.toml`
 
-The NHRL 3 lb cage (Cage 2) as seen by the fixed Cage-2-Overhead-High iPhone. Units are metres in the W frame: mat centre at the origin, z up, +y away from the camera, +x to the camera's right. Unknown dimensions started as guesses and are tuned by `playground/cage_scene/grade_render.py` sweeps. The values are the current best, not measurements.
+The NHRL 3 lb cage (Cage 2) as seen by the fixed Cage-2-Overhead-High iPhone. Units are metres in the W frame: mat centre at the origin, z up, +y away from the camera, +x to the camera's right. Unknown dimensions started as guesses and are tuned by `training/synthetic/scenes/cage_scene/grade_render.py` sweeps. The values are the current best, not measurements.
 
 | Key | Meaning |
 | --- | --- |

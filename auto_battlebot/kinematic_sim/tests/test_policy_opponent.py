@@ -1,0 +1,29 @@
+"""PolicyOpponent steps and sizes the opponent like the RL environment and the C++ config."""
+
+from __future__ import annotations
+
+import math
+
+from auto_battlebot.compat import tomllib
+from auto_battlebot.kinematic_sim import policy_opponent
+from auto_battlebot.paths import REPO_ROOT
+from auto_battlebot.rl.envs.warp_nav import WarpNavConfig
+
+
+def test_policy_period_matches_env() -> None:
+    assert policy_opponent.POLICY_PERIOD_S == WarpNavConfig().policy_dt_s
+
+
+def test_size_matches_config() -> None:
+    common = tomllib.loads((REPO_ROOT / "config" / "_common.toml").read_text())
+    sizes = common["robot_filter"]["robot_size_meters_per_label"]["MR_STABS_MK2"]
+    assert list(policy_opponent.MR_STABS_MK2_SIZE_M) == sizes
+    assert policy_opponent.MR_STABS_MK2_HALF_DIAGONAL_M == 0.5 * math.hypot(sizes[0], sizes[1])
+
+
+def test_our_robot_box_uses_config_size() -> None:
+    common = tomllib.loads((REPO_ROOT / "config" / "_common.toml").read_text())
+    sizes = common["robot_filter"]["robot_size_meters_per_label"]["MR_STABS_MK2"]
+    box = policy_opponent.our_robot_box()
+    assert box.collision_box == sizes
+    assert box.hazard_radius == 0.5 * math.hypot(sizes[0], sizes[1])

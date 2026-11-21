@@ -6,7 +6,7 @@
 
 The iPad plugs into the box with a USB-C Ethernet dongle. Nothing on that link hands out addresses: the box takes the fixed address `10.42.42.1/24`, and the iPad is set by hand to `10.42.42.2/24` with no router (Settings > Ethernet > the dongle > Configure IP > Manual). A DHCP server would save that step, but it would hand out addresses to a whole shop LAN the day the box is plugged into a router.
 
-The cable used to be link-local (`169.254.42.1/16`). iOS routes link-local traffic out its primary interface, which is Wi-Fi whenever the iPad has both. After a replug Safari sent the dashboard requests over Wi-Fi, where the firewall drops them. Only the cable has a route to `10.42.42.0/24`. Keep this subnet in sync with `include/host/dashboard_network.hpp`. `tests/python/test_scripts_misc.py` checks that the two agree.
+The cable used to be link-local (`169.254.42.1/16`). iOS routes link-local traffic out its primary interface, which is Wi-Fi whenever the iPad has both. After a replug Safari sent the dashboard requests over Wi-Fi, where the firewall drops them. Only the cable has a route to `10.42.42.0/24`. Keep this subnet in sync with `include/host/dashboard_network.hpp`. `scripts/tests/test_scripts_misc.py` checks that the two agree.
 
 ## Name resolution
 

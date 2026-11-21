@@ -337,7 +337,7 @@ reports the realized split per arena. See
 `massd_arena_scene_2026-09-11.md` for how each was fitted to footage, and `training/data/environments/nhrl_3lb_cage/` for its assets.
 
 A third entry, `meatball_basement`, is the drive-test box in the basement: an open plywood box
-in a corner of stone walls, fitted from our own ZED (`playground/basement_scene/README.md`). It
+in a corner of stone walls, fitted from our own ZED (`training/synthetic/scenes/basement_scene/README.md`). It
 is off in the default mix; `config_cage_meatball.toml` renders a run entirely in it. Its spec
 uses the three scene features the basement added: `[[walls]]` (photo-textured vertical
 planes), `[[blocks]]` (plain boxes such as legs) and `world.hdri` (an equirectangular panorama

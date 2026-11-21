@@ -712,9 +712,9 @@ account for it.
 |-------|----------|-------|
 | Jig log reader, units, saturation flags | `auto_battlebot/velocity_jig.py` | shared, linted, typed |
 | Plant model in Python (for fitting and sim) | `auto_battlebot/plant.py` | one implementation, used by fit and by the sim |
-| Excitation runner | `playground/calibration/velocity_jig_drive.py` | built; waveforms from `waveforms.toml`, logs downloaded with a sidecar per run |
-| Plant identification | `playground/calibration/fit_jig_plant.py` | ports the per-phase fits from `fit_plant_calib.py` |
-| Process noise fit | `playground/calibration/fit_process_noise.py` | produces the coverage tables |
+| Excitation runner | `auto_battlebot/calibration/jig/velocity_jig_drive.py` | built; waveforms from `waveforms.toml`, logs downloaded with a sidecar per run |
+| Plant identification | `auto_battlebot/calibration/jig/fit_jig_plant.py` | ports the per-phase fits from `fit_plant_calib.py` |
+| Process noise fit | `scripts/calibration/fit_process_noise.py` | produces the coverage tables |
 | EKF, our robot | `include/robot_filter/robot_ekf_filter.hpp`, `src/robot_filter/` | registered in the filter factory |
 | Opponent filter | same class, model-less branch, or a second class | decide once the our-robot version exists |
 | Parameters | TOML, consumed by both C++ and the sim | one source of truth for plant numbers |
@@ -856,7 +856,7 @@ A Euclidean position error hides which of the two is broken.
 
 ## Filter script notes
 
-### `playground/calibration/fit_process_noise.py`
+### `scripts/calibration/fit_process_noise.py`
 
 `fit_process_noise.py`:
 
@@ -885,11 +885,11 @@ Method, following the plan's part 1.7:
 ```
 Usage:
     source scripts/activate_python.sh
-    python playground/calibration/fit_process_noise.py \
-        playground/calibration/out/session_A.json \
-        --calibration playground/calibration/out/jig_calibration.toml \
-        --params playground/calibration/out/plant_params.toml \
-        --out playground/calibration/out/process_noise.toml
+    python scripts/calibration/fit_process_noise.py \
+        data/calibration/session_A.json \
+        --calibration data/calibration/jig_calibration.toml \
+        --params data/calibration/plant_params.toml \
+        --out data/calibration/process_noise.toml
 ```
 
 - `NOISE_HORIZONS`: Horizon grid for the noise model. Denser than the fit grid because the covariance has to be honest at every horizon the filter coasts over, not only at the ones the fit optimized.

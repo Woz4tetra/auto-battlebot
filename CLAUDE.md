@@ -51,13 +51,13 @@ Python scripts run in the project virtual environment at `venv/`. Activate it be
 source scripts/activate_python.sh   # activates venv/ (create it first with scripts/setup_python.sh)
 ```
 
-Do not use `uv run` or create a `uv.lock`. The venv is the intended environment for `scripts/`, `playground/`, `training/`, and `simulation/`.
+Do not use `uv run` or create a `uv.lock`. The venv is the intended environment for `scripts/`, `training/`, and `simulation/`.
 
 ### Where Python code goes
 
-`auto_battlebot/` and `playground/` are installed packages (`pip install -e .`), so their
-modules import as `auto_battlebot.<subpackage>.<module>` and `playground.<subpackage>.<module>`
-from anywhere. `training/`, `scripts/`, `simulation/`, and `logo/` are not packages.
+`auto_battlebot/` is an installed package (`pip install -e .`), so its modules import as
+`auto_battlebot.<subpackage>.<module>` from anywhere. `training/`, `scripts/`, `simulation/`,
+`tests/`, and `logo/` are not packages.
 
 - **Shared library code goes in `auto_battlebot/`.** It is the only directory that is both
   importable and type-checked. Anything two callers need lives here. Its subpackages:
@@ -70,14 +70,45 @@ from anywhere. `training/`, `scripts/`, `simulation/`, and `logo/` are not packa
   | `control/` | The grey-box drivetrain plant the C++ filter mirrors |
   | `mujoco_sim/` | Mr Stabs Mk2 rigid-body model: Onshape lumping, MJCF, MuJoCo Warp rollouts, the CMA-ES plant fit |
   | `eval/` | Detector scoring: GT loading, detectors, metrics, bootstrap, plots |
-  | `calibration/` | `jig/`, `apriltag/`, `match/`: the three plant-fit paths |
+  | `calibration/` | `jig/`, `apriltag/`, `match/`, `sysid/`: the plant-fit paths and their CLIs |
+  | `datasets/` | Cage-high video download and annotation, image cache cleanup |
+  | `nav/` | Navigation field tests and their lockstep reproductions |
+  | `rl/` | RL environments, policies, lockstep eval, checkpoint export, sensing-model fits |
   | `tensorrt_build` | Engine builder scaffolding shared by both export CLIs |
 
-- `playground/` holds runnable analysis scripts: one CLI per file. It is formatted and linted
-  by ruff like the rest of the tree, but stays out of mypy. When a helper in there grows a
-  second caller, move it to `auto_battlebot/` rather than importing across script directories.
+- No Python library sources under `scripts/`. A recurring analysis CLI is a module in the
+  `auto_battlebot/` subpackage it belongs to, with a `main()`, run as
+  `python -m auto_battlebot.<pkg>.<module>`, and with a test. `scripts/` holds only top-level
+  entry points (`scripts/verify`, `scripts/lint`, `scripts/mcap_auto_percentage.py`) and no
+  `scripts/<area>/` subdirectories of Python. `auto_battlebot/tests/test_script_imports.py` fails
+  on a `.py` under `scripts/*/`.
+- CLIs write to `data/<area>/` (gitignored) by default, anchored at
+  `auto_battlebot.paths.REPO_ROOT`. Data files a CLI reads (`waveforms.toml`,
+  `jig_calibration.toml`) sit next to the module.
+- Tests live in a `tests/` directory next to the source they test: `auto_battlebot/eval/tests/`,
+  `training/yolo/tests/`, `scripts/tests/`, `firmware/mr_stabs_mk2/scripts/tests/`. Test data
+  goes in `tests/data/` beside them. There is no top-level Python test directory; `tests/` at the
+  root holds the C++ gtest sources and `tests/fixtures/`. Test file names stay unique across the
+  tree, because pytest imports each `tests/` directory by basename. Reach the repo root with
+  `auto_battlebot.paths.REPO_ROOT`, never `Path(__file__).parents[N]`.
+- A web front end that a Python module serves goes in a `static/` directory beside that module
+  (`auto_battlebot/calibration/sysid/static/`). Firmware web pages stay with their firmware
+  (`firmware/mr_stabs_mk2/web/`).
+- Standalone non-Python tools go in `tools/<name>/`, one directory per tool with its own build
+  file and its tests inside: Rust (`Cargo.toml`), Go (`go.mod`), C++, or a TypeScript frontend that
+  needs a build step (`package.json`). A built frontend that a Python module serves writes its
+  output into that module's `static/`; the TypeScript source stays in `tools/`. `web/` stays the
+  dashboard. `scripts/verify` and `scripts/lint` do not cover `tools/<name>/` yet; the first tool in
+  a new language adds its suite and lint step. Shell entry points stay at the top level of
+  `scripts/`.
+- Tests load a non-package script with `auto_battlebot.script_loader.load_script("training/x/y.py")`.
+- Golden fixture generators live in `tests/fixtures/generators/`. Synthgen scene pipelines live in
+  `training/synthetic/scenes/`. Promoted MuJoCo plant fits live in `training/rl/plant_fits/`.
+- A one-off analysis runs from the agent's scratchpad, and its result goes in a dated doc under
+  `docs/experiments/` with the script inline or a link to the commit that held it. Nothing lands
+  in the tree without a second use and a test.
 - `training/` is standalone scripts and is deliberately **not** a package, so a `training/`
-  module can never be a shared dependency. Code that `playground/` or `simulation/` needs from
+  module can never be a shared dependency. Code that `scripts/` or `simulation/` needs from
   there moves to `auto_battlebot/` first.
 - No `sys.path` manipulation to reach first-party code, and therefore no `# noqa: E402`. The
   only legitimate `sys.path` writes are for build artifacts under `build/` (import them lazily
@@ -222,6 +253,17 @@ python3 scripts/comment_budget.py blocks --json    # every counted block
 
 Tests use GoogleTest in `tests/`. Build with `build-test/` (debug + `BUILD_TESTING=ON`). Playback mode with SVO recordings is the primary way to regression-test without hardware.
 
+`scripts/verify` runs every suite: gtest, pytest (every `tests/test_*.py` under the `testpaths` in
+`pyproject.toml`), synthetic (`training/synthetic/`),
+firmware native (`pio test -e native`), and the web check and vitest. Details and the file-to-suite
+map: `docs/reference/tools/verify.md`.
+
+```bash
+scripts/verify                        # every suite (about 6 min, pytest dominates)
+scripts/verify --changed a.cpp b.py   # only what these paths affect
+scripts/verify --changed --list       # print what the working changes select
+```
+
 ## Validation
 
 Before reporting a feature complete, run:
@@ -236,7 +278,11 @@ This applies formatters, then runs `clang-tidy` (C++ lint over `src/`), `ruff ch
 (Python lint), and `mypy` (types; scope set by `mypy.ini`). Use `--dry-run` to check
 without modifying files and `--quick` to skip the slow checks.
 
-Hooks run `./scripts/lint --quick` automatically on every stop.
+The Stop hook runs `scripts/verify --fast --changed` (lint, then affected suites) over the files
+this session edited with the edit tools, and a failure blocks the stop. A change under `src/`,
+`include/`, `firmware/`, `auto_battlebot/`, or `tests/` also needs a PASS from the `verifier`
+agent (`.claude/agents/verifier.md`); the blocked stop says which session id and change hash to
+give it, along with the user's request verbatim.
 
 The clang-tidy step is cached by [ctcache](https://github.com/matus-chochlik/ctcache),
 pinned and installed by `install/install_clang_tidy_cache.sh` to

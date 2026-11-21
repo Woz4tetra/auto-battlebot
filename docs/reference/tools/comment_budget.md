@@ -48,13 +48,13 @@ malformed `DATASHEET:` line fails regardless of budget.
 
 ## The checker checks itself
 
-- `SELF_PATHS` (`scripts/comment_budget.py`, `tests/python/test_comment_budget.py`,
+- `SELF_PATHS` (`scripts/comment_budget.py`, `scripts/tests/test_comment_budget.py`,
   `scripts/git-hooks/pre-commit`) are scanned and can never get a baseline entry; `check` fails if
   one has. Lexer fixtures are string literals inside the test file, not loose files.
 - `test_checker_files_are_scanned_and_unbudgeted` asserts those files are scanned, unbaselined, and
   pass `check --files`. `test_self_check_is_live` copies the script into a temp git repo, appends
   one `#` comment, and asserts `check` fails.
-- Tests: `tests/python/test_comment_budget.py`.
+- Tests: `scripts/tests/test_comment_budget.py`.
 
 ## Wiring
 

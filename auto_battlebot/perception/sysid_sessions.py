@@ -14,9 +14,9 @@ from auto_battlebot.perception.tag_pose_smoother import up_from_field
 from auto_battlebot.recording.sysid_io import load_field_from_camera, load_robot_tags
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-BUNDLES = REPO_ROOT / "playground/calibration/out/mujoco_sysid"
+BUNDLES = REPO_ROOT / "data/calibration/mujoco_sysid"
 RECORDINGS = REPO_ROOT / "data/recordings"
-OUT = REPO_ROOT / "playground/opponent_prediction/out"
+OUT = REPO_ROOT / "data/calibration/sysid_measurements"
 
 SESSIONS = {
     "2026-10-15_00-29-00": "train",

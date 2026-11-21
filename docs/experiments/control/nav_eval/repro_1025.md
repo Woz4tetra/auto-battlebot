@@ -80,10 +80,10 @@ At the field's in-window guard scale (same scenarios, both and guard arms only):
 ```bash
 source scripts/activate_python.sh
 D=/tmp/repro_1025
-python playground/nav_eval/repro_1025.py field --out-dir $D
-python playground/rl/lockstep_eval.py export --count 128 --seed 2026 --out $D/scenarios.json
-python playground/nav_eval/repro_1025.py sim $D/scenarios.json --out-dir $D
-python playground/nav_eval/repro_1025.py report --out-dir $D
+python -m auto_battlebot.nav.repro_1025 field --out-dir $D
+python -m auto_battlebot.rl.lockstep_eval export --count 128 --seed 2026 --out $D/scenarios.json
+python -m auto_battlebot.nav.repro_1025 sim $D/scenarios.json --out-dir $D
+python -m auto_battlebot.nav.repro_1025 report --out-dir $D
 ```
 
 Each arm takes about 200 s on the laptop with 6 workers.

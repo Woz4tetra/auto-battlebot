@@ -107,7 +107,6 @@ The project focuses on end-to-end autonomy under real-time and real-world constr
 - `training/`: Dataset building, model training, and offline scoring, one CLI per file
 - `scripts/`, `install/`: Setup, build, and run workflows ([scripts/README.md](scripts/README.md))
 - `firmware/`: Robot-side firmware experiments and support code
-- `playground/`: Experimental work
 
 # Setup and Install
 

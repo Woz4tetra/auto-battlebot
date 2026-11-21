@@ -23,15 +23,15 @@ targets, and that bar is met on every set.
 
 Selected model: **M5** (delay, asymmetric lag and gain, coupling, plus
 proportional straight-line drift `c_drift`; `c_drift_bias` rejected by
-holdout). Output: `playground/calibration/out/plant_match.toml`. Artifacts
-(dropout list, summary JSON, join overlay): `playground/calibration/out/match_fit/`.
+holdout). Output: `data/calibration/plant_match.toml`. Artifacts
+(dropout list, summary JSON, join overlay): `data/calibration/match_fit/`.
 
 Prediction videos for all three recordings are in
-`playground/calibration/out/match_fit/videos/`, in two views: top-down
+`data/calibration/match_fit/videos/`, in two views: top-down
 schematic (`prediction_reset_*.mp4`, rendered by
-`playground/calibration/render_match_prediction.py`) and the same annotations
+`auto_battlebot/calibration/match/render_match_prediction.py`) and the same annotations
 reprojected onto the SVO RGB frames (`prediction_camera_*.mp4`, rendered by
-`playground/calibration/render_match_prediction_camera.py`, which projects the
+`auto_battlebot/calibration/match/render_match_prediction_camera.py`, which projects the
 field-plane footprints through each tick's field->camera_world->camera
 transforms and the replay camera intrinsics; projection was validated by
 overlaying the field grid and marker footprint on a raw frame). In both, the
@@ -53,13 +53,13 @@ which is most of the long-horizon tail.
 
 # 2. Fit + three-plant scoring (replay mcaps from step 1 are in data/recordings/):
 source scripts/activate_python.sh
-python playground/calibration/fit_match_plant.py \
+python -m auto_battlebot.calibration.match.fit_match_plant \
   --fit <replay_17-42-24>.mcap:data/saved_recordings/NHRL_2026-05-02/auto_battlebot_main_2026-05-01_17-42-20.mcap \
   --validate <replay_11-45-08>.mcap:.../auto_battlebot_main_2026-05-02_11-45-05_repaired.mcap \
   --validate <replay_14-12-27>.mcap:.../auto_battlebot_main_2026-05-02_14-12-25_repaired.mcap \
   --cmd-lead-ms 40 \
-  --out playground/calibration/out/plant_match.toml \
-  --report-dir playground/calibration/out/match_fit
+  --out data/calibration/plant_match.toml \
+  --report-dir data/calibration/match_fit
 ```
 
 The loader is `auto_battlebot/calibration/match_windows.py`, next to the
@@ -203,7 +203,7 @@ still improves 41%.
 
 139 windows across the four sets flagged as commanded-but-unresponsive
 (commanded above 0.30, moved less than 25% of prediction at 400 ms), merged
-into 34 spans: `playground/calibration/out/match_fit/nonresponsive_windows.csv`
+into 34 spans: `data/calibration/match_fit/nonresponsive_windows.csv`
 with original-clock stamps. Counts per recording: 9 train / 25 holdout
 (17-42-20), 37 (11-45-05), 68 (14-12-25). The driver's report of
 non-responding stretches is real and now has timestamps; this file is the

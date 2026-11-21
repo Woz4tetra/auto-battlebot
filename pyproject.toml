@@ -58,8 +58,7 @@ py-modules = []
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["auto_battlebot*", "playground*"]
-exclude = ["playground.calibration.venv*"]
+include = ["auto_battlebot*"]
 
 
 [tool.ruff]
@@ -93,7 +92,20 @@ lint.unfixable = [
 "hardware/**/*.py" = ["INP"]
 "auto_battlebot/compat.py" = ["TID251"]
 "training/synthetic/**/*.py" = ["TID251"]
-"playground/**/*.py" = ["C901"]
+"tests/fixtures/generators/*.py" = ["INP"]
+"**/tests/*.py" = ["INP"]
+"auto_battlebot/calibration/distill_mujoco_plant.py" = ["C901"]
+"auto_battlebot/calibration/jig/fit_gyro_scale.py" = ["C901"]
+"auto_battlebot/calibration/jig/fit_jig_plant.py" = ["C901"]
+"auto_battlebot/calibration/jig/plot_jig_runs.py" = ["C901"]
+"auto_battlebot/calibration/jig/velocity_jig_drive.py" = ["C901"]
+"auto_battlebot/calibration/match/fit_match_plant.py" = ["C901"]
+"auto_battlebot/calibration/match/render_match_prediction_camera.py" = ["C901"]
+"auto_battlebot/calibration/sim_stop_test.py" = ["C901"]
+"auto_battlebot/calibration/jig/find_flip_accel.py" = ["C901"]
+"auto_battlebot/datasets/annotate_cage_video.py" = ["C901"]
+"auto_battlebot/rl/score_field_session.py" = ["C901"]
+"training/synthetic/scenes/**/*.py" = ["C901"]
 
 [tool.ruff.lint.isort]
 sections = { blenderproc = ["blenderproc"] }
@@ -112,3 +124,18 @@ max-complexity = 10
 
 [tool.ruff.format]
 quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = [
+  "auto_battlebot",
+  "scripts",
+  "simulation",
+  "training",
+  "tests",
+  "firmware",
+  "hardware",
+  "install",
+  "service",
+]
+python_files = ["tests/test_*.py"]
+norecursedirs = [".*", "__pycache__", "node_modules", "build*", "venv", "data", "runs", "*/training/synthetic"]

@@ -59,12 +59,12 @@ just which excitation to play.
 
 ```bash
 source scripts/activate_python.sh
-python playground/calibration/velocity_jig_drive.py \
+python -m auto_battlebot.calibration.jig.velocity_jig_drive \
     --waveform lin_step_full --reps 3 \
     --name "garage floor, pack 3"
 ```
 
-The session lands in `playground/calibration/out/<date>-<name>` unless `--out` says otherwise.
+The session lands in `data/calibration/<date>-<name>` unless `--out` says otherwise.
 Running the same name again the same day appends to it, which is what you want: a session is one
 battery on one floor, and it is also the unit the fitter holds out for leave-one-out validation.
 
@@ -269,15 +269,15 @@ problem, not a scale factor. Sort it before continuing.
 - [ ] Fit meters per count:
 
       ```bash
-      python playground/calibration/fit_encoder_scale.py \
+      python -m auto_battlebot.calibration.jig.fit_encoder_scale \
           --run 1.0 LOG-a.TXT LOG-b.TXT LOG-c.TXT \
           --run 2.0 LOG-d.TXT LOG-e.TXT LOG-f.TXT \
           --run 3.0 LOG-g.TXT LOG-h.TXT LOG-i.TXT \
-          --plot playground/calibration/out/encoder_scale.png
+          --plot data/calibration/encoder_scale.png
       ```
 
       It reads the encoder count at each dwell and fits counts against distance, then prints
-      the `[encoder]` block to paste into `playground/calibration/jig_calibration.toml`.
+      the `[encoder]` block to paste into `auto_battlebot/calibration/jig/jig_calibration.toml`.
 
       **Use several distances, not one distance repeated.** A fixed error, the robot coasting
       past the mark or backlash taken up at the start, is a constant count offset. With one
@@ -285,7 +285,7 @@ problem, not a scale factor. Sort it before continuing.
       intercept and the differential slope cancels it. The 2026-08-20 measurement found
       +17 mm per pass that way, which a through-origin fit would have carried into the scale
       as a 2.1% error in every speed fitted afterwards.
-- [ ] Paste `meters_per_count` into `playground/calibration/jig_calibration.toml`. The fit
+- [ ] Paste `meters_per_count` into `auto_battlebot/calibration/jig/jig_calibration.toml`. The fit
       tools default to that path and refuse to run while it is still zero, since a zero scale
       makes every measured speed zero and produces parameters that look plausible.
 
@@ -664,7 +664,7 @@ minimum hold makes every step battery longer than the runbook's first draft assu
 
 ## Velocity jig script behavior
 
-### `playground/calibration/fit_jig_plant.py`
+### `auto_battlebot/calibration/jig/fit_jig_plant.py`
 
 `fit_jig_plant.py`:
 
@@ -679,16 +679,16 @@ The fit machinery lives in `auto_battlebot/calibration/jig/jig_fit.py`; this fil
 ```
 Usage:
     source scripts/activate_python.sh
-    python playground/calibration/fit_jig_plant.py \
-        playground/calibration/out/2026-08-17-garage \
-        --out playground/calibration/out/plant_params.toml \
-        --report playground/calibration/out/jig_fit.html
+    python -m auto_battlebot.calibration.jig.fit_jig_plant \
+        data/calibration/2026-08-17-garage \
+        --out data/calibration/plant_params.toml \
+        --report data/calibration/jig_fit.html
 ```
 
 - `main`: Train and holdout come from the role each waveform declares, so a holdout stays a holdout even if the same excitation is later reused for fitting.
 - `main`: Imported here so a fit that writes no report never pays for matplotlib.
 
-### `playground/calibration/jig_report.py`
+### `auto_battlebot/calibration/jig/report.py`
 
 `jig_report.py`:
 
@@ -749,7 +749,7 @@ Built on the same windowing the fit uses rather than a private integrator: a bes
 
 - `run_trace_figure`: Grey out what the fit ignores, so a run that looks bad because it was excluded is visibly different from one that is bad because the model is wrong.
 
-### `playground/calibration/plot_jig_runs.py`
+### `auto_battlebot/calibration/jig/plot_jig_runs.py`
 
 `plot_jig_runs.py`:
 
@@ -767,15 +767,15 @@ Usage:
 ```
 
 ```
-    # newest session under playground/calibration/out
-    python playground/calibration/plot_jig_runs.py
+    # newest session under data/calibration
+    python -m auto_battlebot.calibration.jig.plot_jig_runs
 ```
 
 ```
     # a specific session, in physical units, redrawing everything
-    python playground/calibration/plot_jig_runs.py \
-        playground/calibration/out/2026-08-19 \
-        --calibration playground/calibration/out/jig_calibration.toml --force
+    python -m auto_battlebot.calibration.jig.plot_jig_runs \
+        data/calibration/2026-08-19 \
+        --calibration data/calibration/jig_calibration.toml --force
 ```
 
 - `SMOOTH_S`: Encoder counts are quantized, so a raw difference is mostly quantization noise. 50 ms of smoothing is well under the ~60 ms plant time constant, so it does not round off the rise.
@@ -858,7 +858,7 @@ What the tool asked for, whichever stream the record kept as primary.
 
 `RunRecord` prefers the radio's readback for fitting, since that is what the robot received. For a plot the intent matters too, so pull the requested columns back out when they exist. A hand-driven run has no intent to show, so the readback is the intent.
 
-### `playground/calibration/rederive_sidecars.py`
+### `scripts/calibration/rederive_sidecars.py`
 
 `rederive_sidecars.py`:
 
@@ -891,7 +891,7 @@ The header is reissued from the current preamble rather than preserved, because 
 
 - `rederive`: Recomputed from the probes rather than carried over. The stored value is only as good as the version of `skew_ppm` that wrote it, and the pre-2026-08-23 one divided across a reboot: LOG-119 carried -1048410 ppm, which nothing should ever apply.
 
-### `playground/calibration/velocity_jig_drive.py`
+### `auto_battlebot/calibration/jig/velocity_jig_drive.py`
 
 `velocity_jig_drive.py`:
 
@@ -905,13 +905,13 @@ Replaces the browser tool at `firmware/velocity_jig/web_tool`. One run produces 
 
 ```
     # inspect without hardware
-    python playground/calibration/velocity_jig_drive.py --list-waveforms
-    python playground/calibration/velocity_jig_drive.py --waveform lin_step_full --dry-run
+    python -m auto_battlebot.calibration.jig.velocity_jig_drive --list-waveforms
+    python -m auto_battlebot.calibration.jig.velocity_jig_drive --waveform lin_step_full --dry-run
 ```
 
 ```
     # record; --out defaults to out/<date>-<name>
-    python playground/calibration/velocity_jig_drive.py \
+    python -m auto_battlebot.calibration.jig.velocity_jig_drive \
         --waveform lin_step_full --waveform lin_coast \
         --name "garage floor sweep"
 ```

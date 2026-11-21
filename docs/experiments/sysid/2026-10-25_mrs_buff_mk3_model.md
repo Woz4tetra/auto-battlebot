@@ -1,6 +1,6 @@
 # Mrs Buff Mk3 model build details
 
-## Model build (`playground/calibration/build_mrs_buff_mk3_model.py`)
+## Model build (`auto_battlebot/mujoco_sim/build_mrs_buff_mk3_model.py`)
 
 Build the Mrs Buff Mk3 model: mass properties, collision pieces, and the MJCF.
 
@@ -26,8 +26,8 @@ The weapon does not spin in this model: the disk and its rotating parts are lump
 The drive motors (Blitz Pro 24 mm, 650 KV, 5.2:1) turn the back wheels; 120XL belts turn the front wheels 1:1. No rotor inertia is published for the 2306 motor: 3.0e-6 kg m^2 is Mr Stabs Mk2's CAD-integrated 1806 rotor (9.3e-7) scaled by bell mass and radius, and the fit's armature scale absorbs the error.
 
 ```
-    python playground/calibration/build_mrs_buff_mk3_model.py            # reuse collision pieces
-    python playground/calibration/build_mrs_buff_mk3_model.py --split    # rerun CoACD
+    python -m auto_battlebot.mujoco_sim.build_mrs_buff_mk3_model            # reuse collision pieces
+    python -m auto_battlebot.mujoco_sim.build_mrs_buff_mk3_model --split    # rerun CoACD
 ```
 
 ## Onshape sources
@@ -38,6 +38,6 @@ The drive motors (Blitz Pro 24 mm, 650 KV, 5.2:1) turn the back wheels; 120XL be
 - Wheel mass: one wheel (tread, core, hub plate, clamp hub, two M3 screws) against a connector on its axle, z along the axle, screenshot 2026-10-25 10:35. The four wheels are identical. The front wheels' 6 mm shoulder screws are axles that do not turn, so they stay in the chassis.
 - Wheel COM in the footprint frame: screenshot 2026-10-25 10:21, back right wheel, same parts.
 
-## Interim plant fit command tapes (`playground/calibration/fit_mrs_buff_mk3_interim_plant.py`)
+## Interim plant fit command tapes (`auto_battlebot/calibration/fit_mrs_buff_mk3_interim_plant.py`)
 
 Each window's linear and angular commands are piecewise constant on the plant time step grid. Each window draws one family, the way the jig protocol excites one term at a time: straight steps and reversals, spins, arcs on the steer/brake grid, and staircases near the deadzone. Holds end in zero about a third of the time, so the coast or brake decel is in the data.

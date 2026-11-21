@@ -82,10 +82,16 @@ runs/
 
 # Claude artifacts
 /.claude/worktrees/
+/.claude/state/
+
+# Default output of the analysis CLIs under scripts/<area>/
+/scripts/*/out/
 
 # Web dashboard (web/dist/ is covered by dist/ above). The global lib/ rule would hide the page's
 # source modules, so they are re-included.
 web/node_modules/
+/tools/*/target/
+/tools/*/node_modules/
 !/web/src/lib/
 build-asan/
 build-tsan/

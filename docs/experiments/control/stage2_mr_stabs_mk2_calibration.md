@@ -3,7 +3,7 @@
 Fit of the tank drivetrain plant for Mr Stabs Mk2 from three AprilTag drive-calibration sessions on
 2026-07-03. Each session runs the scripted excitation protocol in `apriltag_track.py --drive`, solves
 ground-truth pose from an overhead OAK-1 camera, and fits the plant with
-`playground/calibration/fit_plant_calib.py`.
+`auto_battlebot/calibration/apriltag/fit_plant_calib.py`.
 
 ## TL;DR recommendations
 

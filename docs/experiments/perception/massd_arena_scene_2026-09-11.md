@@ -1,7 +1,7 @@
 # A MassDestruction arena scene, built from one broadcast clip
 
 Status: **built and wired into the generic pipeline** (2026-09-11). Code:
-`playground/massd_scene/`, spec `training/synthetic/cage/massd_resurgence6.toml`, geometry in
+`training/synthetic/scenes/massd_scene/`, spec `training/synthetic/cage/massd_resurgence6.toml`, geometry in
 `training/synthetic/synthgen/cage_spec.py` and `synthgen/cage.py`. The floor albedo and the
 fitted camera live in `training/data/environments/massd_arena/`; the fit's own scratch goes
 to `runs/massd_scene/` (gitignored). Figures: `assets/2026-09-11_massd_scene/`.
@@ -118,7 +118,7 @@ for the crowd behind the glass.
 
 ## Grading
 
-`playground/cage_scene/grade_render.py`, unchanged, against the one target frame. Note what
+`training/synthetic/scenes/cage_scene/grade_render.py`, unchanged, against the one target frame. Note what
 that number is and is not: the floor texture was built from this frame, so the inside-hull
 score is close to a self-consistency check, not an independent test. The honest numbers are
 the ones about geometry and about the region the texture does not cover.

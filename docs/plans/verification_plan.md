@@ -6,9 +6,15 @@ works end to end. A change is done when the checks for its tier pass, not when i
 The decisions come from a grilling session on 2026-11-15. The full question and answer log is in
 [Decision log](#decision-log) at the end.
 
-## Status (2026-11-15)
+## Status (2026-11-20)
 
-Not started. The order of work is in [Phases](#phases).
+- Phase 0 done. `scripts/verify` runs gtest (1,013), pytest (1,021), synthgen (458), firmware
+  native (216), and the web check plus vitest (9); all green in 5 min 38 s. The one red suite was
+  `training/synthetic/tests`, which could not import `synthgen` after be3a4302 dropped the venv
+  `.pth`; `training/synthetic/pyproject.toml` now sets the pytest `pythonpath`.
+- Phase 1 done: `--fast`, `--changed`, touched-files log, stop hook, verifier agent and verdict
+  hook. Reference: `docs/reference/tools/verify.md`.
+- Phase 1.5 done 2026-11-21; see [Outcome](#outcome-2026-11-21).
 
 ## What went wrong
 
@@ -129,6 +135,30 @@ Known load-bearing files: the three golden generators
 The classification table goes to the user for review before anything moves. `scripts/verify`
 from phase 1 catches anything a move breaks.
 
+#### Outcome (2026-11-21)
+
+`playground/` is gone from the tree, `pyproject.toml`, `mypy.ini`, and CLAUDE.md. Where each
+file went:
+
+| Kind | Files | Destination |
+| --- | --- | --- |
+| Golden fixture generators | 4 | `tests/fixtures/generators/` |
+| Library code | `calibration/jig_report.py`, `rl/lockstep_eval.py`, the prediction half of `render_match_prediction.py` | `auto_battlebot/calibration/jig/report.py`, `auto_battlebot/rl/lockstep_eval.py`, `auto_battlebot/calibration/match/prediction.py` |
+| Recurring CLIs | 38 | `auto_battlebot/{calibration,datasets,eval,nav,rl,mujoco_sim}/`, run with `python -m`; `scripts/mcap_auto_percentage.py` |
+| Synthgen scene pipelines | `basement_scene/`, `cage_scene/`, `massd_scene/` | `training/synthetic/scenes/` |
+| Jig inputs | `waveforms.toml`, `jig_calibration.toml`, `plant_stageA.toml` | `auto_battlebot/calibration/jig/`, `auto_battlebot/calibration/` |
+| MuJoCo plant fit | `fit_2026-10-15_yolo_brake/fit.json` | `training/rl/plant_fits/` (now tracked) |
+| Deleted | everything else, and the tests of deleted code | |
+
+- `auto_battlebot/tests/test_script_imports.py` loads every moved script and checks it has `main()`.
+- Tests load scripts with `auto_battlebot.script_loader.load_script`.
+- The tracked calibration data (231 files) and the gitignored `out/` results (1,121 files) were
+  zipped to the user's Desktop before deletion. The `out/` results of kept scripts moved to the
+  gitignored `scripts/<area>/out/`.
+- Exempt from mypy and C901, as `playground/` was:
+  `scripts/{calibration,datasets,eval,nav,rl,sim_assets}/`. Moving them in raised 241 mypy errors
+  across 41 files. The files moved into `auto_battlebot/` were fixed instead.
+
 After the audit, one-off analyses run from the agent's scratchpad. The result goes in a dated doc
 under `docs/experiments/` that holds the script inline or links the commit where it lived. Nothing
 lands in the tree without a second use and a test.
@@ -215,6 +245,8 @@ supporting only.
   feature has no proof or a listed proof doesn't exist.
 - `scripts/lint` renders the map to a diagram page: features, how they're reached, what proves
   them.
+
+Add a local web-based interactive UI to explore the graph and gain insight about each component.
 
 ### Phase 5: CI
 

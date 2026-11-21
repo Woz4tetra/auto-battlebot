@@ -92,7 +92,7 @@ changed these parts:
   (`espnow_transmitter.cpp:259-266`).
 - **Dongle diagnostics tool**: `firmware/espnow_dongle/scripts/espnow_diag.py` reads the dongle's
   serial stream and serves a live page. It holds the type IDs and payload sizes (`:35-57`) and
-  decodes payloads with `struct.unpack`. `tests/python/test_espnow_diag.py` pins its constants to
+  decodes payloads with `struct.unpack`. `firmware/espnow_dongle/scripts/tests/test_espnow_diag.py` pins its constants to
   the header.
 - **Dependencies**: no libprotobuf, protoc, or nanopb anywhere. The Foxglove C++ SDK encodes its
   own types in Rust and ships pre-serialized descriptors, so it brings no protobuf runtime. The
@@ -1220,7 +1220,7 @@ line numbers, and is done when this prints nothing for that phase's topics:
 
 ```bash
 grep -rIn "decode_json(\|decode_string(\|json\.loads(" --include=*.py \
-  auto_battlebot playground scripts training simulation \
+  auto_battlebot scripts training simulation \
   | grep -v "^auto_battlebot/recording/mcap_io.py"
 ```
 
@@ -1228,9 +1228,9 @@ Hits that parse a file, not a message, stay. Today the command finds 25 `decode_
 sites in 14 files, plus `json.loads(` on message bytes in at least `match_windows.py`,
 `render_match_prediction_camera.py`, and `score_field_session.py`. Phase 1 classifies the
 unchecked `json.loads(` hits in files that call `iter_messages`
-(`playground/nav_eval/repro_1025.py`, `playground/nav_eval/step_test.py`,
-`playground/rl/lockstep_eval.py`, `playground/calibration/render_mujoco_overlay.py`,
-`playground/calibration/sim_stop_test.py`, `auto_battlebot/perception/sysid_sessions.py`) and
+(`auto_battlebot/nav/repro_1025.py`, `auto_battlebot/nav/step_test.py`,
+`auto_battlebot/rl/lockstep_eval.py`, `scripts/calibration/render_mujoco_overlay.py`,
+`auto_battlebot/calibration/sim_stop_test.py`, `auto_battlebot/perception/sysid_sessions.py`) and
 adds each message reader to the phase that owns its topic.
 
 ### Phase 0: toolchain (gate T1)
@@ -1268,8 +1268,8 @@ adds each message reader to the phase that owns its topic.
    - The raw readers move to `decode_frame_meta` or `decode_dict`:
      `auto_battlebot/calibration/match/match_windows.py`,
      `playground/opponent_prediction/render_dropout_videos.py`,
-     `playground/calibration/render_match_prediction_camera.py`,
-     `playground/calibration/check_sysid_recordings.py`, `scripts/combine_mcap_svo.py`.
+     `auto_battlebot/calibration/match/render_match_prediction_camera.py`,
+     `auto_battlebot/calibration/sysid/check_sysid_recordings.py`, `scripts/combine_mcap_svo.py`.
 
 ### Phase 2: the other recording topics (gate L1)
 
@@ -1280,7 +1280,7 @@ adds each message reader to the phase that owns its topic.
    writer in `calibration/sysid/synthetic.py`.
 3. Calibration tool topics: the writers and readers in
    `auto_battlebot/calibration/apriltag/apriltag_mcap.py` (4 `log_json` calls, 3 `decode_json`
-   calls), and `playground/calibration/analyze_apriltag_mcap.py`.
+   calls), and `auto_battlebot/calibration/apriltag/analyze_apriltag_mcap.py`.
 
 ### Phase 3: diagnostics (gate D1 first, then L1)
 
@@ -1316,7 +1316,7 @@ adds each message reader to the phase that owns its topic.
    - `comment_budget.py` loses its `protocol.ts` special case.
 5. Python readers of `/status/tracks` move to `decode_dict`:
    `playground/opponent_prediction/compare_replays.py`,
-   `playground/sensing_model/fit_sensing_model.py`, and `playground/rl/score_field_session.py`
+   `auto_battlebot/rl/fit_sensing_model.py`, and `auto_battlebot/rl/score_field_session.py`
    (which calls `json.loads` on the bytes today). `field_outline` comes back as lists of points
    either way.
 
@@ -1351,14 +1351,14 @@ firmware and ends with the robot, the dongle, and the host changed together.
    - `firmware/espnow_dongle/scripts/espnow_diag.py` takes its type IDs from one table and
      decodes Command, Telemetry, TunableSet, and LinkStats with `auto_battlebot.msg.link`. Its
      payload-size table and `struct.unpack` decoders for those four go; the OTA ones stay.
-     `tests/python/test_espnow_diag.py` checks the new IDs against the header.
+     `firmware/espnow_dongle/scripts/tests/test_espnow_diag.py` checks the new IDs against the header.
 7. Firmware, dongle, and host flash and deploy together. They fail closed if they are not, and
    the host reports which side is old.
 
 ### Phase 6: sim protocol (gate S1)
 
 `simulation/protocol.py`, `kinematic_sim_server.py`, `rl_eval_server.py`, `sim_connection.cpp`,
-and `tests/python/test_sim_protocol.py` move to length-prefixed `StepRequest`/`StepResponse`.
+and `auto_battlebot/kinematic_sim/tests/test_sim_protocol.py` move to length-prefixed `StepRequest`/`StepResponse`.
 
 Today the client receives `rgb` and `depth` straight into the `cv::Mat` buffers
 (`sim_connection.cpp:159-167`). As `bytes` fields they are copied once on serialize and once on
@@ -1370,7 +1370,7 @@ rate for that reason.
 1. Delete:
    - `include/foxglove_adapters/json_schemas.hpp`
    - the schema texts and `JSON_TOPIC_SCHEMAS` in `mcap_write.py`
-   - `tests/python/test_json_schema_parity.py`
+   - `auto_battlebot/recording/tests/test_json_schema_parity.py`
    - the C++ `json_number`/`json_escape` helpers once nothing uses them
    - `McapWriter.log_json`, if nothing outside the legacy-read tests calls it
 2. Rewrite `docs/reference/recording/foxglove_recording_format.md`:

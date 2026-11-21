@@ -56,7 +56,7 @@ Loaded with `from` (`config_extends.md`). Each holds one fact used by more than 
 | `transmitters/playback.toml` | `playback/_playback`, `playback/_video_playback` |
 | `navigation/mr_stabs_mk2_rl.toml` | `mr_stabs_mk2_aer_zed_box`, `mr_stabs_mk2_fid_zed_box` |
 | `navigation/mrs_buff_mk3_rl.toml` | `mrs_buff_mk3_zed_box`, `mrs_buff_mk3_aer_zed_box` |
-| `navigation/motion_profile.toml` | `_common`, `playground/rl/lockstep_eval.py` |
+| `navigation/motion_profile.toml` | `_common`, `auto_battlebot/rl/lockstep_eval.py` |
 | `field_filters/fiducial_1p5m.toml` | `mr_stabs_mk2_fid_zed_box`, `mr_stabs_mk2_sysid_zed_box` |
 | `keypoint_models/mr_stabs_mk2_apriltag.toml` | `mr_stabs_mk2_sysid_zed_box`, `playback/mr_stabs_mk2_sysid_playback` |
 
@@ -231,7 +231,7 @@ live-vs-replay tag comparison shows the 15 Mbps default loses nothing.
 - `playback/mr_stabs_mk2_sysid_playback`: replays a Mr Stabs Mk2 ZED Box MCAP through the sysid
   AprilTag model, for drives recorded on a match profile that never ran it. The output MCAP carries
   `/apriltag/robot_tags` with the original `image_stamp_ns`, so the tags join the source recording's
-  stick channels. `playground/calibration/replay_sysid_tags.py` drives it one recording at a time.
+  stick channels. `scripts/calibration/replay_sysid_tags.py` drives it one recording at a time.
   Decoding is not real time, the field is `mr_stabs_mk2_aer_zed_box`'s (which the 2026-10-10 drives
   ran), and MCAP recording is on with no holding-dir pruning, since the replays land in
   `data/recordings` next to the originals.
@@ -263,18 +263,18 @@ All pair with a sim-side config under `simulation/` and run through `./scripts/r
   the robot's kinematic sim profile. One label per sim ground-truth slot: our robot, then
   `[[opponents]]` in order. The Mk2 file sets the sim opponent's footprint, which a detector box
   would report; without it the filter sizes the opponent from keypoint spacing (about 0.1 m).
-  `playground/rl/lockstep_eval.py` extends these per scenario.
+  `auto_battlebot/rl/lockstep_eval.py` extends these per scenario.
 - `mr_stabs_mk2_kinematic_sim`: Mr Stabs on `MotionProfileNavigation` against the MuJoCo
   plant, to check a `[plant]` table distilled from the MuJoCo fit
-  (`playground/calibration/distill_mujoco_plant.py`). `playground/calibration/sim_stop_test.py`
+  (`auto_battlebot/calibration/distill_mujoco_plant.py`). `auto_battlebot/calibration/sim_stop_test.py`
   drives it headless, one run per goal.
 - `mrs_buff_mk3_kinematic_sim`: `MotionProfileNavigation`, which Mrs Buff ships with. It runs the hazard
   tangent and goal-legality layers.
 - `mr_stabs_mk2_rl_sim`, `mrs_buff_mk3_rl_sim`: `RlPolicyNavigation`. Swap the bundle for any export
-  under `data/models/nav_policies/` (`playground/rl/export_checkpoint.py`). The Mk3 bundle is queue
+  under `data/models/nav_policies/` (`auto_battlebot/rl/export_checkpoint.py`). The Mk3 bundle is queue
   job 64's 07:17 checkpoint (`rl_nav_mk3_c_margin2`, weapon off). With the hazard barrier on and its
   own `[plant]`, it scored 0.706 hits per hit taken over the 128 Mk3 lockstep scenarios against
-  `MotionProfileNavigation`'s 0.011, with no holes (`playground/rl/out/mk3`). That `[plant]` is the
+  `MotionProfileNavigation`'s 0.011, with no holes (`data/rl/mk3`). That `[plant]` is the
   jig plant from before `cd5d2ba7` zeroed the lags, deadzones and coupling. The barrier's stopping
   horizon is `tau_lin_d + delay_s`: 0.252 s there, 0.052 s on `robots/mrs_buff_mk3`. Delete the
   table to run on the robot file's.

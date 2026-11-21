@@ -38,7 +38,7 @@ Noop perception ignores the pixels, but the UI draws its overlay on this frame b
 
 | Field | Meaning |
 | --- | --- |
-| `fit_file` | `fit.json` from `playground/calibration/fit_mujoco_plant.py`, repo-relative. The lowest-loss run is used. Empty runs the unfit `PlantParams` defaults. |
+| `fit_file` | `fit.json` from `auto_battlebot/calibration/fit_mujoco_plant.py`, repo-relative. The lowest-loss run is used. Empty runs the unfit `PlantParams` defaults. |
 | `timestep` | The fit and its checks run at 1 ms. |
 | `pack_voltage` | Nominal 4S. The fit's logged `vbat` is not replayed here. |
 | `flip_switch` | The transmitter's flip switch (`FlipSwitch`). `down` (power-on, competition) runs the heading hold and reverses the throttle while the IMU reads upside down, so a flipped robot keeps driving wedge-first. `middle` turns both off. `up` always reverses. |
@@ -66,7 +66,7 @@ Noop perception ignores the pixels, but the UI draws its overlay on this frame b
 | `deadzone_linear`, `deadzone_linear_rev` | Deadzone as a command fraction, forward and reverse. `_rev` falls back to the forward value when unset. |
 | `deadzone_angular`, `deadzone_angular_right` | Deadzone as a command fraction, left and right. `_right` falls back to the left value when unset. |
 
-The fields from `max_linear_speed_fwd` down are the physical-realism fields fit by `playground/calibration/fit_plant_calib.py`. Each defaults to 0, meaning unset: fall back to the symmetric values, so existing configs behave as before.
+The fields from `max_linear_speed_fwd` down are the physical-realism fields fit by `auto_battlebot/calibration/apriltag/fit_plant_calib.py`. Each defaults to 0, meaning unset: fall back to the symmetric values, so existing configs behave as before.
 
 The deadzone applies to the command the plant receives. `SimTransmitter` hands the navigation command straight to the sim with no drive processor, so unlike the deployed path there is no `lifted_deadzone_percent` upstream and these carry the raw physical deadzone. The sign split matches the jig fit.
 

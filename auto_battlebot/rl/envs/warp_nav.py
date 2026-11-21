@@ -53,10 +53,10 @@ from auto_battlebot.rl.envs.replay_tracks import ReplayTracks
 from auto_battlebot.rl.torch_plant import saturate
 
 REPO = Path(__file__).resolve().parents[3]
-DEFAULT_FIT = "playground/calibration/out/mujoco_sysid/fit_2026-10-15_yolo_brake/fit.json"
+DEFAULT_FIT = "training/rl/plant_fits/fit_2026-10-15_yolo_brake/fit.json"
 PROVISIONAL_RL_SENSING = "simulation/sensing_models/provisional_rl.toml"
 MK3_SENSING = "simulation/sensing_models/provisional_rl_mrs_buff_mk3.toml"
-MK3_INTERIM_FIT = "playground/calibration/out/mujoco_sysid/mk3_interim/fit.json"
+MK3_INTERIM_FIT = "training/rl/plant_fits/mk3_interim/fit.json"
 WALL_HEIGHT_M = 0.3
 WALL_T_M = 0.05
 PARKED = 50.0

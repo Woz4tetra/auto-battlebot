@@ -1,6 +1,6 @@
 # Velocity jig calibration provenance
 
-Measurements behind `playground/calibration/jig_calibration.toml` and `playground/calibration/waveforms.toml`. Field meanings are in `docs/reference/calibration/velocity_jig_config.md`.
+Measurements behind `auto_battlebot/calibration/jig/jig_calibration.toml` and `auto_battlebot/calibration/jig/waveforms.toml`. Field meanings are in `docs/reference/calibration/velocity_jig_config.md`.
 
 ## E4: `meters_per_count = 4.183811e-05`
 
@@ -14,12 +14,12 @@ Measured 2026-08-20 from twelve hand-pushed out-and-back passes at four distance
 | 3.00 m | LOG-50, LOG-51, LOG-52 |
 
 ```bash
-python playground/calibration/fit_encoder_scale.py \
+python -m auto_battlebot.calibration.jig.fit_encoder_scale \
     --run 0.5  LOG-38.TXT LOG-39.TXT LOG-40.TXT \
     --run 0.75 LOG-42.TXT LOG-43.TXT LOG-44.TXT \
     --run 1.0  LOG-45.TXT LOG-46.TXT LOG-47.TXT \
     --run 3.0  LOG-50.TXT LOG-51.TXT LOG-52.TXT \
-    --plot playground/calibration/out/encoder_scale.png
+    --plot data/calibration/encoder_scale.png
 ```
 
 - The value is the slope of counts against distance. There is a +113 count (+4.7 mm) fixed offset per pass, from coasting past the mark or backlash taken up at the start. The slope is differential, so the offset cancels. A fit through the origin gives 4.174e-05, 0.2% high.
@@ -36,9 +36,9 @@ Measured 2026-08-20 from two ten-turn hand rotations on a pivot:
 | LOG-55 | -3600 deg | -3605.0 | -0.14% |
 
 ```bash
-python playground/calibration/fit_gyro_scale.py \
+python -m auto_battlebot.calibration.jig.fit_gyro_scale \
     --run 3600 LOG-54.TXT --run -3600 LOG-55.TXT \
-    --plot playground/calibration/out/gyro_scale.png
+    --plot data/calibration/gyro_scale.png
 ```
 
 - The two directions agree to 0.02%, so this is a scale factor and not a mounting sign problem.
@@ -50,9 +50,9 @@ python playground/calibration/fit_gyro_scale.py \
 From LOG-97, 30.5 min stationary, 2026-08-21:
 
 ```bash
-python playground/calibration/fit_gyro_noise.py \
-    playground/calibration/out/gyro_bias/LOG-97.TXT \
-    --plot playground/calibration/out/gyro_noise.png
+python -m auto_battlebot.calibration.jig.fit_gyro_noise \
+    data/calibration/gyro_bias/LOG-97.TXT \
+    --plot data/calibration/gyro_noise.png
 ```
 
 The parameters are inert until the noise model is incorporated into the plant fitting script.

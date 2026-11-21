@@ -1,0 +1,928 @@
+"""Tests for auto_battlebot.mujoco_sim: lumping, the MJCF, the firmware mirror and the fit."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import math
+from pathlib import Path
+
+import mujoco
+import numpy as np
+import pandas as pd
+import pytest
+
+from auto_battlebot.mujoco_sim import greybox, mass_properties
+from auto_battlebot.mujoco_sim.actuator import PlantParams, delay_tape, shape_command
+from auto_battlebot.mujoco_sim.checks import (
+    analytic_lift_accel,
+    ideal_top_speed,
+    make,
+    pitch_of,
+    settle,
+    simulated_lift_accel,
+    simulated_top_speed,
+)
+from auto_battlebot.mujoco_sim.closed_loop import (
+    BoxSize,
+    ClosedLoopSim,
+    Disc,
+    MovingBlock,
+    load_fit_params,
+)
+from auto_battlebot.mujoco_sim.firmware import (
+    FirmwareMixer,
+    FlipSwitch,
+    PidV1,
+    UpdownSensor,
+    YawConfig,
+    YawController,
+)
+from auto_battlebot.mujoco_sim.fit import Stage, params_dict, run_stage, score_candidates
+from auto_battlebot.mujoco_sim.mjcf import CollisionSet
+from auto_battlebot.mujoco_sim.onshape_export import (
+    WHEEL_JOINTS,
+    MassBody,
+    UrdfAssembly,
+    body_from_root,
+    combine,
+    onshape_inertia_to_tensor,
+    subtract,
+)
+from auto_battlebot.mujoco_sim.rollout import (
+    InitialState,
+    cpu_rollout,
+    rest_height,
+)
+from auto_battlebot.mujoco_sim.session import WindowBatch, build_batch, load_session
+from auto_battlebot.paths import REPO_ROOT
+
+EXPORT = mass_properties.ASSET_DIR / "onshape_export"
+DT = 1e-3
+HALF_PACK_V = 8.0
+GPU_REPRODUCIBLE_RESISTANCES_OHM = (0.2, 0.3, 0.5, 0.8)
+NOISE_SIGMA_XY = 0.002
+TOP_TAG_ID = 76
+BOTTOM_TAG_ID = 41
+TAG_SIZE_M = 0.064
+HELD_HEADING_DEG = 90.0
+DRIFT_DEG = 10.0
+
+
+@pytest.fixture(scope="module")
+def mp() -> mass_properties.MassProperties:
+    return mass_properties.load()
+
+
+@pytest.fixture(scope="module")
+def collision() -> CollisionSet:
+    return CollisionSet.load()
+
+
+def test_wheels_lump_to_cad_values() -> None:
+    assembly = UrdfAssembly(EXPORT / "mr_stabs_mk2.urdf")
+    rot, trans = body_from_root(assembly)
+    wheels = [
+        assembly.lumped(assembly.wheel_links(j)).transformed(rot, trans) for j in WHEEL_JOINTS
+    ]
+    for wheel in wheels:
+        assert wheel.mass == pytest.approx(0.018445, abs=2e-6)
+        assert abs(wheel.com[1]) == pytest.approx(0.06526, abs=2e-5)
+        assert wheel.inertia[1, 1] == pytest.approx(4.2528e-6, rel=1e-3)
+
+
+def test_subtract_inverts_combine() -> None:
+    rng = np.random.default_rng(0)
+    parts = []
+    for _ in range(3):
+        a = rng.normal(size=(3, 3))
+        parts.append(
+            MassBody(float(rng.uniform(0.1, 1)), rng.normal(size=3) * 0.05, a @ a.T * 1e-4)
+        )
+    whole = combine(parts)
+    back = subtract(whole, parts[1:])
+    assert back.mass == pytest.approx(parts[0].mass)
+    np.testing.assert_allclose(back.com, parts[0].com, atol=1e-12)
+    np.testing.assert_allclose(back.inertia, parts[0].inertia, atol=1e-12)
+
+
+def test_mass_properties_table(mp: mass_properties.MassProperties) -> None:
+    assert mp.total_mass == pytest.approx(0.4959, abs=1e-6)
+    assert mp.chassis.com[0] == pytest.approx(0.03194, abs=5e-5)
+    assert not mp.tags[TOP_TAG_ID].upside_down and mp.tags[BOTTOM_TAG_ID].upside_down
+    for tag in mp.tags.values():
+        assert tag.size_m == pytest.approx(TAG_SIZE_M, abs=2e-4)
+        np.testing.assert_allclose(tag.rotation @ tag.rotation.T, np.eye(3), atol=1e-5)
+        assert np.linalg.det(tag.rotation) == pytest.approx(1.0, abs=1e-5)
+
+
+def test_model_rests_on_nose_and_hits_free_speed(
+    mp: mass_properties.MassProperties, collision: CollisionSet
+) -> None:
+    model, data = make(mp, PlantParams(), collision, DT)
+    settle(model, data)
+    assert np.degrees(pitch_of(data.qpos[3:7])) == pytest.approx(10.9, abs=0.5)
+    speed = simulated_top_speed(*make(mp, PlantParams(), collision, DT), volts=8.0)
+    assert speed == pytest.approx(ideal_top_speed(mp, 8.0), rel=0.02)
+
+
+def test_nose_lift_matches_momentum_analysis(
+    mp: mass_properties.MassProperties, collision: CollisionSet
+) -> None:
+    model, data = make(mp, PlantParams(), collision, DT)
+    settle(model, data)
+    rest = pitch_of(data.qpos[3:7])
+    lift = simulated_lift_accel(*make(mp, PlantParams(), collision, DT))
+    assert lift == pytest.approx(analytic_lift_accel(mp, rest), rel=0.05)
+
+
+def test_pid_v1_mirrors_old_firmware_quirks() -> None:
+    pid = PidV1()
+    inside_tolerance = 10.0 - pid.tolerance / 2
+    assert pid.update(10.0, inside_tolerance, 0.01) == 0.0
+    first_call_past_tolerance = pid.update(10.0, 0.0, 0.01)
+    assert first_call_past_tolerance == pytest.approx(0.08 * 10 + 0.01 * 10 * 0.01)
+    assert pid._wrap(350.0) == pytest.approx(-10.0)
+
+
+def test_mixer_normalizes_and_holds_heading() -> None:
+    mixer = FirmwareMixer()
+    left, right = mixer.step(-100.0, 50.0, 0.0, 0.01)
+    assert max(abs(left), abs(right)) == pytest.approx(100.0)
+    mixer = FirmwareMixer()
+    mixer.step(-50.0, 0.0, HELD_HEADING_DEG, 0.01)
+    mixer.step(-50.0, 0.0, HELD_HEADING_DEG - DRIFT_DEG, 0.01)
+    assert mixer.pid_output > 0.0
+
+
+def test_shape_and_delay() -> None:
+    u = np.array([-1.0, -0.03, 0.0, 0.03, 0.5, 1.0])
+    shaped = shape_command(u, 0.04, 0.0)
+    np.testing.assert_allclose(shaped[[1, 2, 3]], 0.0)
+    assert shaped[-1] == pytest.approx(1.0) and shaped[0] == pytest.approx(-1.0)
+    tape = np.zeros(100)
+    tape[50:] = 1.0
+    shifted = delay_tape(tape, 1e-3, 0.010)
+    assert shifted[59] == 0.0 and shifted[60] == 1.0
+
+
+def _synthetic_bundle(
+    tmp: Path, mp: mass_properties.MassProperties, collision: CollisionSet, truth: PlantParams
+) -> Path:
+    """Drive one continuous CPU run and write it out as a smooth_tag_poses.py bundle."""
+    seconds = 4.0
+    steps = int(seconds / DT)
+    t = np.arange(steps) * DT
+    left = 30 * np.sin(1.3 * t) + 20 * (t > 2.0)
+    right = 30 * np.sin(1.3 * t + 1.0) + 20 * (t > 2.0)
+    u = np.stack([left, right], -1) / 100.0
+    vbat = 15.0
+    batch_like = WindowBatch(
+        dt=DT,
+        steps=steps,
+        pad=0,
+        horizons=(0.2,),
+        session_index=np.zeros(1, int),
+        window_id=np.zeros(1, int),
+        kind=np.array(["flat"]),
+        start_ns=np.zeros(1, np.int64),
+        u_raw=u[None],
+        vbat=np.full((1, steps), vbat),
+        state=InitialState(*(np.zeros(1) for _ in range(9))),
+    )
+    batch_like.state.pitch_nose_down_rad[:] = 0.19
+    volts, zero = batch_like.tapes(truth)
+    height = rest_height(mp, collision, DT)
+    qpos = cpu_rollout(mp, collision, truth, batch_like.state, volts[0], zero[0], DT, 1, height)
+    from auto_battlebot.mujoco_sim.rollout import pose_from_qpos
+
+    pose = pose_from_qpos(qpos)
+    yaw = np.unwrap(pose["yaw"])
+    vx, vy, wz = (np.gradient(a, DT) for a in (pose["x"], pose["y"], yaw))
+    stamp = (t * 1e9).astype(np.int64)
+    sm = pd.DataFrame(
+        {
+            "stamp_ns": stamp,
+            "x": pose["x"],
+            "y": pose["y"],
+            "yaw": yaw,
+            "vx": vx,
+            "vy": vy,
+            "yaw_rate": wz,
+            "pitch": pose["pitch"],
+        }
+    )[::5]
+    sm.to_csv(tmp / "smoothed.csv", index=False)
+    frames = np.arange(0, steps, int(round(1 / 60 / DT)))
+    pd.DataFrame(
+        {
+            "stamp_ns": stamp[frames],
+            "tag_id": 76,
+            "x": pose["x"][frames],
+            "y": pose["y"][frames],
+            "z": 0.0,
+            "yaw": yaw[frames],
+            "pitch": pose["pitch"][frames],
+            "roll": 0.0,
+            "rejected": False,
+        }
+    ).to_csv(tmp / "measurements.csv", index=False)
+    ev = np.arange(0, steps, 5)
+    pd.DataFrame(
+        {
+            "stamp_ns": stamp[ev],
+            "left_cmd": left[ev],
+            "right_cmd": right[ev],
+            "vbat": vbat,
+            "a_percent": -(left[ev] + right[ev]) / 2,
+            "b_percent": (left[ev] - right[ev]) / 2,
+            "pid_output": 0.0,
+            "orientation_x": 0.0,
+        }
+    ).to_csv(tmp / "commands.csv", index=False)
+    starts = [0.5, 1.5, 2.5]
+    rows = []
+    for k, s in enumerate(starts):
+        i = int(s / DT)
+        rows.append(
+            {
+                "window_id": k,
+                "start_ns": int(stamp[i]),
+                "end_ns": int(stamp[i] + 1e9),
+                "kind": "flat",
+                "coverage": 1.0,
+                "x0": pose["x"][i],
+                "y0": pose["y"][i],
+                "yaw0": yaw[i],
+                "vx0": vx[i],
+                "vy0": vy[i],
+                "yaw_rate0": wz[i],
+                "pitch0": pose["pitch"][i],
+                "wheel_left0": 0.0,
+                "wheel_right0": 0.0,
+            }
+        )
+    pd.DataFrame(rows).to_csv(tmp / "windows.csv", index=False)
+    (tmp / "session.json").write_text(
+        json.dumps(
+            {"noise_floor": {"sigma_xy": NOISE_SIGMA_XY, "sigma_yaw": 0.01, "sigma_pitch": 0.01}}
+        )
+    )
+    return tmp
+
+
+def _cpu_simulator(mp: mass_properties.MassProperties, collision: CollisionSet):  # type: ignore[no-untyped-def]
+    height = rest_height(mp, collision, DT)
+
+    def simulate(batch: WindowBatch, params: list[PlantParams]) -> tuple[np.ndarray, float]:
+        volts, zero = batch.tapes(params)
+        out = []
+        for i in range(len(batch)):
+            state = batch.take(np.array([i])).state
+            out.append(
+                cpu_rollout(mp, collision, params[i], state, volts[i], zero[i], DT, 5, height)
+            )
+        return np.stack(out), 5 * DT
+
+    return simulate
+
+
+def test_fit_loss_prefers_truth(
+    tmp_path: Path, mp: mass_properties.MassProperties, collision: CollisionSet
+) -> None:
+    truth = PlantParams(resistance_ohm=0.4, delay_s=0.02)
+    bundle = _synthetic_bundle(tmp_path, mp, collision, truth)
+    batch = build_batch([load_session(bundle)], horizon_s=0.4, dt=DT, horizons=(0.2, 0.4))
+    assert len(batch) == 3
+    losses, errors = score_candidates(
+        _cpu_simulator(mp, collision),
+        batch,
+        [truth, truth.replace(resistance_ohm=0.15), truth.replace(delay_s=0.05)],
+    )
+    assert losses[0] < losses[1] and losses[0] < losses[2]
+    assert np.nanmedian(errors[0].position_err_m[:, 0]) < 5 * NOISE_SIGMA_XY
+
+
+def test_greybox_runs_on_the_same_windows(
+    tmp_path: Path, mp: mass_properties.MassProperties, collision: CollisionSet
+) -> None:
+    from auto_battlebot.control import plant
+
+    bundle = _synthetic_bundle(tmp_path, mp, collision, PlantParams())
+    batch = build_batch([load_session(bundle)], horizon_s=0.4, dt=DT, horizons=(0.2, 0.4))
+    qpos, record_dt = greybox.predict(batch, plant.PlantParams())
+    assert qpos.shape[0] == len(batch) and np.isfinite(qpos).all()
+    assert record_dt == greybox.PLANT_DT
+
+
+def _has_cuda() -> bool:
+    if importlib.util.find_spec("mujoco_warp") is None:
+        return False
+    import warp as wp
+
+    return bool(wp.get_cuda_device_count())
+
+
+@pytest.mark.skipif(not _has_cuda(), reason="needs mujoco_warp and a CUDA device")
+def test_warp_rollout_matches_cpu_on_a_straight_drive(
+    mp: mass_properties.MassProperties, collision: CollisionSet
+) -> None:
+    from auto_battlebot.mujoco_sim.rollout import WarpRollout, pose_from_qpos
+
+    steps = 600
+    rollout = WarpRollout(mp, collision, 4, steps)
+    params = [PlantParams(resistance_ohm=r) for r in GPU_REPRODUCIBLE_RESISTANCES_OHM]
+    rollout.set_params(params)
+    volts = np.zeros((4, steps, 2))
+    volts[:, :400] = 4.0
+    zero = (volts == 0.0).astype(float)
+    rollout.set_tapes(volts, zero)
+    z = np.zeros(4)
+    state = InitialState(z, z, z, z, z, z, np.full(4, 0.19), z, z)
+    gpu = pose_from_qpos(rollout.run(state))
+    for w in range(4):
+        one = InitialState(*(np.asarray(v)[w : w + 1] for v in vars(state).values()))
+        cpu = pose_from_qpos(
+            cpu_rollout(mp, collision, params[w], one, volts[w], zero[w], DT, 5, rollout.height)
+        )
+        assert gpu["x"][w, -1] == pytest.approx(cpu["x"][-1], abs=0.01)
+
+
+def _drive(sim: ClosedLoopSim, linear: float, angular: float, seconds: float) -> None:
+    for _ in range(round(seconds * 30)):
+        sim.step(linear, angular, 1.0 / 30.0)
+
+
+def test_closed_loop_signs_match_the_app(mp: mass_properties.MassProperties) -> None:
+    """Positive linear drives along the heading, positive angular turns counterclockwise."""
+    sim = ClosedLoopSim(mp, None, PlantParams(), start=(0.0, 0.0, math.pi / 2))
+    _drive(sim, 0.2, 0.0, 0.5)
+    x, y, yaw = sim.pose()
+    assert y > 0.2 and abs(x) < 0.02
+    assert abs(yaw - math.pi / 2) < 0.02
+    sim = ClosedLoopSim(mp, None, PlantParams(), start=(0.0, 0.0, 0.0))
+    _drive(sim, 0.0, 0.2, 0.1)
+    assert sim.yaw_rate > 0.5 and sim.pose()[2] > 0.0
+
+
+def _settle_onto_skid(sim: ClosedLoopSim) -> None:
+    _drive(sim, 0.0, 0.0, 0.5)
+
+
+def test_closed_loop_delay_holds_the_command(mp: mass_properties.MassProperties) -> None:
+    sim = ClosedLoopSim(mp, None, PlantParams(delay_s=0.1), start=(0.0, 0.0, 0.0))
+    _settle_onto_skid(sim)
+    sim.step(1.0, 0.0, 0.09)
+    assert abs(sim.forward_speed) < 1e-3
+    sim.step(1.0, 0.0, 0.05)
+    assert sim.forward_speed > 0.05
+
+
+def test_closed_loop_walls_and_blocks_stop_the_robot(mp: mass_properties.MassProperties) -> None:
+    sim = ClosedLoopSim(mp, None, PlantParams(), start=(0.0, 0.0, 0.0), arena=(1.0, 1.0))
+    _drive(sim, 0.5, 0.0, 1.5)
+    assert sim.pose()[0] < 0.5
+    assert sim.wall_contact and not sim.block_contact
+
+    sim = ClosedLoopSim(
+        mp, None, PlantParams(), start=(0.0, 0.0, 0.0), moving_blocks=[MovingBlock(0.1)]
+    )
+    sim.set_moving_blocks([(0.4, 0.0, 0.0)])
+    _drive(sim, 0.5, 0.0, 1.0)
+    assert sim.pose()[0] < 0.3
+    assert sim.block_contact and not sim.wall_contact
+
+    sim = ClosedLoopSim(
+        mp, None, PlantParams(), start=(0.0, 0.0, 0.0), blocks=[Disc(0.4, 0.0, 0.1)]
+    )
+    _drive(sim, 0.5, 0.0, 1.0)
+    assert sim.pose()[0] < 0.3 and sim.block_contact
+
+
+@pytest.mark.parametrize(
+    ("yaw", "blocked"),
+    [
+        pytest.param(0.0, True, id="square_on_blocks"),
+        pytest.param(math.pi / 2.0, False, id="edge_on_drives_past"),
+    ],
+)
+def test_closed_loop_box_block_turns_with_yaw(
+    mp: mass_properties.MassProperties, yaw: float, blocked: bool
+) -> None:
+    """A 0.04 x 0.6 m wall at x = 0.5, centred 0.25 m to the side."""
+    sim = ClosedLoopSim(
+        mp,
+        None,
+        PlantParams(),
+        start=(0.0, 0.0, 0.0),
+        moving_blocks=[MovingBlock(0.3, box=BoxSize(0.04, 0.6, 0.1))],
+    )
+    sim.set_moving_blocks([(0.5, 0.25, yaw)])
+    _drive(sim, 0.5, 0.0, 1.0)
+    assert sim.block_contact == blocked
+    assert (sim.pose()[0] < 0.5) == blocked
+
+
+def test_closed_loop_reports_upside_down(mp: mass_properties.MassProperties) -> None:
+    """Rolled 180 deg about its front axis, the chassis reads upside down and keeps its yaw."""
+    sim = ClosedLoopSim(mp, None, PlantParams(), start=(0.0, 0.0, 0.7))
+    _drive(sim, 0.0, 0.0, 0.3)
+    assert not sim.upside_down
+    _roll_over(sim)
+    assert sim.upside_down
+    assert sim.pose()[2] == pytest.approx(0.7, abs=0.05)
+
+
+def _roll_over(sim: ClosedLoopSim) -> None:
+    """Roll the robot 180 deg about its front axis and let it settle on its back."""
+    rolled = np.empty(4)
+    mujoco.mju_mulQuat(rolled, sim.data.qpos[3:7].copy(), np.array([0.0, 1.0, 0.0, 0.0]))
+    sim.data.qpos[3:7] = rolled
+    sim.data.qpos[2] += 0.08
+    mujoco.mj_forward(sim.model, sim.data)
+    _drive(sim, 0.0, 0.0, 1.0)
+
+
+def _wedge_first_travel(sim: ClosedLoopSim, linear: float, seconds: float) -> float:
+    """Distance driven along the chassis +x axis (the wedge's direction) under a held stick."""
+    forward = np.empty(3)
+    mujoco.mju_rotVecQuat(forward, np.array([1.0, 0.0, 0.0]), sim.data.qpos[3:7].copy())
+    x0, y0, _ = sim.pose()
+    _drive(sim, linear, 0.0, seconds)
+    x1, y1, _ = sim.pose()
+    return float((x1 - x0) * forward[0] + (y1 - y0) * forward[1])
+
+
+def test_updown_sensor_holds_inside_the_firmware_band() -> None:
+    sensor = UpdownSensor()
+    readings = [sensor.update(z) for z in (1.0, 0.05, -0.05, -0.2, -0.05, 0.05, 0.2)]
+    assert readings == [False, False, False, True, True, True, False]
+
+
+def test_flip_switch_down_keeps_a_flipped_robot_driving_wedge_first(
+    mp: mass_properties.MassProperties,
+) -> None:
+    travel = {}
+    for switch in (FlipSwitch.DOWN, FlipSwitch.MIDDLE):
+        sim = ClosedLoopSim(mp, None, PlantParams(), start=(0.0, 0.0, 0.0), flip_switch=switch)
+        _drive(sim, 0.0, 0.0, 0.3)
+        _roll_over(sim)
+        assert sim.upside_down
+        travel[switch] = _wedge_first_travel(sim, 0.3, 0.5)
+        assert sim.firmware_is_upside_down == (switch == FlipSwitch.DOWN)
+    assert travel[FlipSwitch.DOWN] > 0.1
+    assert travel[FlipSwitch.MIDDLE] < -0.1
+
+
+def test_flip_switch_up_inverts_an_upright_robot(mp: mass_properties.MassProperties) -> None:
+    sim = ClosedLoopSim(mp, None, PlantParams(), start=(0.0, 0.0, 0.0), flip_switch=FlipSwitch.UP)
+    _drive(sim, 0.0, 0.0, 0.3)
+    assert _wedge_first_travel(sim, 0.3, 0.5) < -0.1
+    assert sim.firmware_is_upside_down and not sim.upside_down
+
+
+def test_closed_loop_heading_hold_fights_a_gain_mismatch(
+    mp: mass_properties.MassProperties,
+) -> None:
+    drift = {}
+    for switch in (FlipSwitch.MIDDLE, FlipSwitch.DOWN):
+        sim = ClosedLoopSim(
+            mp, None, PlantParams(lr_gain_ratio=1.15), start=(0.0, 0.0, 0.0), flip_switch=switch
+        )
+        _drive(sim, 0.15, 0.0, 1.0)
+        drift[switch] = abs(sim.pose()[2])
+    assert drift[FlipSwitch.DOWN] < 0.5 * drift[FlipSwitch.MIDDLE]
+
+
+def _reverse_max_yaw_deg(sim: ClosedLoopSim) -> float:
+    """Full reverse for 2.5 s: the largest heading swing after the first 0.2 s."""
+    worst = 0.0
+    for k in range(250):
+        sim.step(-1.0, 0.0, 0.01)
+        if k >= 20:
+            worst = max(worst, abs(math.degrees(sim.pose()[2])))
+    return worst
+
+
+@pytest.mark.parametrize("lr_gain_ratio", [1.02, 0.95])
+def test_yaw_loop_stops_the_full_reverse_spin(
+    mp: mass_properties.MassProperties, collision: CollisionSet, lr_gain_ratio: float
+) -> None:
+    """COM ahead of the axle: tail-first spins out with the stick passed straight through."""
+    params = PlantParams(lr_gain_ratio=lr_gain_ratio)
+    manual = ClosedLoopSim(
+        mp, collision, params, start=(0.0, 0.0, 0.0), flip_switch=FlipSwitch.MIDDLE
+    )
+    assert _reverse_max_yaw_deg(manual) > 120.0
+    held = ClosedLoopSim(mp, collision, params, start=(0.0, 0.0, 0.0))
+    assert _reverse_max_yaw_deg(held) < 60.0
+    assert held.forward_speed < -3.0
+
+
+@pytest.mark.parametrize("stick", [0.2, -0.2])
+def test_yaw_loop_recovers_from_a_reverse_turn(
+    mp: mass_properties.MassProperties, collision: CollisionSet, stick: float
+) -> None:
+    """A 0.3 s turn at full reverse: passed through it spins on; the yaw loop drives out of it."""
+    late_rate = {}
+    for auto_steer in (False, True):
+        sim = ClosedLoopSim(
+            mp,
+            collision,
+            PlantParams(lr_gain_ratio=1.02),
+            start=(0.0, 0.0, 0.0),
+            flip_switch=FlipSwitch.DOWN if auto_steer else FlipSwitch.MIDDLE,
+        )
+        late = []
+        for k in range(350):
+            t = k * 0.01
+            sim.step(-1.0, stick if 1.0 <= t < 1.3 else 0.0, 0.01)
+            if t >= 3.0:
+                late.append(abs(math.degrees(sim.yaw_rate)))
+        late_rate[auto_steer] = max(late)
+        if auto_steer:
+            assert sim.forward_speed < -1.0, "back to driving tail-first, still speeding up"
+    assert late_rate[False] > 2000.0
+    assert late_rate[True] < 600.0
+
+
+def test_yaw_loop_scales_with_reverse_throttle() -> None:
+    config = YawConfig(ki=0.0)
+    forward, reverse = YawController(config), YawController(config)
+    forward.reset(0.0)
+    reverse.reset(0.0)
+    command = 0.25 * config.max_rate
+    out_fwd = forward.update(25.0, -100.0, 0.0, 100.0, 0.01)
+    out_rev = reverse.update(25.0, 100.0, 0.0, 100.0, 0.01)
+    assert out_fwd == pytest.approx(config.feedforward * command + config.kp * (command - 100.0))
+    assert out_rev == pytest.approx(
+        config.feedforward * config.reverse_ff_scale * command
+        + config.kp * config.reverse_kp_scale * (command - 100.0)
+    )
+
+
+def test_mixer_resume_reproduces_the_logged_output() -> None:
+    for throttle, turn, rate, logged in ((-40.0, 20.0, 380.0, 16.0), (30.0, 0.0, -5.0, -8.0)):
+        mixer = FirmwareMixer()
+        mixer.resume(throttle, turn, 90.0, rate, logged)
+        mixer.step(throttle, turn, 90.0, 0.01, yaw_rate_dps=rate)
+        assert abs(mixer.pid_output - logged) < 0.5
+
+
+def test_closed_loop_replay_falls_back_to_open_loop_before_the_yaw_loop(
+    tmp_path: Path, mp: mass_properties.MassProperties, collision: CollisionSet
+) -> None:
+    from auto_battlebot.mujoco_sim import validate
+
+    truth = PlantParams(delay_s=0.02)
+    bundle = _synthetic_bundle(tmp_path, mp, collision, truth)
+    batch = build_batch([load_session(bundle)], horizon_s=0.4, dt=DT, horizons=(0.2, 0.4))
+    assert int(batch.start_ns.max()) < validate.YAW_LOOP_SINCE_NS
+    height = rest_height(mp, collision, DT)
+    closed, closed_dt = validate.closed_loop_replay(mp, collision, truth, batch, height)
+    open_, open_dt = _cpu_simulator(mp, collision)(batch, [truth] * len(batch))
+    assert closed_dt == open_dt
+    np.testing.assert_allclose(closed[..., :3], open_[..., :3], atol=2e-3)
+
+
+def test_yaw_loop_idles_standing_still() -> None:
+    """The 2026-10-06 run shook at 6 Hz holding heading at a standstill; now it idles."""
+    mixer = FirmwareMixer()
+    for heading in (0.0, 20.0, 40.0):
+        mixer.step(0.5, -1.0, heading, 0.01, yaw_rate_dps=300.0)
+        assert mixer.pid_output == 0.0
+    assert mixer.yaw.setpoint == 40.0
+
+
+def test_mixer_runs_the_yaw_loop_inverted_with_tail_first_throttle() -> None:
+    """Inverted, a_percent arrives negated, but stick back still drives tail-first."""
+    config = YawConfig(ki=0.0)
+    upright = FirmwareMixer(yaw=YawController(config))
+    inverted = FirmwareMixer(yaw=YawController(config))
+    upright.step(60.0, 25.0, 0.0, 0.01, yaw_rate_dps=100.0)
+    inverted.step(-60.0, 25.0, 0.0, 0.01, upside_down=True, yaw_rate_dps=100.0)
+    assert inverted.loop.active
+    assert inverted.pid_output == pytest.approx(upright.pid_output)
+
+
+def test_passthrough_ignores_stick_trim() -> None:
+    mixer = FirmwareMixer(auto_steer=False)
+    assert mixer.step(0.5, -1.0, 0.0, 0.01) == (-0.5, -0.5)
+    mixer.step(0.0, 30.0, 0.0, 0.01)
+    assert mixer.pid_output == 30.0
+
+
+def test_load_fit_params_takes_the_lowest_finite_loss(tmp_path: Path) -> None:
+    runs = [
+        {"loss": float("nan"), "best": params_dict(PlantParams(delay_s=0.01))},
+        {"loss": 2.0, "best": params_dict(PlantParams(delay_s=0.02))},
+        {"loss": 1.0, "best": params_dict(PlantParams(delay_s=0.04))},
+    ]
+    path = tmp_path / "fit.json"
+    path.write_text(json.dumps({"runs": runs}))
+    assert load_fit_params(path).delay_s == 0.04
+
+
+def _mk3() -> tuple[mujoco.MjModel, mass_properties.MassProperties]:
+    from auto_battlebot.mujoco_sim.mjcf import build_mjcf
+
+    asset = mass_properties.asset_dir("mrs_buff_mk3")
+    mp3 = mass_properties.load(asset / "mass_properties.toml")
+    xml = build_mjcf(mp3, PlantParams(), CollisionSet.load(asset / "collision"), DT, "mrs_buff_mk3")
+    return mujoco.MjModel.from_xml_string(xml), mp3
+
+
+def test_mk3_rests_on_four_wheels_at_the_cad_mass() -> None:
+    model, mp3 = _mk3()
+    assert float(model.body_mass.sum()) == pytest.approx(1.332, abs=1e-3)
+    data = mujoco.MjData(model)
+    for _ in range(int(2.0 / DT)):
+        mujoco.mj_step(model, data)
+    names = [mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i) for i in range(model.ngeom)]
+    touching = {
+        names[c.geom2] if names[c.geom1] == "floor" else names[c.geom1]
+        for c in data.contact[: data.ncon]
+    }
+    assert touching == {
+        "wheel_left_tread",
+        "wheel_right_tread",
+        "follower_left_tread",
+        "follower_right_tread",
+    }
+    assert mp3.weapon is not None and mp3.weapon.radius == pytest.approx(0.05, abs=1e-3)
+
+
+def test_mk3_belts_turn_the_front_wheels_with_the_back() -> None:
+    model, mp3 = _mk3()
+    data = mujoco.MjData(model)
+    for _ in range(int(1.0 / DT)):
+        data.ctrl[:] = [HALF_PACK_V, HALF_PACK_V]
+        mujoco.mj_step(model, data)
+    back = [data.qvel[model.joint(n).dofadr[0]] for n in ("wheel_left", "wheel_right")]
+    front = [data.qvel[model.joint(n).dofadr[0]] for n in ("follower_left", "follower_right")]
+    assert front == pytest.approx(back, rel=1e-2)
+    speed = float(back[0]) * mp3.wheel_radius
+    free = HALF_PACK_V / (mp3.gear_ratio * mp3.motor_kt) * mp3.wheel_radius
+    assert 0.8 * free < speed < free
+
+
+def test_stage_never_returns_worse_than_its_start(
+    tmp_path: Path, mp: mass_properties.MassProperties, collision: CollisionSet
+) -> None:
+    truth = PlantParams(resistance_ohm=0.4)
+    bundle = _synthetic_bundle(tmp_path, mp, collision, truth)
+    batch = build_batch([load_session(bundle)], horizon_s=0.4, dt=DT, horizons=(0.2, 0.4))
+    simulate = _cpu_simulator(mp, collision)
+    start_loss, _ = score_candidates(simulate, batch, [truth])
+    stage = Stage("drive", ("resistance_ohm", "efficiency"), ("flat",))
+    result = run_stage(
+        simulate, batch, truth, stage, popsize=4, generations=1, sigma0=0.5, log=lambda _: None
+    )
+    assert result.loss <= start_loss[0]
+
+
+def test_greybox_unmix_inverts_firmware_mixer(
+    tmp_path: Path,
+    mp: mass_properties.MassProperties,
+    collision: CollisionSet,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from auto_battlebot.control import plant
+
+    bundle = _synthetic_bundle(tmp_path, mp, collision, PlantParams())
+    batch = build_batch([load_session(bundle)], horizon_s=0.4, dt=DT, horizons=(0.2, 0.4))
+    seen: dict[str, np.ndarray] = {}
+
+    def capture(u_lin, u_ang, dt, params, state):  # type: ignore[no-untyped-def]
+        seen["lin"], seen["ang"] = u_lin, u_ang
+        zeros = np.zeros((len(u_lin), u_lin.shape[1]))
+        return None, {"x": zeros, "y": zeros, "theta": zeros}
+
+    monkeypatch.setattr(plant, "simulate", capture)
+    batch.u_raw[:] = 0.0
+    batch.u_raw[..., 1] = 0.5
+    greybox.predict(batch, plant.PlantParams(delay_s=0.0))
+    assert np.allclose(seen["lin"], 0.25) and np.allclose(seen["ang"], 0.25)
+    assert seen["ang"].mean() > 0.0, "right wheel faster turns counter-clockwise"
+
+
+def test_greybox_sample_k_sits_at_k_plant_dt(
+    tmp_path: Path, mp: mass_properties.MassProperties, collision: CollisionSet
+) -> None:
+    from auto_battlebot.control import plant
+
+    bundle = _synthetic_bundle(tmp_path, mp, collision, PlantParams())
+    batch = build_batch([load_session(bundle)], horizon_s=0.4, dt=DT, horizons=(0.2, 0.4))
+    qpos, record_dt = greybox.predict(batch, plant.PlantParams())
+    np.testing.assert_allclose(qpos[:, 0, 0], batch.state.x)
+    steps_per_plant = int(round(record_dt / batch.dt))
+    assert qpos.shape[1] == len(range(batch.pad, batch.u_raw.shape[1], steps_per_plant)) + 1
+
+
+def test_urdf_origin_rpy_is_extrinsic() -> None:
+    from xml.etree import ElementTree as ET
+
+    from auto_battlebot.mujoco_sim.onshape_export import _origin_matrix
+
+    origin = ET.fromstring('<origin xyz="0 0 0" rpy="0.3 0.5 0.7"/>')
+    roll, pitch, yaw = 0.3, 0.5, 0.7
+    rx = np.array(
+        [[1, 0, 0], [0, math.cos(roll), -math.sin(roll)], [0, math.sin(roll), math.cos(roll)]]
+    )
+    ry = np.array(
+        [[math.cos(pitch), 0, math.sin(pitch)], [0, 1, 0], [-math.sin(pitch), 0, math.cos(pitch)]]
+    )
+    rz = np.array(
+        [[math.cos(yaw), -math.sin(yaw), 0], [math.sin(yaw), math.cos(yaw), 0], [0, 0, 1]]
+    )
+    np.testing.assert_allclose(_origin_matrix(origin)[:3, :3], rz @ ry @ rx, atol=1e-12)
+
+
+def test_onshape_panel_products_match_urdf_sign() -> None:
+    points = [
+        MassBody(1.0, np.array([0.1, 0.2, 0.0]), np.zeros((3, 3))),
+        MassBody(1.0, np.array([0.3, 0.1, 0.0]), np.zeros((3, 3))),
+    ]
+    whole = combine(points)
+    panel = whole.inertia / 1e-9
+    tensor = onshape_inertia_to_tensor(
+        panel[0, 0], panel[1, 1], panel[2, 2], panel[0, 1], panel[0, 2], panel[1, 2]
+    )
+    np.testing.assert_allclose(tensor, whole.inertia, atol=1e-12)
+    assert tensor[0, 1] == pytest.approx(0.01)
+
+
+def test_firmware_yaw_mirror_matches_native_golden_fixture() -> None:
+    golden = json.loads((Path(__file__).parent / "data" / "yaw_controller_golden.json").read_text())
+    controller = YawController()
+    outputs = []
+    for reset, turn, throttle, heading, rate, dt in golden["rows"]:
+        if reset:
+            controller.reset(heading)
+        outputs.append(controller.update(turn, throttle, heading, rate, dt))
+    np.testing.assert_allclose(outputs, golden["output_percent"], atol=2e-3)
+
+
+def test_updown_thresholds_match_firmware_header() -> None:
+    import re
+
+    from auto_battlebot.mujoco_sim import firmware
+
+    header = (REPO_ROOT / "firmware/mr_stabs_mk2/include/updown_sensor.h").read_text()
+
+    def constant(name: str) -> float:
+        match = re.search(rf"\b{name}\s*=\s*(-?[0-9.]+)", header)
+        assert match, name
+        return float(match.group(1))
+
+    gravity_threshold = constant("UPSIDE_DOWN_THRESHOLD")
+    assert constant("RIGHT_SIDE_UP_THRESHOLD") == -gravity_threshold
+    assert firmware.UPDOWN_THRESHOLD_UP_Z == pytest.approx(
+        gravity_threshold / firmware.STANDARD_GRAVITY_MPS2
+    )
+    assert firmware.SAMPLE_PERIOD_S == pytest.approx(constant("SAMPLE_INTERVAL") / 1000.0)
+
+
+def test_nconmax_covers_robot_on_side() -> None:
+    from auto_battlebot.mujoco_sim.rollout import (
+        NCONMAX,
+        ROWS_PER_CONTACT,
+        nconmax_for,
+        njmax_for,
+    )
+
+    model, _ = _mk3()
+    assert 2 * model.ngeom > NCONMAX
+    assert nconmax_for(model) >= 2 * model.ngeom
+    assert njmax_for(model) >= ROWS_PER_CONTACT * nconmax_for(model)
+
+
+def test_state_to_qpos_round_trip(
+    mp: mass_properties.MassProperties, collision: CollisionSet
+) -> None:
+    from auto_battlebot.mujoco_sim.mjcf import build_mjcf
+    from auto_battlebot.mujoco_sim.rollout import ModelIndex, initial_qpos_qvel, pose_from_qpos
+
+    model = mujoco.MjModel.from_xml_string(build_mjcf(mp, PlantParams(), collision, DT))
+    yaw, pitch, yaw_rate = 0.7, 0.19, 2.0
+    one = np.ones(1)
+    state = InitialState(
+        x=one * 0.1,
+        y=one * 0.2,
+        yaw=one * yaw,
+        vx_field=one,
+        vy_field=one * 0.5,
+        yaw_rate=one * yaw_rate,
+        pitch_nose_down_rad=one * pitch,
+        wheel_left_rad_s=one,
+        wheel_right_rad_s=one,
+    )
+    qpos, qvel = initial_qpos_qvel(model, ModelIndex.of(model), state, 0.05, mp.gear_ratio)
+    pose = pose_from_qpos(qpos[0, :7])
+    assert pose["yaw"] == pytest.approx(yaw)
+    assert pose["pitch"] == pytest.approx(pitch)
+    assert pose["roll"] == pytest.approx(0.0, abs=1e-9)
+    w, x, y, z = qpos[0, 3:7]
+    rot = np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+            [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+            [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
+        ]
+    )
+    np.testing.assert_allclose(rot @ qvel[0, 3:6], [0.0, 0.0, yaw_rate], atol=1e-9)
+
+
+def test_param_arrays_reject_wrong_shapes(
+    mp: mass_properties.MassProperties, collision: CollisionSet
+) -> None:
+    from auto_battlebot.mujoco_sim.mjcf import build_mjcf
+    from auto_battlebot.mujoco_sim.rollout import ModelIndex, param_arrays
+
+    model = mujoco.MjModel.from_xml_string(build_mjcf(mp, PlantParams(), collision, DT))
+    arrays = param_arrays(model, ModelIndex.of(model), mp, [PlantParams(), PlantParams()])
+    assert arrays.geom_friction.shape == (2, model.ngeom, 3)
+    from dataclasses import replace
+
+    with pytest.raises(ValueError, match="geom_solref"):
+        replace(arrays, geom_solref=arrays.geom_solref[:1])
+
+
+def test_window_batch_rejects_bad_polarity_and_tape_shapes() -> None:
+    steps = 10
+    common = dict(
+        dt=DT,
+        steps=steps,
+        pad=2,
+        horizons=(0.2,),
+        session_index=np.zeros(1, int),
+        window_id=np.zeros(1, int),
+        kind=np.array(["flat"]),
+        start_ns=np.zeros(1, np.int64),
+        state=InitialState(*(np.zeros(1) for _ in range(9))),
+    )
+    good_u, good_v = np.zeros((1, steps + 2, 2)), np.zeros((1, steps + 2))
+    WindowBatch(u_raw=good_u, vbat=good_v, polarity=np.array([-1.0]), **common)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="u_raw"):
+        WindowBatch(u_raw=good_u[:, :steps], vbat=good_v, **common)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="polarity"):
+        WindowBatch(u_raw=good_u, vbat=good_v, polarity=np.array([0.5]), **common)  # type: ignore[arg-type]
+
+
+def test_tape_pad_covers_delay_bound() -> None:
+    from auto_battlebot.mujoco_sim.fit import PARAM_SPECS
+    from auto_battlebot.mujoco_sim.session import TAPE_PAD_S
+
+    delay_hi = next(s.hi for s in PARAM_SPECS if s.name == "delay_s")
+    assert TAPE_PAD_S > delay_hi
+
+
+def test_window_initial_wheel_speed_rolls_forward() -> None:
+    from auto_battlebot.mujoco_sim.session import rolling_wheel_speeds
+
+    left, right = rolling_wheel_speeds(1.0, 0.0, 0.0, 0.0, 0.065, 0.025)
+    assert left == pytest.approx(40.0) and right == pytest.approx(40.0)
+    left, right = rolling_wheel_speeds(0.0, 1.0, math.pi / 2, 0.0, 0.065, 0.025)
+    assert left == pytest.approx(40.0) and right == pytest.approx(40.0)
+    left, right = rolling_wheel_speeds(0.0, 0.0, 0.0, 1.0, 0.065, 0.025)
+    assert right > 0.0 > left
+
+
+def test_fit_armature_clamps_flipped_lift(monkeypatch: pytest.MonkeyPatch) -> None:
+    from auto_battlebot.mujoco_sim import step_response
+    from auto_battlebot.mujoco_sim.step_response import FLIP_LIFT_DEG, fit_armature, ideal_step
+
+    lifts = {1.0: (FLIP_LIFT_DEG, 40.0), 2.0: (4.0 * FLIP_LIFT_DEG, 60.0)}
+    tapes = [ideal_step(0.5), ideal_step(0.6)]
+
+    def fake_lift(mp, collision, params, tape):  # type: ignore[no-untyped-def]
+        return lifts[params.armature_scale][0 if tape is tapes[0] else 1]
+
+    monkeypatch.setattr(step_response, "sim_lift_deg", fake_lift)
+    fit = fit_armature(None, None, PlantParams(), tapes, [5 * FLIP_LIFT_DEG, 40.0], [2.0, 1.0])  # type: ignore[arg-type]
+    assert fit.armature_scale == 1.0
+    assert fit.rms_by_scale[1] == pytest.approx(0.0)
+
+
+def test_compare_models_keeps_arrays_out_of_the_report(
+    tmp_path: Path, mp: mass_properties.MassProperties, collision: CollisionSet
+) -> None:
+    from auto_battlebot.control import plant
+    from auto_battlebot.mujoco_sim import validate
+
+    bundle = _synthetic_bundle(tmp_path, mp, collision, PlantParams())
+    batch = build_batch([load_session(bundle)], horizon_s=0.4, dt=DT, horizons=(0.2, 0.4))
+    result = validate.compare_models(
+        _cpu_simulator(mp, collision), batch, PlantParams(), plant.PlantParams()
+    )
+    json.dumps(result.errors)
+    assert result.qpos.shape[0] == len(batch)
+    assert result.record_dt == pytest.approx(5 * DT)
+
+
+def test_yaw_loop_cutover_is_2026_10_05_utc() -> None:
+    from datetime import datetime, timezone
+
+    from auto_battlebot.mujoco_sim.validate import YAW_LOOP_SINCE_NS
+
+    assert YAW_LOOP_SINCE_NS == int(datetime(2026, 10, 5, tzinfo=timezone.utc).timestamp() * 1e9)

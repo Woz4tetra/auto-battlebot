@@ -41,7 +41,7 @@ Nothing in the current setup limits motor current or motor temperature:
 | Wheel radius r | 25 mm | CAD |
 | Robot mass m | about 0.5 kg | mujoco plan |
 | Reflected rotor inertia per wheel | N^2 J_r = 4.77e-4 kg m^2 | mujoco plan |
-| Effective circuit resistance | 0.453 ohm | MuJoCo fit, `playground/calibration/out/mujoco_sysid/fit_2026:10:15_tag/fit.json` |
+| Effective circuit resistance | 0.453 ohm | MuJoCo fit, `data/calibration/mujoco_sysid/fit_2026:10:15_tag/fit.json` |
 | Pack | 4S, 16.8 V full, about 15.2 V under load | `NOMINAL_PACK_V` in actuator.py |
 | Shunt | 0.5 mohm, high side, ahead of both ESCs | `hardware/mr_stabs_mk2_pcb/pcba/design.py` |
 | INA238 conversion | ADC_CONFIG 0xBB69: 1052 us bus + 1052 us shunt, 4 averages, 8.4 ms per result | `vbat_sensor.cpp` |
@@ -467,7 +467,7 @@ and should run before item 4, so the thermal fit uses the fused `I_hat`.
    - **Fused gain.** Replay 2b over items 3 and 5. `g` should settle between 0.9 and 1.25. Outside
      that, fix `R_cold`, `P`, or the duty curve before the thermal fit.
 
-`playground/motor_guard/replay_guard.py` (new, one CLI) does the arithmetic for items 1, 4, 5, and
+`scripts/motor_guard/replay_guard.py` (new, one CLI) does the arithmetic for items 1, 4, 5, and
 6. It takes a dashboard CSV, reconstructs `I_hat_k` the way the firmware would (fused when the CSV
 has eRPM columns, shunt-only otherwise, so the 2026-10-21 CSV still works), runs the thermal model
 open loop, and prints `R_eff`, `P`, `g`, the would-be `dT` trace and scale, and a plot. It mirrors

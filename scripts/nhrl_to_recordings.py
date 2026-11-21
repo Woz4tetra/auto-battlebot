@@ -23,7 +23,7 @@ from auto_battlebot.recording.video_import import (
 
 _NS = 1_000_000_000
 SET_EPOCH_STAMP_NS = int(datetime(2026, 1, 1).timestamp()) * _NS
-DOWNLOADER = Path("playground/bgsub_cage/download_cage_video.py")
+DOWNLOADER = Path("auto_battlebot/datasets/download_cage_video.py")
 DEFAULT_CALIBRATION_ID = "brettzone_cage_high"
 DEFAULT_FOCAL_PX = 1331.0
 SAVED_RECORDINGS = Path("data/saved_recordings")

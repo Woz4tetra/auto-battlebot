@@ -37,7 +37,7 @@ tau_linear_decel = 0.078
 tau_angular_accel = 0.066
 
 [our_robot.mujoco]
-fit_file = "playground/calibration/out/mujoco_sysid/fit_2026-10-15_yolo_brake/fit.json"
+fit_file = "training/rl/plant_fits/fit_2026-10-15_yolo_brake/fit.json"
 timestep = 0.002
 pack_voltage = 15.2
 flip_switch = "down"

@@ -1,8 +1,8 @@
 # Velocity jig config files
 
-`playground/calibration/jig_calibration.toml` holds the bench constants and `playground/calibration/waveforms.toml` holds the excitation waveforms. Measured values and the runs behind them are in `docs/experiments/control/kalman_filter/jig_calibration_provenance_2026-08-20.md`. Procedures are runbook block 0 in `docs/experiments/control/kalman_filter/velocity_jig_runbook.md`.
+`auto_battlebot/calibration/jig/jig_calibration.toml` holds the bench constants and `auto_battlebot/calibration/jig/waveforms.toml` holds the excitation waveforms. Measured values and the runs behind them are in `docs/experiments/control/kalman_filter/jig_calibration_provenance_2026-08-20.md`. Procedures are runbook block 0 in `docs/experiments/control/kalman_filter/velocity_jig_runbook.md`.
 
-## `playground/calibration/jig_calibration.toml`
+## `auto_battlebot/calibration/jig/jig_calibration.toml`
 
 `fit_jig_plant.py`, `fit_process_noise.py` and `plot_jig_runs.py` read it, and all three default to this path. Keep one set per hardware configuration. Remounting the encoder changes the effective wheel radius, and a 2% scale error there is a 2% velocity error in everything fitted afterwards, so re-measure after any change to the mount.
 
@@ -27,7 +27,7 @@
 | --- | --- |
 | `r_imu` | E5, the IMU's offset from the yaw axis, metres. Regress measured lateral acceleration against yaw rate squared over pure spins; the slope is this. Kept as a check against a tape measure. The slip detector fits the lever-arm terms per run instead. |
 
-## `playground/calibration/waveforms.toml`
+## `auto_battlebot/calibration/jig/waveforms.toml`
 
 `velocity_jig_drive.py --waveform <name> --name ...` drives an entry, and the fit reads the same file. Each `[waveform.<name>]` table declares `kind`, `channel` and `role`. The fit routes on those three, so a new waveform reaches the right fit without editing `fit_jig_plant.py`. `[defaults]` merges into every entry.
 
@@ -84,6 +84,6 @@ Holdouts test the model and are never fitted.
 | `trim` | Low and slow, to measure how far the robot arcs before a long straight run. |
 | `ang_prbs`, `combined_prbs`, `ang_chirp`, `lin_triangle` | Defined by `kind`, `channel` and `role` alone. |
 
-## `playground/calibration/write_plant_configs.py`
+## `auto_battlebot/calibration/write_plant_configs.py`
 
 `SIM_FIELDS` maps simulation TOML keys to fit names. The unsuffixed `max_linear_speed`, `tau_linear` and `tau_angular` keys are the symmetric fallback. They map to `k_fwd`, `tau_lin_a` and `tau_ang_a` and go unused once the `_fwd`/`_rev` and `_accel`/`_decel` keys are set.

@@ -34,7 +34,7 @@ rest_pitch_rad = 0.0
 coacd_threshold = 0.05
 note = "hull_* are the chassis structure, disk_* the weapon disk (approved 2026-10-25)"
 trimmed_at_z_m = -0.0245
-generator = "playground/calibration/build_mrs_buff_mk3_model.py"
+generator = "auto_battlebot/mujoco_sim/build_mrs_buff_mk3_model.py"
 
 [coacd_max_pieces]
 hull = 24

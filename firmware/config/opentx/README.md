@@ -15,5 +15,5 @@
 
 - The X9D+ 2019 (`BOARD_NAME=x9d+2019`) has 9 switches, SA..SI. SI is a second momentary switch. The plain X9D has 8 (SA..SH). Both use the `otx3` fourcc, so the file does not say which board it targets.
 - The 9th switch shifts every source after the switch block up by one. On this board SI = 100, the first logical switch = 101, and TR1 = 165. On a plain X9D there is no SI, and those values are 100 and 164.
-- Verified against a real SD model where CH7 was mapped to SI and decoded as raw 100. `tests/python/test_otx_tool.py` pins the same numbers against `mr_stabs_mk2.otx`.
+- Verified against a real SD model where CH7 was mapped to SI and decoded as raw 100. `firmware/config/opentx/tests/test_otx_tool.py` pins the same numbers against `mr_stabs_mk2.otx`.
 - `rlc_compress` defers a zero run shorter than 8 that precedes a literal, folding it into the literal's control byte. That is how the radio writes it, and recompression is byte-exact only with the deferral.

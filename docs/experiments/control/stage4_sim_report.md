@@ -2,7 +2,7 @@
 
 Companion to `stage4_plant_backed_nav_plan.md`. Every number here comes from the headless
 kinematic sim (`simulation/sim_mrs_buff_mk3.toml`, plant from
-`playground/calibration/out/plant_stageA.toml`, model M4). No hardware runs yet.
+`auto_battlebot/calibration/plant_stageA.toml`, model M4). No hardware runs yet.
 
 Reproduce with:
 

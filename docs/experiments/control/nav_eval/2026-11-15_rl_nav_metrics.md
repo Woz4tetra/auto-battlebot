@@ -15,6 +15,6 @@ The contact and wedge thresholds are unvalidated against video. Check strike and
 
 ```
     source scripts/activate_python.sh
-    python playground/rl/score_field_session.py data/recordings/<session>.mcap [...]
-    python playground/rl/score_field_session.py data/recordings/<session>.mcap --clips hit
+    python -m auto_battlebot.rl.score_field_session data/recordings/<session>.mcap [...]
+    python -m auto_battlebot.rl.score_field_session data/recordings/<session>.mcap --clips hit
 ```

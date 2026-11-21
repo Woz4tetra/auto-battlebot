@@ -148,11 +148,15 @@ FIRMWARE_WEB_GLOBS=(
 
 PY_FMT_DIRS=(
     "$PROJECT_ROOT/auto_battlebot"
-    "$PROJECT_ROOT/playground"
+    "$PROJECT_ROOT/tests"
     "$PROJECT_ROOT/scripts"
     "$PROJECT_ROOT/simulation"
     "$PROJECT_ROOT/training"
     "$PROJECT_ROOT/firmware"
+    "$PROJECT_ROOT/hardware"
+    "$PROJECT_ROOT/install"
+    "$PROJECT_ROOT/service"
+    "$PROJECT_ROOT/conftest.py"
 )
 
 run_clang_format() {

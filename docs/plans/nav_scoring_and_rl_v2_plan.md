@@ -67,7 +67,7 @@ steps, so the wall rays read 0. A phantom `neutral_robot_1` with 122 m sigma sat
 the later two sessions; it didn't reach the observation.
 
 **Nothing could score any of this.** The sim scorer (`auto_battlebot/rl/metrics.py`) and the field
-scorer (`playground/rl/score_field_session.py`) are separate implementations. The field scorer's
+scorer (`auto_battlebot/rl/score_field_session.py`) are separate implementations. The field scorer's
 docstring calls its thresholds "unvalidated against video". The two `review.csv` files it wrote
 for 00-28 (12 hits) and 00-49 (36 hits) have an empty `confirmed` column. Warp eval is not
 reproducible: the same 128 scenarios gave 3.0-5.2 hits per hit taken across runs
@@ -241,7 +241,7 @@ comparison, so its bout count sets the width of every later interval.
 
 ### 2.1 Shared metric library
 
-- Lives in `auto_battlebot/eval/nav/`, so both `auto_battlebot/rl/` and `playground/` import it.
+- Lives in `auto_battlebot/eval/nav/`, so both `auto_battlebot/rl/` and `scripts/` import it.
 - **One code path for sim and field.** It takes time series of tracked poses and our own commands
   from either lockstep output or an MCAP. `metrics.py` and `score_field_session.py` become
   callers instead of keeping their own copies.
@@ -284,7 +284,7 @@ comparison, so its bout count sets the width of every later interval.
 
 ### 2.3 Event labeler
 
-A playground web app in `playground/nav_eval/labeler/`. It follows the in-repo editor convention
+A web app in `auto_battlebot/nav/labeler/`. It follows the in-repo editor convention
 (no Label Studio).
 
 - **Views:** overhead video from the MCAP camera frames; a top-down track view with the opponent's
@@ -321,7 +321,7 @@ held-out session. An event type that cannot reach it is reported but not gated.
 
 ### 2.5 Field session app and bout scoring
 
-A separate playground web app, `playground/nav_eval/field_session/`, to set up and score field
+A separate web app, `auto_battlebot/nav/field_session/`, to set up and score field
 bouts.
 
 **Setup:**
@@ -386,7 +386,7 @@ marked provisional.
 
 ### 3.3 Lockstep runner
 
-- `playground/rl/lockstep_eval.py` is the gate. It runs the real `build/auto_battlebot` against
+- `auto_battlebot/rl/lockstep_eval.py` is the gate. It runs the real `build/auto_battlebot` against
   CPU MuJoCo (`auto_battlebot/rl/lockstep_world.py`), seeded per scenario. It already works with
   any C++ navigation type through `--nav`.
 - Change it to read scenarios from the manifest and write rows to the results store.
@@ -678,21 +678,21 @@ else is assumed.
 
 | ID | Package | Plan | Owns | Depends on | Done when |
 | --- | --- | --- | --- | --- | --- |
-| WP-01 | Lockstep reproduction of 10/25 | 0.1 | `auto_battlebot/rl/lockstep_world.py` (slew and guard-scale stages), a new `playground/nav_eval/repro_1025.py`, report | none | Four-arm table of reverse-window duty against the field's -12%, written up |
+| WP-01 | Lockstep reproduction of 10/25 | 0.1 | `auto_battlebot/rl/lockstep_world.py` (slew and guard-scale stages), a new `auto_battlebot/nav/repro_1025.py`, report | none | Four-arm table of reverse-window duty against the field's -12%, written up |
 | WP-02 | Thermal trip and loosened guard | 0.3, 1.2 | `firmware/mr_stabs_mk2/`, guard fields in `firmware/shared/espnow_protocol/` | U2 for the threshold | Firmware builds; trip latches in a bench test with the threshold forced low; trip state in telemetry |
-| WP-03 | Step-test analysis and armature refit | 0.2 | `playground/nav_eval/step_test.py`, armature in `auto_battlebot/mujoco_sim/` | U1 | Pitch response per step size, refit armature, a keep-or-remove verdict on the slew limit |
+| WP-03 | Step-test analysis and armature refit | 0.2 | `auto_battlebot/nav/step_test.py`, armature in `auto_battlebot/mujoco_sim/` | U1 | Pitch response per step size, refit armature, a keep-or-remove verdict on the slew limit |
 | WP-04 | RL profile slew setting | 1.1 | profiles loading `navigation/*_rl.toml` | WP-03 | Value set per the WP-03 verdict; sim matches it |
 | WP-05 | IMU yaw-rate fusion in the our-robot filter | 1.3 | `include/robot_filter/`, `src/robot_filter/`, the filter's Python mirror and fixture, tests | none | Correlation at least 0.7 on the three 10/25 MCAPs replayed; p99 inside the IMU's range; tests pass |
 | WP-06 | Fitted plant in the our-robot filter | 1.3 | same as WP-05, `include/plant/` | WP-05 merged, WP-14 | Paired lockstep A/B of `rl_nav_p4` with a ship or wait verdict |
 | WP-07 | PerformanceMonitor | 1.4 | new component (check `include/health/` first and extend it if it fits), `include/remote/protocol.hpp` rows, bundle hash in `auto_battlebot/rl/export/` | none | Mismatch blocks policy load and lists keys; both 10/25 setup problems fire in replay; warnings land in `/diagnostics` |
-| WP-08 | Metric library and Mk2 profile | 2.1, 2.2 | `auto_battlebot/eval/nav/`; `auto_battlebot/rl/metrics.py` and `playground/rl/score_field_session.py` become callers | none | One function scores a lockstep episode and an MCAP bout; old callers give the same numbers through it; mypy clean |
-| WP-09 | Event labeler | 2.3 | `playground/nav_eval/labeler/` | WP-08 event schema | 00-49 loads with synced video, tracks and timeline; proposals editable; per-segment pass gate persists across restart |
-| WP-10 | Scorer validation | 2.4 | `playground/nav_eval/validate_scorer.py`, report | WP-08, WP-09, WP-14, U3, U4 | Precision and recall per event type on hand labels and on sim contact truth; thresholds frozen in the profile |
-| WP-11 | Field session app and bout splitter | 2.5 | `playground/nav_eval/field_session/` | WP-08, WP-13 | The three 10/25 MCAPs split into bouts and land in the store; pair scheduler and "no verdict" rule work on synthetic bouts |
+| WP-08 | Metric library and Mk2 profile | 2.1, 2.2 | `auto_battlebot/eval/nav/`; `auto_battlebot/rl/metrics.py` and `auto_battlebot/rl/score_field_session.py` become callers | none | One function scores a lockstep episode and an MCAP bout; old callers give the same numbers through it; mypy clean |
+| WP-09 | Event labeler | 2.3 | `auto_battlebot/nav/labeler/` | WP-08 event schema | 00-49 loads with synced video, tracks and timeline; proposals editable; per-segment pass gate persists across restart |
+| WP-10 | Scorer validation | 2.4 | `auto_battlebot/nav/validate_scorer.py`, report | WP-08, WP-09, WP-14, U3, U4 | Precision and recall per event type on hand labels and on sim contact truth; thresholds frozen in the profile |
+| WP-11 | Field session app and bout splitter | 2.5 | `auto_battlebot/nav/field_session/` | WP-08, WP-13 | The three 10/25 MCAPs split into bouts and land in the store; pair scheduler and "no verdict" rule work on synthetic bouts |
 | WP-12 | Scenario manifest `nav_suite_v1` | 3.1, 3.4 | `auto_battlebot/eval/nav/suite/`, the manifest file | none | Manifest with tags, content hash, gated bucket list, held-out split marked |
 | WP-13 | Results store, statistics, report generator | 3.2, 3.4, 3.5 | `auto_battlebot/eval/nav/store.py`, `stats.py`, `docs/experiments/control/nav_eval/results.md` generator | none | Append and query round-trip; pairing refuses mismatched `sim_hash`; bootstrap reuses `auto_battlebot/eval/significance.py` |
-| WP-14 | Lockstep runner on the manifest, A/A, smoke tier | 3.3, 3.5 | `playground/rl/lockstep_eval.py`, smoke script | WP-08, WP-12, WP-13 | `rl_nav_p4` scored on `nav_suite_v1`; A/A half-width recorded; smoke tier under 5 min |
-| WP-15 | Fidelity checks and rank agreement | phase 4 | `playground/nav_eval/fidelity/`, report | WP-14, WP-11, U5 | Four checks reported for `rl_nav_p4` and both calibration controllers |
+| WP-14 | Lockstep runner on the manifest, A/A, smoke tier | 3.3, 3.5 | `auto_battlebot/rl/lockstep_eval.py`, smoke script | WP-08, WP-12, WP-13 | `rl_nav_p4` scored on `nav_suite_v1`; A/A half-width recorded; smoke tier under 5 min |
+| WP-15 | Fidelity checks and rank agreement | phase 4 | `auto_battlebot/nav/fidelity/`, report | WP-14, WP-11, U5 | Four checks reported for `rl_nav_p4` and both calibration controllers |
 | WP-16 | Residual model: wheel response and perception | phase 4 | `auto_battlebot/rl/` residual module, sensing model TOML | WP-15 | Residual cuts the response-fidelity error on a held-out MCAP; `sim_hash` changes; baseline rerun |
 | WP-17 | Observation spec v2 | 5.3 | `auto_battlebot/rl/obs_spec.py`, `include/rl_policy/`, `src/rl_policy/`, sim gyro and eRPM models | U6 for telemetry timing | Bundle self-test passes parity on v2; v1 bundles still load |
 | WP-18 | `drive_mode`, both arms | 5.4 | `include/enums/drive_mode.hpp`, `firmware/shared/espnow_protocol/`, Mk2 firmware mixer path, ESC floor in the sim | WP-02 merged (same firmware), U7 | Both modes drive in lockstep; ESC floor reproduces the 280 rad/s step; yaw-loop wall fault explained |
@@ -785,7 +785,7 @@ next grilling session overwrites; this table is the durable record.
 | Q37 | Versioned scenario suite? | Yes, with buckets and a held-out split, but not as named directories of blob files. Became Q45. |
 | Q38 | Statistics? | Paired bootstrap, per-bucket and pooled acceptance. |
 | Q39 | Fidelity checks? | All three. |
-| Q40 | Field bout protocol? | Standardized blind interleaved bouts, with a separate playground web app to set up and score the runs. |
+| Q40 | Field bout protocol? | Standardized blind interleaved bouts, with a separate web app to set up and score the runs. |
 | Q41 | Regression tiers? | Smoke per commit, full on demand, results table. |
 | Q42 | Final acceptance? | Beat `rl_nav_p4` with CI, floors fixed from the baseline session, median rating at least 4. |
 | Q43 | Runtime warnings? | Yes, named `PerformanceMonitor`. A command-chain mismatch blocks the RL policy from loading; the rest warn. |

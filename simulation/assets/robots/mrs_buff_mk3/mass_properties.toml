@@ -1,5 +1,5 @@
 # Mrs Buff Mk3 mass properties. Generated; do not edit by hand.
-# Regenerate: python playground/calibration/build_mrs_buff_mk3_model.py
+# Regenerate: python -m auto_battlebot.mujoco_sim.build_mrs_buff_mk3_model
 [provenance]
 onshape_assembly = "Onshape Mass and section properties against the footprint-centre connector, screenshots 2026-10-25 (onshape_export/*.png); tensors shifted to each COM"
 urdf_export = "onshape_export/mrs_buff_mk3.urdf (Onshape URDF exporter 1.222); geometry, weapon axis and collision meshes only, it carries no mass overrides"
@@ -7,7 +7,7 @@ chassis = "whole assembly minus four wheels; the weapon is lumped in (not spinni
 scale_mass_kg = "not weighed; the CAD total stands"
 motor = "Blitz Pro 24 mm 650 KV 5.2:1, justcuzrobotics.com product page and datasheet"
 rotor = "estimate: Mr Stabs Mk2's 1806 rotor scaled to a 2306 bell; fit absorbs it"
-generator = "playground/calibration/build_mrs_buff_mk3_model.py"
+generator = "auto_battlebot/mujoco_sim/build_mrs_buff_mk3_model.py"
 
 [frame]
 description = "FLU at the footprint centre, at axle height: x = -Y_asm, y = +X_asm, z = +Z_asm"

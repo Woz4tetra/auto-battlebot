@@ -44,7 +44,7 @@ Then, from the dashboard:
 
 ```bash
 source scripts/activate_python.sh
-python playground/calibration/sysid_coverage.py --live ws://192.168.50.183:8765
+python -m auto_battlebot.calibration.sysid.sysid_coverage --live ws://192.168.50.183:8765
 ```
 
 Open `http://localhost:8790`. The page shows:
@@ -85,7 +85,7 @@ sessions: `00-29-00` (461 s, the training session) and `00-20-58` (307 s, held o
 source scripts/activate_python.sh
 REC=data/recordings/auto_battlebot_mr_stabs_mk2_sysid_zed_box_2026-10-15_00-29-00.mcap
 HOLD=data/recordings/auto_battlebot_mr_stabs_mk2_sysid_zed_box_2026-10-15_00-20-58.mcap
-OUT=playground/calibration/out/mujoco_sysid
+OUT=data/calibration/mujoco_sysid
 ```
 
 Record at least two sessions. The fit trains on one and is judged on another, never on windows of
@@ -108,7 +108,7 @@ its own session.
 Copy the MCAP off the ZED Box once the app has closed it, then:
 
 ```bash
-python playground/calibration/check_sysid_recordings.py $REC $HOLD --plots $OUT/checks
+python -m auto_battlebot.calibration.sysid.check_sysid_recordings $REC $HOLD --plots $OUT/checks
 ```
 
 Each recording gets PASS / WARN / FAIL for file integrity, camera rate, field stability, tag
@@ -135,8 +135,8 @@ What a FAIL costs:
 ### 2. Find the robot with YOLO
 
 ```bash
-python playground/calibration/detect_robot_yolo.py $REC --out $OUT/2026-10-15_00-29-00_yolo/yolo.csv
-python playground/calibration/detect_robot_yolo.py $HOLD --out $OUT/2026-10-15_00-20-58_yolo/yolo.csv
+python -m auto_battlebot.calibration.sysid.detect_robot_yolo $REC --out $OUT/2026-10-15_00-29-00_yolo/yolo.csv
+python -m auto_battlebot.calibration.sysid.detect_robot_yolo $HOLD --out $OUT/2026-10-15_00-20-58_yolo/yolo.csv
 ```
 
 This runs the deployed pose engine over every video frame (about 6 minutes for 27,645 frames on
@@ -156,9 +156,9 @@ detections; you do not need to clean anything by hand.
 ### 3. Smooth the session
 
 ```bash
-python playground/calibration/smooth_tag_poses.py $REC --session-name 2026-10-15_00-29-00_yolo \
+python -m auto_battlebot.calibration.sysid.smooth_tag_poses $REC --session-name 2026-10-15_00-29-00_yolo \
     --yolo $OUT/2026-10-15_00-29-00_yolo/yolo.csv --plots
-python playground/calibration/smooth_tag_poses.py $HOLD --session-name 2026-10-15_00-20-58_yolo \
+python -m auto_battlebot.calibration.sysid.smooth_tag_poses $HOLD --session-name 2026-10-15_00-20-58_yolo \
     --yolo $OUT/2026-10-15_00-20-58_yolo/yolo.csv --plots
 ```
 
@@ -211,7 +211,7 @@ Plots in the bundle directory:
 ### 4. Look at the smoothed bundle
 
 ```bash
-python playground/calibration/plot_sysid_bundle.py $OUT/2026-10-15_00-29-00_yolo \
+python -m auto_battlebot.calibration.sysid.plot_sysid_bundle $OUT/2026-10-15_00-29-00_yolo \
     --compare $OUT/2026-10-15_00-29-00_tag
 ```
 
@@ -258,7 +258,7 @@ smoother gets back to it. Across 40 hidden 1 s spans on `00-29-00`:
 The fit runs MuJoCo Warp on the laptop's GPU. Run it directly.
 
 ```bash
-python playground/calibration/fit_mujoco_plant.py fit $OUT/2026-10-15_00-29-00_yolo \
+python -m auto_battlebot.calibration.fit_mujoco_plant fit $OUT/2026-10-15_00-29-00_yolo \
     --holdout $OUT/2026-10-15_00-20-58_yolo \
     --max-windows 64 --popsize 64 --generations 25 --restarts 2 --zero-mode both \
     --out $OUT/fit_2026-10-15_yolo
@@ -348,7 +348,7 @@ more generations and a second training session are the next things to try.
 ### 6. Score the fit on other sessions
 
 ```bash
-python playground/calibration/fit_mujoco_plant.py validate $OUT/fit_2026-10-15_yolo \
+python -m auto_battlebot.calibration.fit_mujoco_plant validate $OUT/fit_2026-10-15_yolo \
     $OUT/2026-10-15_00-20-58_tag --name holdout_tag
 ```
 
@@ -363,7 +363,7 @@ table: deadzones, gains, accel and decel time constants, delay, steer-brake coup
 drives the fitted MuJoCo model with stick tapes and fits that table to what it does.
 
 ```bash
-python playground/calibration/distill_mujoco_plant.py $OUT/fit_2026-10-15_yolo \
+python -m auto_battlebot.calibration.distill_mujoco_plant $OUT/fit_2026-10-15_yolo \
     --holdout $OUT/2026-10-15_00-20-58_yolo
 ```
 
@@ -413,9 +413,9 @@ steps the table would learn from are wheelies. Do not install a table that misse
 ### 8. Install the table
 
 ```bash
-python playground/calibration/write_plant_configs.py --robot mr_stabs_mk2 \
+python -m auto_battlebot.calibration.write_plant_configs --robot mr_stabs_mk2 \
     --fit $OUT/fit_2026-10-15_yolo/distilled/plant.toml --check
-python playground/calibration/write_plant_configs.py --robot mr_stabs_mk2 \
+python -m auto_battlebot.calibration.write_plant_configs --robot mr_stabs_mk2 \
     --fit $OUT/fit_2026-10-15_yolo/distilled/plant.toml
 ```
 
@@ -428,7 +428,7 @@ afterwards.
 
 ```bash
 ./scripts/build.sh
-python playground/calibration/sim_stop_test.py \
+python -m auto_battlebot.calibration.sim_stop_test \
     --fit-file $OUT/fit_2026-10-15_yolo/fit.json \
     --arm current=config/mr_stabs_mk2_aer_zed_box.toml \
     --arm distilled=$OUT/fit_2026-10-15_yolo/distilled/plant.toml
@@ -455,13 +455,13 @@ two days.
 
 ```bash
 # a recorded session at 8x real time
-python playground/calibration/sysid_coverage.py --replay rec.mcap --speed 8
+python -m auto_battlebot.calibration.sysid.sysid_coverage --replay rec.mcap --speed 8
 
 # as fast as possible, no page
-python playground/calibration/sysid_coverage.py --replay rec.mcap --speed 0 --no-serve
+python -m auto_battlebot.calibration.sysid.sysid_coverage --replay rec.mcap --speed 0 --no-serve
 
 # write a simulated session, then replay it
-python playground/calibration/sysid_coverage.py --synthetic /tmp/sysid_sim.mcap --seconds 150
+python -m auto_battlebot.calibration.sysid.sysid_coverage --synthetic /tmp/sysid_sim.mcap --seconds 150
 ```
 
 The replay page stays up after the recording ends; Ctrl-C writes the session and exits.

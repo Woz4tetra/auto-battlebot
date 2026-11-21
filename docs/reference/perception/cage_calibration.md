@@ -1,6 +1,6 @@
 # Cage calibration
 
-`CageCalibration` is a cage measured once. `playground/field_transform/calibrate_cage.py` writes it from a clean empty-cage frame, and `playground/cage_scene/` reads it to place render cameras. No runtime field filter loads it. Everything in it is a measurement of one physical cage with the camera fixture seated, so it travels with the venue rather than with the build.
+`CageCalibration` is a cage measured once. `playground/field_transform/calibrate_cage.py` writes it from a clean empty-cage frame, and `training/synthetic/scenes/cage_scene/` reads it to place render cameras. No runtime field filter loads it. Everything in it is a measurement of one physical cage with the camera fixture seated, so it travels with the venue rather than with the build.
 
 ## Camera intrinsics
 
@@ -38,4 +38,4 @@ A roll of -150 deg in the true_battlebot files is a camera looking down and towa
 
 ## Tests
 
-`tests/python/test_cage_calibration.py` projects a synthetic camera 1.5 m above a 2.35 m mat, looking across it from the near wall, through a pinhole. It solves the pose back with `pose_from_corners` and pushes it through the frame chain in `cage_calibration`. The sign conventions the render and grading scripts rely on are asserted there, not in a docstring.
+`auto_battlebot/perception/tests/test_cage_calibration.py` projects a synthetic camera 1.5 m above a 2.35 m mat, looking across it from the near wall, through a pinhole. It solves the pose back with `pose_from_corners` and pushes it through the frame chain in `cage_calibration`. The sign conventions the render and grading scripts rely on are asserted there, not in a docstring.

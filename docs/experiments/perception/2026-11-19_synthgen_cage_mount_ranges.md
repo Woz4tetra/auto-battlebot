@@ -33,7 +33,7 @@ Source: 12 poses flown by hand in `pose_camera_server.py` on 2026-09-12 through 
 - Over the ranges in the file: 35.1 percent fill, median tilt 40.4 degrees, 99.3 percent of the mat in frame.
 - The fill number projects the mat and takes a convex hull with no occlusion term. It cannot see a pane covering the view and keeps rising as the camera closes on the glass. The near end of `inset_m` is what stops it.
 - The quantities a wall swap mirrors (`along_m`, `yaw_deg`, `roll_deg`) are symmetrized, since their asymmetry says more about twelve hand-flown samples than about the mount.
-- The earlier block bracketed the eleven poses `fit_cage_camera.py` solved for NHRL's own phone, a different camera on a different side of the glass. `playground/cage_scene/fit_cage_camera.py` still has those.
+- The earlier block bracketed the eleven poses `fit_cage_camera.py` solved for NHRL's own phone, a different camera on a different side of the glass. `training/synthetic/scenes/cage_scene/fit_cage_camera.py` still has those.
 - Every marked pose sits outside the polycarbonate, which is why `inset_m` is negative where the phone-fitted block was positive. A pane the camera looks through from outside is hidden for that frame and costs no labels. A mount inside the cage shooting through a far pane loses them, because the segmentation pass stops at the glass.
 - Each mark sits 5.1 to 18.8 degrees steeper than a straight aim at field centre (mean 10.9, sd 3.9), so every one is aimed short of the centre. That puts the far edge of the mat high in the frame and leaves foreground below it. This is why `aim = "centre"` with a negative `tilt_offset_deg` is used.
 - Height is not capped by the 1.22 m polycarbonate top, since the mount is outside it.
@@ -56,7 +56,7 @@ Source: 12 poses flown by hand in `pose_camera_server.py` on 2026-09-12 through 
 
 ## Meatball basement mount
 
-- Fitted from our own ZED on 2026-09-19 (`playground/basement_scene/README.md`).
+- Fitted from our own ZED on 2026-09-19 (`training/synthetic/scenes/basement_scene/README.md`).
 - The box is a 1.52 m plywood floor in 2x4 rails, in a corner of stone walls.
 - `mat_margin_m = 0.15` leaves a 1.22 m square of the 1.52 m floor to place robots on.
 - The mount brackets the stand the ZED stood on in the fitted frame: 0.56 m outside the near rail, 0.56 m above the plywood, 64 degrees off straight down, square to the box, 3.6 degrees steeper than a straight aim at the floor centre. `inset_m` is outside the rail, and the fitted stand is at -0.56. The wall plane is the rail's outer face, 0.80 m from the floor centre.

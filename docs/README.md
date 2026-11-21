@@ -3,7 +3,7 @@
 | Folder | Holds |
 | --- | --- |
 | `setup/` | How a machine or service is set up: Jetson, ZED Box Mini, megamind, Docker playback, install and build facts, the dashboard kiosk and network |
-| `guides/` | Procedures you follow start to finish: adding an eval recording, running a sysid session |
+| `guides/` | Procedures you follow start to finish: adding an eval recording, running a sysid session, building the cage-high video set |
 | `reference/` | How the code works, one folder per subsystem |
 | `hardware/` | Robots, PCBs, mounts, radios |
 | `plans/` | Active plans only. A finished plan is deleted once its lasting facts are in `reference/` |
@@ -20,13 +20,13 @@
 | `config/` | `config_extends.md` (extends chains, `from` section files), `robot_plant_files.md` |
 | `perception/` | `deeplab_floor_mask_data.md`, `robot_filter_pipeline.md`, `field_pose.md`, `cage_calibration.md`, `camera_profiles.md`, `trt_engine.md`, `trt_yolo.md` |
 | `simulation/` | `kinematic_sim_config.md`, `sim_profiles.md` (why each sim profile sets its values) |
-| `control/` | `plant_backed_control.md`, `hazards.md`, `rl_policy_bundle.md`, `control_loop.md`, `empty_circle_solver.md`, `rl_opponents.md`, `rl_training.md`, `rl_training_config.md`, `rl_toy_configs.md` |
-| `calibration/` | `sysid_modules.md`, `plant_fit_modules.md`, `velocity_jig_config.md` |
+| `control/` | `plant_backed_control.md`, `hazards.md`, `rl_policy_bundle.md`, `control_loop.md`, `empty_circle_solver.md`, `rl_opponents.md`, `rl_training.md`, `rl_training_config.md` |
+| `calibration/` | `sysid_modules.md`, `plant_fit_modules.md`, `velocity_jig_config.md`, `drivetrain_calibration.md`, `am32_tuning.md` |
 | `eval/` | `eval_code.md`, `taxonomies.md` |
 | `recording/` | `foxglove_recording_format.md` (the recording contract), `svo_recording.md`, `video_recording.md` |
 | `remote/` | `protocol.md` (topics, commands, field projection) |
 | `robot_link/` | `esc_drive.md`, `espnow_link.md`, `firmware_build.md`, `firmware_telemetry.md`, `motor_guard.md`, `pid.md`, `tuning.md`, `yaw_control.md` |
-| `tools/` | `gpu_queue.md`, `logo_splash_animation.md`, `perception_reliability.md`, `synthgen_cage_specs.md`, `synthgen_config.md`, `synthgen_render.md`, `synthgen_scene_contracts.md`, `domain_mix_arms.md`, `yolo_training.md`, `python_packaging.md`, `comment_budget.md`, `sanitizer_builds.md`, `thread_safety.md` |
+| `tools/` | `gpu_queue.md`, `logo_splash_animation.md`, `perception_reliability.md`, `synthgen_cage_specs.md`, `synthgen_config.md`, `synthgen_render.md`, `synthgen_scene_contracts.md`, `domain_mix_arms.md`, `yolo_training.md`, `python_packaging.md`, `comment_budget.md`, `sanitizer_builds.md`, `thread_safety.md`, `verify.md` |
 
 ## experiments/
 

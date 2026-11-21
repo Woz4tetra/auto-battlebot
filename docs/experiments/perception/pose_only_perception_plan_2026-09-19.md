@@ -242,7 +242,7 @@ The solo benchmark is the honest number here in a way it was not for the two-mod
 
 ## Step 1a: render 10,000 basement frames
 
-The `meatball_basement` scene landed on 2026-09-19 (`playground/basement_scene/README.md`): the
+The `meatball_basement` scene landed on 2026-09-19 (`training/synthetic/scenes/basement_scene/README.md`): the
 1.52 m plywood drive-test box in its corner of stone walls, fitted from one frame of our own ZED on
 a stand, with the floor grading at 0.973 SSIM against the target. `config_cage_meatball.toml` pins
 a render to it. It is the third domain venue, and it is a different kind of venue from the other

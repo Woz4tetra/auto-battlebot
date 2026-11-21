@@ -29,4 +29,4 @@
 - `VIEW_COUNT_SLACK = 1`: a view's frame count may sit this far from an exact third, from the uneven split and rounding.
 - `MAX_DROP_FRACTION = 0.25`: the step 3 gate. Past this share of attempted frames dropped, the mat margin or the distractor count needs a look.
 
-Tests: `tests/python/test_make_domain_mix_arms.py`.
+Tests: `training/yolo/tests/test_make_domain_mix_arms.py`.

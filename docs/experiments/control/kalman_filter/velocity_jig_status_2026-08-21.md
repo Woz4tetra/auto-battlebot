@@ -44,7 +44,7 @@ report, not only here.
 ## Gyro noise, E2
 
 From `LOG-97`, 30.5 min stationary, 1,827,509 samples, no gaps and no saturation. Analysis
-is `playground/calibration/fit_gyro_noise.py`, plot in `out/gyro_noise.png`.
+is `auto_battlebot/calibration/jig/fit_gyro_noise.py`, plot in `out/gyro_noise.png`.
 
 ```
 axis    bias dps         ARW           B   tau_min           RRW
@@ -395,7 +395,7 @@ fit that reads it.
 `LSM6DS_GYRO_RANGE_*` values. `setGyroRange` writes the low four bits of `CTRL2_G` with no
 validation, so it works here but would silently select 250 dps on any other LSM6DS part.
 
-### `playground/calibration/waveforms.toml`
+### `auto_battlebot/calibration/jig/waveforms.toml`
 
 | edit | from | to | why |
 |---|---|---|---|
@@ -420,7 +420,7 @@ Precision on `k_fwd` and `k_rev` comes from segment count, not segment length. `
 +/- 38% from n=4. Three reps takes that to n=12 and roughly 22%; three sessions to n=36 and
 about 13%.
 
-### `playground/calibration/fit_gyro_noise.py`
+### `auto_battlebot/calibration/jig/fit_gyro_noise.py`
 
 New. Overlapping Allan deviation per gyro axis plus yaw projected along measured gravity,
 with ARW, bias instability and RRW per IEEE 952. Reports RRW as `n/a` rather than fitting a
@@ -448,7 +448,7 @@ a deliberate Ctrl-C partway through to confirm the disarm path:
 
 ```bash
 source scripts/activate_python.sh
-python playground/calibration/velocity_jig_drive.py \
+python -m auto_battlebot.calibration.jig.velocity_jig_drive \
     --waveform lin_step_full --reps 1 --hold-s 10 --name "smoke test, new ranges"
 ```
 
@@ -456,9 +456,9 @@ Check the runway against your floor before committing. `lin_step_full` has 7 ope
 so the constraint is the worst single segment, 1.88 m, not the cumulative figure printed:
 
 ```bash
-python playground/calibration/velocity_jig_drive.py \
+python -m auto_battlebot.calibration.jig.velocity_jig_drive \
     --waveform lin_step_full --dry-run \
-    --params playground/calibration/out/plant_params_m2.toml
+    --params data/calibration/plant_params_m2.toml
 ```
 
 Without `--params` the predictor uses built-in defaults and reports a 5.60 m/s peak, about
@@ -473,7 +473,7 @@ LOG-66 and LOG-69 style exclusions go away, and E2 says the bias keeps improving
 Fit battery, 3 reps, about 90 min wall clock:
 
 ```bash
-python playground/calibration/velocity_jig_drive.py \
+python -m auto_battlebot.calibration.jig.velocity_jig_drive \
     --waveform lin_deadzone --waveform lin_step_full --waveform lin_coast \
     --waveform ang_deadzone --waveform ang_step_full --waveform ang_coast \
     --waveform coupling_grid \
@@ -484,7 +484,7 @@ python playground/calibration/velocity_jig_drive.py \
 Holdouts, 3 reps:
 
 ```bash
-python playground/calibration/velocity_jig_drive.py \
+python -m auto_battlebot.calibration.jig.velocity_jig_drive \
     --waveform lin_prbs --waveform ang_prbs --waveform combined_prbs \
     --waveform lin_chirp --waveform ang_chirp \
     --waveform lin_sine --waveform lin_triangle \
@@ -500,11 +500,11 @@ Operator driving, twice with two different drivers, and the trim run that has ne
 recorded:
 
 ```bash
-python playground/calibration/velocity_jig_drive.py \
+python -m auto_battlebot.calibration.jig.velocity_jig_drive \
     --waveform operator --reps 1 --hold-s 10 \
     --name "mrs buff mk3, pack 1" --notes "driver: <name>, chasing corner cone"
 
-python playground/calibration/velocity_jig_drive.py \
+python -m auto_battlebot.calibration.jig.velocity_jig_drive \
     --waveform trim --reps 2 --hold-s 10 --name "mrs buff mk3, pack 1"
 ```
 
@@ -512,11 +512,11 @@ E20 pack state, bracketing a 3 min drawdown. No sidecar carries a pack voltage, 
 is the only place it lands:
 
 ```bash
-python playground/calibration/velocity_jig_drive.py \
+python -m auto_battlebot.calibration.jig.velocity_jig_drive \
     --waveform lin_step_full --reps 3 --hold-s 10 \
     --name "mrs buff mk3, pack fresh" --notes "resting 16.8 V"
 # drive hard 3 min, then:
-python playground/calibration/velocity_jig_drive.py \
+python -m auto_battlebot.calibration.jig.velocity_jig_drive \
     --waveform lin_step_full --reps 3 --hold-s 10 \
     --name "mrs buff mk3, pack drawn" --notes "resting 15.4 V"
 ```
@@ -526,12 +526,12 @@ Three sessions, different days, different packs.
 ### Fit after each session
 
 ```bash
-python playground/calibration/fit_jig_plant.py \
-    playground/calibration/out/<session> \
+python -m auto_battlebot.calibration.jig.fit_jig_plant \
+    data/calibration/<session> \
     --ladder --no-delay-profile --bootstrap 8 \
     --name "mrs buff mk3, session N" \
-    --out playground/calibration/out/plant_params_v2.toml \
-    --report playground/calibration/out/jig_fit_v2.html
+    --out data/calibration/plant_params_v2.toml \
+    --report data/calibration/jig_fit_v2.html
 ```
 
 The one check that says whether the session worked: compare Stage A's `k_fwd` against the

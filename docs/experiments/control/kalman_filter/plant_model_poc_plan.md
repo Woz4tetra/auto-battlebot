@@ -7,7 +7,7 @@ comment.
 
 ## Inputs, already done
 
-- `playground/calibration/out/plant_stageA.toml`: stage A per-phase values from all four
+- `auto_battlebot/calibration/plant_stageA.toml`: stage A per-phase values from all four
   sessions (2026-08-19 through 2026-08-23), written with `--no-joint`.
 - Delay 0.0522 s from the onset stack (3486 edges, SNR 22.4, clock measured). Corroborated
   by the tau-pinned stage B profile minimum (54 ms) and the stage 2 camera measurement
@@ -25,7 +25,7 @@ comment.
   `[robot_filter]` config section, parsed in `src/robot_filter/config.cpp` by
   `load_robot_filter_from_toml` into the `RobotFilterConfiguration` struct like every other
   option, and carried through the config extends chain.
-- The fitted values are copied from `playground/calibration/out/plant_stageA.toml` into the
+- The fitted values are copied from `auto_battlebot/calibration/plant_stageA.toml` into the
   config TOML, provenance comment pointing back at the fit. The fit stays the source of
   truth for the numbers; the config is where the runtime reads them.
 - Model structure selection stays fit-side: a ladder rung disables a term by writing it as

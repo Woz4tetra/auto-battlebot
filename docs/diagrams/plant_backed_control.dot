@@ -35,7 +35,7 @@ digraph PlantBackedControl {
         shape=note
         fillcolor="#FEF9C3"
         color="#EAB308"
-        label=<<b>One plant fit, used in both directions</b><br align="left"/>playground/calibration/out/plant_stageA.toml<br align="left"/><br align="left"/>k_fwd 4.88 &#183; k_rev 4.35 &#183; k_ang 31.7<br align="left"/>tau_lin_a 0.149 &#183; tau_lin_d 0.123<br align="left"/>tau_ang_a 0.174 &#183; tau_ang_d 0.088<br align="left"/>delay_s 0.052 &#183; c_sb 2.70 &#183; c_ad 0.463<br align="left"/><br align="left"/>write_plant_configs.py copies these into the<br align="left"/>estimator TOML and the navigation defaults.<br align="left"/><font color="#15803D"><b>Green boxes</b></font> are the fitted plant: run forward<br align="left"/>in the filter, inverted in the controller.<br align="left"/>>
+        label=<<b>One plant fit, used in both directions</b><br align="left"/>auto_battlebot/calibration/plant_stageA.toml<br align="left"/><br align="left"/>k_fwd 4.88 &#183; k_rev 4.35 &#183; k_ang 31.7<br align="left"/>tau_lin_a 0.149 &#183; tau_lin_d 0.123<br align="left"/>tau_ang_a 0.174 &#183; tau_ang_d 0.088<br align="left"/>delay_s 0.052 &#183; c_sb 2.70 &#183; c_ad 0.463<br align="left"/><br align="left"/>write_plant_configs.py copies these into the<br align="left"/>estimator TOML and the navigation defaults.<br align="left"/><font color="#15803D"><b>Green boxes</b></font> are the fitted plant: run forward<br align="left"/>in the filter, inverted in the controller.<br align="left"/>>
     ];
 
     /* ---------- perception ---------- */

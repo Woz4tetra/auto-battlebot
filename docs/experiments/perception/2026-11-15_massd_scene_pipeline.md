@@ -1,6 +1,6 @@
 # MassDestruction camera fit details
 
-## Target extraction (`playground/massd_scene/extract_target.py`)
+## Target extraction (`training/synthetic/scenes/massd_scene/extract_target.py`)
 
 Robot-free target frame from a MassDestruction broadcast clip, banners cropped off.
 
@@ -8,7 +8,7 @@ The Omega broadcast lays a title bar over the top of the picture and a sponsor b
 
 Unlike the NHRL cage-high flow this takes one hand-checked frame rather than a per-pixel median: the fights fill the whole clip, so the median still carries robot ghosts, while a between-round frame is genuinely empty. `--scan` ranks candidate frames by how little of the floor differs from the clip median and writes a contact sheet to choose from; the chosen index is then passed with `--frame`.
 
-Output layout (matching playground/cage_scene so the cage-high tools read it unchanged):
+Output layout (matching training/synthetic/scenes/cage_scene so the cage-high tools read it unchanged):
 
 ```
     <out>/targets/<clip>/target.png      1920x886, banners cropped
@@ -18,15 +18,15 @@ Output layout (matching playground/cage_scene so the cage-high tools read it unc
 
 ```
 Usage:
-    venv/bin/python playground/massd_scene/extract_target.py \
+    venv/bin/python training/synthetic/scenes/massd_scene/extract_target.py \
         data/downloads/massd_resurgence6_mrsbuff/r1_beeroll_vs_mrsbuff.mp4 \
         --frame 8140 --out runs/massd_scene
-    venv/bin/python playground/massd_scene/extract_target.py <video> --scan 12
+    venv/bin/python training/synthetic/scenes/massd_scene/extract_target.py <video> --scan 12
 ```
 
 `--scan` ranks sampled frames by the floor fraction that differs from the clip median. Robots, brooms and hands all read as floor that moved. Thin objects score low, so the ranking narrows the search rather than deciding it; look at the contact sheet.
 
-## Camera fit (`playground/massd_scene/fit_massd_camera.py`)
+## Camera fit (`training/synthetic/scenes/massd_scene/fit_massd_camera.py`)
 
 Fit the MassDestruction broadcast camera: focal length and pose, from the floor alone.
 
@@ -44,5 +44,5 @@ Scale in: `--mat-size`, the plywood floor edge to edge. 2.26 m is the MassD aren
 
 ```
 Usage:
-    venv/bin/python playground/massd_scene/fit_massd_camera.py runs/massd_scene
+    venv/bin/python training/synthetic/scenes/massd_scene/fit_massd_camera.py runs/massd_scene
 ```

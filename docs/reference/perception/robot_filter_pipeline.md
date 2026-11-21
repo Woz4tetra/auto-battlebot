@@ -102,7 +102,7 @@ This helps the common short dropouts and drifts on rare long ones.
 - Config fields accept a float or a per-row tensor, so a grid search runs every candidate as its own row of one batch.
 - `field_half_extent` is the field's half size, shape `(batch, 2)`, or `None` for no field. With no field the C++ skips the clip and the wall stop when the field size is not positive, and the mirror does the same. `margin` is `field_bounds_margin_meters`. `heading_blind_rows` is a `(batch,)` bool marking rows whose label is in `heading_blind_labels`. Wrong shapes raise `ValueError`.
 - `update` takes `has_measurement` (a measurement arrived this frame), `yaw` (the measurement's rotation, 0 for a blob whose rotation is identity), `is_keypoint`, and `measurement_position_variance` (the diagonal from `measurement_noise_for`).
-- A change to the C++ opponent arm lands here in the same commit. `tests/test_kalman_motion_estimator.cpp` checks the C++ side and `tests/python/test_opponent_filter.py` checks this side against the same fixture, `tests/robot_filter/opponent_filter_golden_data.hpp`. Regenerate it with `playground/opponent_prediction/make_opponent_filter_golden_fixture.py`.
+- A change to the C++ opponent arm lands here in the same commit. `tests/test_kalman_motion_estimator.cpp` checks the C++ side and `auto_battlebot/perception/tests/test_opponent_filter.py` checks this side against the same fixture, `tests/robot_filter/opponent_filter_golden_data.hpp`. Regenerate it with `tests/fixtures/generators/make_opponent_filter_golden_fixture.py`.
 
 ## Sysid sessions as opponent-filter data
 

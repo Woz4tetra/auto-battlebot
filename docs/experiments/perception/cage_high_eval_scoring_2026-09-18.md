@@ -57,7 +57,7 @@ still counts.
 this set starts at stamp 0, so the nine frames named `0000000000000000000` collapsed into one
 and `score.py` scored 571 frames while reporting it in a line nobody reads twice. Frames are
 now keyed by `FrameKey(dataset, stamp_ns)`, which pairs the subdataset with the stamp, and
-review state is matched per subdataset for the same reason. `tests/python/test_eval_dataset.py`
+review state is matched per subdataset for the same reason. `auto_battlebot/eval/tests/test_eval_dataset.py`
 locks both in. The existing `nhrl_keypoints_eval_test` was never affected: its stems are SVO
 stamps, unique across recordings, and it still loads all 688 frames.
 

@@ -16,21 +16,19 @@
 | `pytest` | Runs `training/synthetic/tests` (synthgen pure modules). |
 | `pycocotools` | Backend for torchmetrics `MeanAveragePrecision`, used by `training/model_eval`. |
 | `av` | H.264 decode for `/camera/video`, used by `auto_battlebot.recording.mcap_io`. |
-| `pyserial` | `playground/calibration` drives the OpenTX trainer link with it for drivetrain characterization. |
+| `pyserial` | `auto_battlebot/calibration/jig/velocity_jig_drive.py` drives the OpenTX trainer link with it for drivetrain characterization. |
 | `flask` | `firmware/espnow_dongle/scripts/espnow_diag.py` serves the ESP-NOW link diagnostics page with it. |
-| `Pillow` | `playground/calibration/make_print_tags.py` exports print-accurate AprilTag PDFs with it. |
+| `Pillow` | `auto_battlebot/calibration/apriltag/make_print_tags.py` exports print-accurate AprilTag PDFs with it. |
 | `pycuda`, `torch`, `tensorrt` | x86_64 only. They are often unavailable or different on Jetson (aarch64). |
 | `mujoco`, `mujoco-warp`, `warp-lang`, `cma`, `coacd` | x86_64 only. `auto_battlebot/mujoco_sim` fits the Mr Stabs Mk2 rigid body on the dev GPUs. Pinned because the MuJoCo Warp API still changes between releases. |
 
 ## `[tool.setuptools.packages.find]`
 
-| Field | Meaning |
-| --- | --- |
-| `exclude = ["playground.calibration.venv*"]` | `playground/calibration/venv` is a populated DepthAI venv (depthai 2.32 with its own cv2). It is gitignored but present on disk. Without the exclude, every package under its site-packages is discovered as `playground.calibration.venv.lib...`. |
+`include = ["auto_battlebot*"]`: `auto_battlebot` is the only installed package.
 
 ## Tooling scope
 
-ruff lints and formats `playground/` like the rest of the tree, but mypy skips it. It holds analysis scripts, not shipped code, so it is not held to the typing bar. Anything two callers share belongs in `auto_battlebot/`.
+ruff lints and formats the whole tree. `mypy.ini` excludes `scripts/{calibration,datasets,eval,nav,rl,sim_assets}/`, the analysis CLIs moved there from the old `playground/` tree. Anything two callers share belongs in `auto_battlebot/`, which mypy checks.
 
 ## `[tool.ruff]`
 
@@ -47,8 +45,9 @@ ruff lints and formats `playground/` like the rest of the tree, but mypy skips i
 | Glob | Meaning |
 | --- | --- |
 | `scripts/*`, `simulation/*.py`, `training/**/*.py` (`INP`) | Top-level scripts are run directly, not imported as a package. |
+| `tests/fixtures/generators/*.py` (`INP`) | Golden fixture generators are run directly. |
 | `hardware/**/*.py` (`INP`) | CAD part files, loaded by the build123d-part check script rather than imported. |
-| `playground/**/*.py` (`C901`) | Analysis scripts are one long linear `main()` per file that reads a recording and writes plots. Splitting them to satisfy the complexity limit costs more than it buys. Library code they call does not get this exemption; it lives in `auto_battlebot/`. |
+| `scripts/{calibration,datasets,eval,nav,rl,sim_assets}/*.py`, `training/synthetic/scenes/**/*.py` (`C901`) | Analysis scripts are one long linear `main()` per file that reads a recording and writes plots. Splitting them to satisfy the complexity limit costs more than it buys. Library code they call does not get this exemption; it lives in `auto_battlebot/`. |
 
 ## mypy
 

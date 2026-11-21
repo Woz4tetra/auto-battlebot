@@ -1,6 +1,6 @@
 # Provisional our-robot EKF error fits
 
-Provenance for the `[robots.ours.ekf_error]` tables in the two provisional sensing models. Both come from `playground/rl/fit_provisional_ekf_error.py`, which scores the C++ filter's output at control time against sim truth for all five components (along, cross, theta, v, omega). Both are placeholders until the sensing plan step 5 fit replaces them.
+Provenance for the `[robots.ours.ekf_error]` tables in the two provisional sensing models. Both come from `auto_battlebot/rl/fit_provisional_ekf_error.py`, which scores the C++ filter's output at control time against sim truth for all five components (along, cross, theta, v, omega). Both are placeholders until the sensing plan step 5 fit replaces them.
 
 ## `simulation/sensing_models/provisional_rl.toml`
 

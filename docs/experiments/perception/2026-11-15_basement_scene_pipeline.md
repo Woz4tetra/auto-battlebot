@@ -1,6 +1,6 @@
 # Basement scene pipeline details
 
-## Wall textures (`playground/basement_scene/build_wall_textures.py`)
+## Wall textures (`training/synthetic/scenes/basement_scene/build_wall_textures.py`)
 
 Stone-wall albedos for the basement scene, from the target frame and its ZED depth.
 
@@ -32,7 +32,7 @@ Writes `<out>/<name>_albedo.png`, `_seen.png` (the depth mask) and `.json`, and 
 
 ```
 Usage:
-    venv/bin/python playground/basement_scene/build_wall_textures.py runs/basement_scene \
+    venv/bin/python training/synthetic/scenes/basement_scene/build_wall_textures.py runs/basement_scene \
         --out training/data/environments/meatball_basement/walls
 ```
 
@@ -47,7 +47,7 @@ A plain blur would drag the unseen texels' placeholder value into the estimate a
 
 - `main`: Both run away from the shared corner, so the texture's left edge meets at the corner.
 
-## Camera fit (`playground/basement_scene/fit_basement_camera.py`)
+## Camera fit (`training/synthetic/scenes/basement_scene/fit_basement_camera.py`)
 
 Fit the basement drive-test box camera from ZED depth and the rail edges, K known.
 
@@ -70,10 +70,10 @@ Reads `<scene>/targets/<clip>/{target.png, xyz.npy, meta.json}` and `<scene>/cam
 
 ```
 Usage:
-    venv/bin/python playground/basement_scene/fit_basement_camera.py runs/basement_scene
+    venv/bin/python training/synthetic/scenes/basement_scene/fit_basement_camera.py runs/basement_scene
 ```
 
-## SVO depth export (`playground/basement_scene/export_svo_depth.py`)
+## SVO depth export (`training/synthetic/scenes/basement_scene/export_svo_depth.py`)
 
 Writes the left image, metric XYZ and intrinsics for one frame of a ZED SVO, for the basement scene fit. It runs wherever the ZED SDK is installed (pyzed), which is not the training box: the basement recordings live on pathfinder under `data/svo/tests/`.
 
@@ -82,6 +82,6 @@ Writes the left image, metric XYZ and intrinsics for one frame of a ZED SVO, for
 - `--out` receives `left.png` (rectified left image, BGR), `xyz.npy` (float32 HxWx3, camera frame in metres, OpenCV axes, NaN where the SDK had no depth) and `camera_rect.json` (fx, fy, cx, cy, width, height of the left camera, the K every downstream step uses).
 
 ```bash
-venv/bin/python playground/basement_scene/export_svo_depth.py \
+venv/bin/python training/synthetic/scenes/basement_scene/export_svo_depth.py \
     data/svo/tests/2026-04-19T17-01-18.svo2 --frame 4560 --out /tmp/basement_depth
 ```

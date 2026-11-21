@@ -29,7 +29,7 @@ Notes on `auto_battlebot/eval/` that matter when you add a recording or a candid
 
 ### GT depth cache
 
-`playground/depth_cache/cache_gt_depth.py`:
+`auto_battlebot/eval/cache_gt_depth.py`:
 
 Extract ZED depth for every ground-truth frame in an eval dataset, into a cache.
 
@@ -43,7 +43,7 @@ Output is one `<subdataset>.npz` per sub dataset, keyed by stamp_ns, holding flo
 
 ```
 Usage:
-    python playground/cache_gt_depth.py training/data/nhrl_keypoints_eval_test         --svo-roots data/svo -o <cache dir>
+    python -m auto_battlebot.eval.cache_gt_depth training/data/nhrl_keypoints_eval_test         --svo-roots data/svo -o <cache dir>
 ```
 
 ### Camera geometry

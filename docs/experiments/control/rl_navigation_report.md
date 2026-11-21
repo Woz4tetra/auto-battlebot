@@ -40,7 +40,7 @@ Notes:
 - FastTD3 is our own implementation (`auto_battlebot/rl/learners/fasttd3.py`): distributional
   clipped double Q, n-step 3, per-world noise in [0.001, 0.4], no LayerNorm (RTNeural cannot run
   it). The laptop arm used batch 8,192, not the paper's 32,768, which costs 100 ms per update here.
-  It converges on a smooth two-state toy (`tests/python/test_rl_core.py`: reward 1 - |linear - target|
+  It converges on a smooth two-state toy (`auto_battlebot/rl/envs/tests/test_rl_core.py`: reward 1 - |linear - target|
   with target +0.6 or -0.6 by state; the one-hot sign-reward toy is flat, which a deterministic policy
   gradient cannot climb), so the failure on the
   navigation toy is exploration: a deterministic actor with small noise never finds the sparse
@@ -57,7 +57,7 @@ Notes:
    over 0.5 s. The six NHRL May fights measured any-detection gaps at p50 56 ms, p90 338 ms, max
    5.8 s (`perception_reliability_may_fights.md`). The RL file
    `simulation/sensing_models/provisional_rl.toml` (written by
-   `playground/rl/fit_provisional_ekf_error.py`) takes the measured gap quantiles for every cell of
+   `auto_battlebot/rl/fit_provisional_ekf_error.py`) takes the measured gap quantiles for every cell of
    both roles. Measured runs stay as fitted, so robots read measured 83% (ours) and 70% (opponent)
    of the time against the fights' pooled 58% and 48%.
 2. **No our-robot EKF error table.** `OurEkfErrorModel` needs `[robots.ours.ekf_error]`, which the
@@ -117,7 +117,7 @@ Orin NX). Beyond the plan:
 
 ## Sim gates: baselines on the held-out scenarios
 
-`playground/rl/lockstep_eval.py export` writes 128 held-out evaluation episodes from the Warp
+`auto_battlebot/rl/lockstep_eval.py export` writes 128 held-out evaluation episodes from the Warp
 environment (stage `EVAL`: stage D's mix on the nominal plant, held-out pursuit corner and replay
 tracks); `run` plays each in the lockstep sim (`simulation/rl_eval_server.py`, the same arena,
 opponents, command chain and scoring on CPU MuJoCo) against the real release binary.
@@ -184,7 +184,7 @@ held-out scenarios; Warp evaluated three times because one run is not reproducib
 ## How G4 was closed (interim policy)
 
 Policy: the stage D checkpoint at 310M steps (`rl_nav_ppo_cd`, 2026-10-17 06:20), exported with
-`playground/rl/export_checkpoint.py` to `data/models/nav_policies/rl_nav_interim`. The numbers in
+`auto_battlebot/rl/export_checkpoint.py` to `data/models/nav_policies/rl_nav_interim`. The numbers in
 this section are for that policy, before the fixes below.
 
 - **G3 passed here too.** The binary's startup self-test runs the 16 exported observation/action
@@ -204,7 +204,7 @@ near the Warp spread. Danger share doubles and flips rise by a third; in run-awa
 policy flips in 17 of 19 against 5 to 8 in Warp, after 8 to 17 wall contacts each. G4 failed.
 
 The cause is our robot's state estimate. Warp renders it with `OurEkfErrorModel`, whose table
-(`playground/rl/fit_provisional_ekf_error.py`) compared the sysid EKF's corrected state at each
+(`auto_battlebot/rl/fit_provisional_ekf_error.py`) compared the sysid EKF's corrected state at each
 measurement stamp with tag truth. That leaves out the error of propagating to control time across
 60 to 80 ms of latency, which is most of it when the robot spins at 4 rad/s. In lockstep the real
 filter runs on simulated keypoints. Scored against the sim truth on the same ticks, its output is

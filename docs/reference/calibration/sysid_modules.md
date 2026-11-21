@@ -1,6 +1,6 @@
 # Sysid modules
 
-How the sysid code under `auto_battlebot/calibration/` and `playground/calibration/` works. The procedure that runs it is `docs/guides/sysid_guide.md`.
+How the sysid code under `auto_battlebot/calibration/` works. The procedure that runs it is `docs/guides/sysid_guide.md`.
 
 Nothing under `calibration/sysid/` sends a command: the robot is driven by a person, and the package only watches. `test_sysid_package_never_sends_commands` fails if it imports a serial, socket, jig, MuJoCo or RL module.
 
@@ -137,7 +137,7 @@ Three things are flagged rather than absorbed:
 
 ### `JigCalibration`
 
-Bench calibration from runbook block 0, one set per hardware configuration. `meters_per_count` (E4) and `gyro_scale` (E3) set the units of every fitted parameter. `from_toml` rejects a non-positive `meters_per_count`. Fit it with `playground/calibration/fit_encoder_scale.py`.
+Bench calibration from runbook block 0, one set per hardware configuration. `meters_per_count` (E4) and `gyro_scale` (E3) set the units of every fitted parameter. `from_toml` rejects a non-positive `meters_per_count`. Fit it with `auto_battlebot/calibration/jig/fit_encoder_scale.py`.
 
 | Field | Meaning |
 | --- | --- |
@@ -209,7 +209,7 @@ Every fifth usable window is held out: it scores the closed-loop prediction and 
 Labels what the driver did with the sticks: holds, edges, creeps, arcs, spins. Two consumers:
 
 - `ManeuverSegmenter` labels the stick stream as it arrives for the live coverage monitor. It works on the uniform 10 ms grid the monitor builds, sticks as fractions, throttle forward positive and steer left positive.
-- `menu_from_grid` is the offline session summary that `playground/calibration/check_sysid_recordings.py` prints against its `MENU_TARGETS`.
+- `menu_from_grid` is the offline session summary that `auto_battlebot/calibration/sysid/check_sysid_recordings.py` prints against its `MENU_TARGETS`.
 
 Definitions:
 
@@ -390,7 +390,7 @@ The free-joint angular velocity is in the body frame, so for a pitched body a pu
 
 ## `mujoco_sim/session.py`
 
-Loads `smooth_tag_poses.py` session bundles into rollout windows for the MuJoCo fit. A bundle is the directory `playground/calibration/smooth_tag_poses.py` writes per recording:
+Loads `smooth_tag_poses.py` session bundles into rollout windows for the MuJoCo fit. A bundle is the directory `auto_battlebot/calibration/sysid/smooth_tag_poses.py` writes per recording:
 
 - `smoothed.csv`: uniform-grid smoothed pose
 - `measurements.csv`: raw tag detections
@@ -507,7 +507,7 @@ A reboot resets `timestamp_ms`, so each run of increasing robot time gets its ow
 
 ## Sysid scripts
 
-### `playground/calibration/analyze_apriltag_mcap.py`
+### `auto_battlebot/calibration/apriltag/analyze_apriltag_mcap.py`
 
 Solves field-plane robot poses from an `apriltag_track.py` image recording. It replays the recorded camera images, re-runs the AprilTag detection (`apriltag_detect`, the same code the live preview used), and solves the (t, x, y, yaw, visible) truth CSV that `fit_plant_calib.py` consumes. Two solves, mirroring capture:
 
@@ -523,15 +523,15 @@ Transmitter data recorded alongside the frames is carried through to the truth C
 
 ```
 source scripts/activate_python.sh
-python playground/calibration/analyze_apriltag_mcap.py playground/calibration/out/apriltag_track.mcap \
-    --out playground/calibration/out/truth_log.csv
+python -m auto_battlebot.calibration.apriltag.analyze_apriltag_mcap data/calibration/apriltag_track.mcap \
+    --out data/calibration/truth_log.csv
 # re-solve with a corrected yaw offset (overrides the value recorded at capture)
-python playground/calibration/analyze_apriltag_mcap.py rec.mcap --yaw-offset-deg 90 --plot fit.png
+python -m auto_battlebot.calibration.apriltag.analyze_apriltag_mcap rec.mcap --yaw-offset-deg 90 --plot fit.png
 # also emit a Foxglove overlay (camera frames + solved pose markers via TF)
-python playground/calibration/analyze_apriltag_mcap.py rec.mcap --overlay-mcap overlay.mcap
+python -m auto_battlebot.calibration.apriltag.analyze_apriltag_mcap rec.mcap --overlay-mcap overlay.mcap
 ```
 
-### `playground/calibration/check_sysid_recordings.py`
+### `auto_battlebot/calibration/sysid/check_sysid_recordings.py`
 
 Checks Mr Stabs Mk2 drive recordings before they go into the MuJoCo plant fit. It reads each MCAP once and reports, per recording, whether it can feed `smooth_tag_poses.py` and `fit_mujoco_plant.py`, and what is missing if it cannot. Nothing here fits anything.
 
@@ -548,23 +548,23 @@ Checks, each PASS / WARN / FAIL:
 - SVO (ZED 2i only, with `--svo-dir`): an SVO whose frame stamps overlap this recording, and how many frames it holds.
 
 ```
-python playground/calibration/check_sysid_recordings.py data/recordings/*2026-10-11*.mcap \
-    --svo-dir data/svo --plots playground/calibration/out/mujoco_sysid/checks
+python -m auto_battlebot.calibration.sysid.check_sysid_recordings data/recordings/*2026-10-11*.mcap \
+    --svo-dir data/svo --plots data/calibration/mujoco_sysid/checks
 ```
 
 Exit status is 1 if any recording has a FAIL. Stick channels (`LINEAR_CH`) are CH1 linear and CH2 angular, +/-1024 full scale, from the sysid and zed_box profiles. `PERCENT_TO_CHANNEL` converts telemetry `a_percent`/`b_percent` to radio channel units: CH1 runs opposite to `a_percent` and CH2 with `b_percent` (from `mujoco_sysid/s01_2026-10-15/session.json`).
 
-### `playground/calibration/detect_robot_yolo.py`
+### `auto_battlebot/calibration/sysid/detect_robot_yolo.py`
 
 Runs the YOLO pose engine over a sysid recording's video and writes our robot's detections: one row per `MR_STABS_MK2` detection with the box, its confidence, and the front and back keypoints in pixels. A frame can have several, because the model sometimes labels the floor marker board as the robot. `smooth_tag_poses.py --yolo` drops those with size gates, keeps the best survivor per frame, projects it onto the field, and uses it where the tag drops out. It is its own stage so the detections can be inspected and the smoother does not need TensorRT.
 
 ```
 source scripts/activate_python.sh
-python playground/calibration/detect_robot_yolo.py data/recordings/<session>.mcap \
-    --out playground/calibration/out/mujoco_sysid/<session>/yolo.csv
+python -m auto_battlebot.calibration.sysid.detect_robot_yolo data/recordings/<session>.mcap \
+    --out data/calibration/mujoco_sysid/<session>/yolo.csv
 ```
 
-### `playground/calibration/find_flip_accel.py`
+### `auto_battlebot/calibration/jig/find_flip_accel.py`
 
 Finds the max forward acceleration a robot tolerates before it flips (trainer link only, no tracking). A torque-happy rammer such as Mr Stabs backflips when the throttle is slammed from rest: the command's rise rate, not the top speed, pitches it over. The script ramps the forward command 0 to target at an escalating slew rate and stops at the rate that flips it. The result is the safe forward command slew rate.
 
@@ -579,18 +579,18 @@ Safety:
 
 ```
 source scripts/activate_python.sh
-python playground/calibration/find_flip_accel.py --robot mr_stabs_mk2
+python -m auto_battlebot.calibration.jig.find_flip_accel --robot mr_stabs_mk2
 ```
 
 `main.in_ms2` converts the slew rate to m/s^2: d(speed)/dt = d(command)/dt * v_max, since speed is about command * v_max (deadzone and lag aside).
 
-### `playground/calibration/fit_encoder_scale.py`
+### `auto_battlebot/calibration/jig/fit_encoder_scale.py`
 
 Fits metres per encoder count from hand-pushed runs over measured distances (runbook E4). Push the robot with the motors disarmed between two marked points, dwelling at each. The script reads the count at each dwell and fits counts against distance.
 
 ```
 source scripts/activate_python.sh
-python playground/calibration/fit_encoder_scale.py \
+python -m auto_battlebot.calibration.jig.fit_encoder_scale \
     --run 0.5  LOG-38.TXT LOG-39.TXT LOG-40.TXT \
     --run 0.75 LOG-42.TXT LOG-43.TXT LOG-44.TXT \
     --run 1.0  LOG-45.TXT LOG-46.TXT LOG-47.TXT \
@@ -603,15 +603,15 @@ Use several distances. A fixed error (the marks, or the robot not quite stopping
 - `Fit`: both fits. The through-origin fit is the model (zero distance, zero counts). The differential slope is unaffected by a constant per-pass offset, so when the intercept is real it is the one to believe. `far_dwell_spread_counts` is the per-pass spread among the candidate far dwells and makes wheel creep visible.
 - `fit_scale`: counts against distance through the origin, plus an intercept as a diagnostic. An intercept far from zero means a fixed error per pass and inflates the scale fitted from short pushes.
 
-### `playground/calibration/fit_gyro_noise.py`
+### `auto_battlebot/calibration/jig/fit_gyro_noise.py`
 
 Fits the gyro noise model from a long stationary recording (runbook E2). The Allan deviation curve falls while averaging still helps, bottoms out where bias instability takes over, and climbs once the bias is wandering. The tau at the minimum says how often the still holds need retaking. The slopes on either side are the process-noise terms the filter needs for heading.
 
 ```
 source scripts/activate_python.sh
-python playground/calibration/fit_gyro_noise.py \
-    playground/calibration/out/gyro_bias/LOG-97.TXT \
-    --plot playground/calibration/out/gyro_noise.png
+python -m auto_battlebot.calibration.jig.fit_gyro_noise \
+    data/calibration/gyro_bias/LOG-97.TXT \
+    --plot data/calibration/gyro_noise.png
 ```
 
 It runs on one log, so a 30 min recording of a robot doing nothing is the whole experiment, and needs no radio and no clear floor. The curve is trustworthy only out to about a tenth of the record. Yaw is taken along measured gravity, as in E0 and `fit_gyro_scale.py`. Estimators follow IEEE 952:
@@ -629,16 +629,16 @@ K  rate random walk     sigma = K * sqrt(tau / 3)  slope +1/2, read at tau = 3 s
 - `yaw_rate`: gyro projected onto measured gravity, in deg/s. The record is stationary, so the mean accelerometer vector is gravity.
 - `make_plot`: the +1/2 guide is drawn only over the region that rises.
 
-### `playground/calibration/fit_gyro_scale.py`
+### `auto_battlebot/calibration/jig/fit_gyro_scale.py`
 
 Fits the gyro scale factor from rotations through a known angle (runbook E3). Integrating the gyro over a rotation of known size and comparing to that size gives one number: how much the gyro over- or under-reports. Every heading estimate is multiplied by it.
 
 ```
 source scripts/activate_python.sh
-python playground/calibration/fit_gyro_scale.py \
+python -m auto_battlebot.calibration.jig.fit_gyro_scale \
     --run 3600 LOG-a.TXT \
     --run -3600 LOG-b.TXT \
-    --plot playground/calibration/out/gyro_scale.png
+    --plot data/calibration/gyro_scale.png
 ```
 
 `--run` takes the true rotation in degrees, signed: positive counter-clockwise viewed from above. Run both directions. A scale that differs between them is a mounting or axis-sign problem, and averaging the two would bury it.
@@ -649,18 +649,18 @@ Bias dominates the error budget on a slow rotation: 0.05 deg/s over a 20 s turn 
 
 `TURN_EPS_DPS` is the rate below which the robot counts as stationary when finding where the turn starts and stops. The fit is through the origin over signed angles, so both directions constrain one number.
 
-### `playground/calibration/fit_mujoco_plant.py`
+### `auto_battlebot/calibration/fit_mujoco_plant.py`
 
-Fits the Mr Stabs Mk2 MuJoCo plant to smoothed sysid sessions, then validates on held-out ones. Inputs are session bundles from `smooth_tag_poses.py` (`playground/calibration/out/mujoco_sysid/<session>/`). Hold out whole sessions, never windows from a training session.
+Fits the Mr Stabs Mk2 MuJoCo plant to smoothed sysid sessions, then validates on held-out ones. Inputs are session bundles from `smooth_tag_poses.py` (`data/calibration/mujoco_sysid/<session>/`). Hold out whole sessions, never windows from a training session.
 
 ```
 # fit on three sessions, validate on a fourth
-python playground/calibration/fit_mujoco_plant.py fit \
+python -m auto_battlebot.calibration.fit_mujoco_plant fit \
     out/mujoco_sysid/s01 out/mujoco_sysid/s02 out/mujoco_sysid/s03 \
     --holdout out/mujoco_sysid/s04 --restarts 4
 
 # re-validate an existing fit
-python playground/calibration/fit_mujoco_plant.py validate out/mujoco_sysid/fit_<ts> \
+python -m auto_battlebot.calibration.fit_mujoco_plant validate out/mujoco_sysid/fit_<ts> \
     out/mujoco_sysid/s04
 ```
 
@@ -668,7 +668,7 @@ Validation writes `validation.json` and, under `plots/`, the loss curves, the re
 
 `fit` prints its total rollout-steps up front. 1.64e9 steps take about 27 minutes on the RTX 4080 laptop.
 
-### `playground/calibration/fit_plant_calib.py`
+### `auto_battlebot/calibration/apriltag/fit_plant_calib.py`
 
 Fits the full tank drivetrain plant from a calibration session. Input is one CSV from `analyze_apriltag_mcap.py` run on an `apriltag_track.py --drive` recording. That file carries both halves the fit needs, recorded in one process on one absolute `CLOCK_MONOTONIC` clock, so no time alignment is done here:
 
@@ -681,8 +681,8 @@ Outputs: a printed report, the `[our_robot]` block to paste into `simulation/kin
 
 ```
 source scripts/activate_python.sh
-python playground/calibration/fit_plant_calib.py playground/calibration/out/truth_log.csv \
-    --plot playground/calibration/out/fit.png
+python -m auto_battlebot.calibration.apriltag.fit_plant_calib data/calibration/truth_log.csv \
+    --plot data/calibration/fit.png
 ```
 
 `load_session` reads commands from every row (the full timeline, including frames where the tag was not visible) and pose only from visible frames. The sync twitches at the protocol's start and end are a visual cross-check in `--plot`.
@@ -697,7 +697,7 @@ Frames before the first issued command have empty command cells; the command the
 - `fit_steer_brake`: fractional forward-speed loss per unit |angular command| during the steer-brake grid. One steady-state forward-speed sample per grid cell (last half of each drive segment); `speed/speed0 = 1 - coeff*|ang|`.
 - `_latency_stack`: pools every clean command edge in the session and stacks the acceleration that follows it. Linear edges are timed against dv/dt, angular edges against dw/dt, since the transport path (Crossfire, ESC, mechanical) is shared. Any edge whose response window overlaps a truth gap is dropped. Each edge contributes its post-edge acceleration, sign-flipped to the step direction and scaled by the channel's own accel spread. Lag is the peak of the averaged acceleration pulse.
 
-## `playground/calibration/make_print_tags.py`
+## `auto_battlebot/calibration/apriltag/make_print_tags.py`
 
 Generates print-ready AprilTag PDFs for drivetrain calibration: a floor grid and a robot tag. The PDF export maps pixels-per-mm to DPI, so a 100%-scale print is dimensionally exact. Tags are rendered with `cv2.aruco` (`DICT_APRILTAG_36h11`), matching the `GridBoard` model `apriltag_track.py` uses for pose.
 
@@ -705,12 +705,12 @@ The script prints the estimated marker size in pixels for the given mount height
 
 ```
 source scripts/activate_python.sh
-python playground/calibration/make_print_tags.py --out-dir playground/calibration/print
+python -m auto_battlebot.calibration.apriltag.make_print_tags --out-dir data/calibration/print
 ```
 
 The floor grid is normally the manufactured board (3x5 of 65 mm markers, 15 mm gaps, ids 160..174 numbered right-to-left per row); the script reproduces it only for a reprint. The robot tag (id 20) is what you print here. Print at 100% (no "fit to page") and tape the tag flat on the robot top. `save_pdf` stores the image bilevel so PDF keeps the marker edges lossless.
 
-## `playground/calibration/make_robot_tag_3d.py`
+## `auto_battlebot/calibration/apriltag/make_robot_tag_3d.py`
 
 Generates a multi-material 3D-print file for the robot's AprilTag (Bambu Lab AMS), the 3D-print counterpart of `make_print_tags.py`. It emits a white base with the black AprilTag cells raised on top as a second material. Two watertight objects share one coordinate frame, so in Bambu Studio you assign white to the base and black to the tag and slice.
 
@@ -726,16 +726,16 @@ robot_tag_black.stl   tag only
 
 ```
 source scripts/activate_python.sh
-python playground/calibration/make_robot_tag_3d.py --out-dir playground/calibration/print_3d
+python -m auto_battlebot.calibration.apriltag.make_robot_tag_3d --out-dir data/calibration/print_3d
 ```
 
 Defaults: id 0, 130 mm tag, 2 mm white base, 0.6 mm raised black, 16 mm white margin (about a 1-cell quiet zone). The plate is 162 x 162 mm. In Bambu Studio, import `robot_tag.3mf`, confirm the tag object is black filament and the base is white, then slice. Note the tag's physical edge (`--tag-size`) and heading offset for `apriltag_track.py --tag-size` / `--yaw-offset-deg`. `black_cell_boxes` merges consecutive black cells in a row into one box to keep the mesh small.
 
-## `playground/calibration/plot_jig_runs.py`
+## `auto_battlebot/calibration/jig/plot_jig_runs.py`
 
 `yaw_rate_dps(log)` is yaw about the measured gravity axis in deg/s (`JigLog.gyro_rad_s` is rad/s). It falls back to the z row when there is no still segment to measure gravity from.
 
-## `playground/calibration/plot_sysid_bundle.py`
+## `auto_battlebot/calibration/sysid/plot_sysid_bundle.py`
 
 Plots a smoothed sysid bundle written by `smooth_tag_poses.py`. Writes under `<bundle>/plots/`:
 
@@ -744,17 +744,17 @@ Plots a smoothed sysid bundle written by `smooth_tag_poses.py`. Writes under `<b
 - `dropouts.png`: one top-down panel per tag dropout longer than `--min-gap-s` in which the robot stayed upright, 0.5 s either side. `--compare` overlays a second bundle of the same recording.
 
 ```
-python playground/calibration/plot_sysid_bundle.py \
-    playground/calibration/out/mujoco_sysid/<session>_yolo \
-    --compare playground/calibration/out/mujoco_sysid/<session>_tag
+python -m auto_battlebot.calibration.sysid.plot_sysid_bundle \
+    data/calibration/mujoco_sysid/<session>_yolo \
+    --compare data/calibration/mujoco_sysid/<session>_tag
 ```
 
-## `playground/calibration/smooth_tag_poses.py`
+## `auto_battlebot/calibration/sysid/smooth_tag_poses.py`
 
 - YOLO fixes carry position and heading only; the 2D keypoints carry no height or tilt.
 - The video frames YOLO filled in count as camera frames for window coverage, so a dropout the fixes cover reads as covered and a rejected fix still counts against it.
 
-## `playground/calibration/sysid_coverage.py`
+## `auto_battlebot/calibration/sysid/sysid_coverage.py`
 
 Unpaced replays advance on recording time, so a fast replay closes the same windows as a live run would.
 

@@ -22,7 +22,7 @@ Mr Stabs Mk2 on the MuJoCo rigid-body plant (`auto_battlebot/mujoco_sim`, `docs/
 | `[our_robot] plant` | `"mujoco"`. Set `"kinematic"` to use the run-175805 kinematic fit in the same table. |
 | `[our_robot.mujoco] fit_file` | The 2026-10-15 sysid fit the RL environment trains on (`warp_nav.DEFAULT_FIT`). |
 | `[our_robot.mujoco] timestep` | 0.002 s, the RL environment's step. Position error against 1 ms is 0.3 mm at 0.4 s. |
-| `[perception] sensing_model` | `provisional_rl.toml`: our-robot EKF error fitted from lockstep, plus the measured dropout gaps (`playground/rl/fit_provisional_ekf_error.py`), as the RL environment reads it. Pair a model with `config/simulation/kinematic_sim_sensing.toml` on the C++ side so the real keypoint filter and motion estimator see the measurements. Provenance: `docs/experiments/control/2026-11-19_provisional_ekf_error_fits.md`. |
+| `[perception] sensing_model` | `provisional_rl.toml`: our-robot EKF error fitted from lockstep, plus the measured dropout gaps (`auto_battlebot/rl/fit_provisional_ekf_error.py`), as the RL environment reads it. Pair a model with `config/simulation/kinematic_sim_sensing.toml` on the C++ side so the real keypoint filter and motion estimator see the measurements. Provenance: `docs/experiments/control/2026-11-19_provisional_ekf_error_fits.md`. |
 
 ### Kinematic plant keys
 
@@ -65,7 +65,7 @@ Fast headless kinematic sim for Mrs Buff Mk3 at 30 Hz.
 | `[sim] dt` | 0.0333 s, about 30 Hz. Matches the real controller rate. |
 | `[latency] command_ms` | Command issue to wheel response, in ms of sim time. The server quantizes it to whole ticks, so at `dt = 0.0333` it applies as 2 ticks (66.6 ms). Measurement in `docs/experiments/control/2026-11-19_mrs_buff_mk3_sim_plant_values.md`. |
 | `[camera] fov, pos, lookat` | Overhead and slightly back, the way the ZED mounts over the cage. The UI draws its overlay on this frame, so the pose decides whether the arena is in shot. The projection-bias model also reads it. |
-| `[our_robot]` plant keys | Transcribed from `playground/calibration/out/plant_stageA.toml` (model M4, velocity jig sessions 2026-08-19 through 2026-08-23). Edit the fit, not this file. Measured with guard plates on, so their ground friction is part of the plant. Name mapping below. |
+| `[our_robot]` plant keys | Transcribed from `auto_battlebot/calibration/plant_stageA.toml` (model M4, velocity jig sessions 2026-08-19 through 2026-08-23). Edit the fit, not this file. Measured with guard plates on, so their ground friction is part of the plant. Name mapping below. |
 | `max_linear_speed`, `tau_linear`, `tau_angular` | Symmetric fallbacks. Unused once the `_fwd`/`_rev` and `_accel`/`_decel` keys are set. |
 | `steer_brake_coeff`, `tau_linear_accel`, `tau_linear_decel` | Fit provenance in the dated experiments doc above. |
 | `[perception] sensing_model` | Perception latency, dropouts and noise come from a sensing model. Empty sends the true poses every tick. Pair a model with `config/simulation/kinematic_sim_sensing.toml` on the C++ side so the real keypoint filter and motion estimator see the measurements. `simulation/sensing_models/provisional.toml` is the usual non-empty value. |

@@ -71,10 +71,10 @@ motion, or our detector. It is a property of two robots fighting.
 ## What ran
 
 ```bash
-venv/bin/python playground/bgsub_cage/download_cage_video.py \
+venv/bin/python -m auto_battlebot.datasets.download_cage_video \
     data/downloads/brettzone_cage_high --limit 20 --seed 0 --since 2026-04-01
 
-PYTHONPATH=training/deeplab venv/bin/python playground/bgsub_cage/annotate_cage_video.py \
+PYTHONPATH=training/deeplab venv/bin/python -m auto_battlebot.datasets.annotate_cage_video \
     data/downloads/brettzone_cage_high \
     --models data/eval_models/yolo26{n,x}_nhrl_robots_bbox_2class_2026-09-04.pt \
     -o data/downloads/brettzone_cage_high/annotated

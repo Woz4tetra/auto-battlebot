@@ -103,7 +103,7 @@ Resolution is bounded by the analysis grid. On synthetic data with a known 45 ms
 - `WindowSet`: open-loop windows cut from one run. Each window reinitializes the model from ground truth at its start and runs open loop to each horizon, which is what the filter does between camera corrections.
 - `toml_float`: every emitted value keeps a decimal point.
 
-## MuJoCo distillation: `playground/calibration/distill_mujoco_plant.py`
+## MuJoCo distillation: `auto_battlebot/calibration/distill_mujoco_plant.py`
 
 Distills a fitted MuJoCo plant into the app's grey-box `[plant]` table for Mr Stabs Mk2. The app's EKF and `MotionProfileNavigation` both run `JigPlantModel` (first-order lag, deadzones, delay, steer-brake coupling, stick commands in). The MuJoCo fit (`fit_mujoco_plant.py`) has motor, contact, and inertia terms the app cannot run.
 
@@ -116,14 +116,14 @@ The script drives the fitted MuJoCo model through `ClosedLoopSim` with stick tap
 - `HORIZONS` are the jig fit's: C1 at 100 ms, C2 and C3 at 400 ms. `CURRENT_TABLE` is the table the app runs today, scored alongside.
 
 ```
-python playground/calibration/distill_mujoco_plant.py \
-    playground/calibration/out/mujoco_sysid/fit_<ts> \
-    --holdout playground/calibration/out/mujoco_sysid/s04
+python -m auto_battlebot.calibration.distill_mujoco_plant \
+    data/calibration/mujoco_sysid/fit_<ts> \
+    --holdout data/calibration/mujoco_sysid/s04
 ```
 
 Writes `<fit_dir>/distilled/plant.toml` (the best run's `[plant]` table, radio delay included), `distill.json` (every run's table, sim and session scores, spread, masked tapes) and `plant_steps.png` (step-and-release responses and steady-state speed against stick, the distilled table against the one the profiles carry).
 
-## `playground/calibration/fit_jig_plant.py` options
+## `auto_battlebot/calibration/jig/fit_jig_plant.py` options
 
 - `--fit-hz`: a 200 Hz grid resolves the delay to about 5 ms, a 500 Hz grid to about 1 ms, at 2.5x the fit time.
 - `--smooth-ms`: a wider window is quieter against encoder count quantization but adds a few ms of apparent transport delay.
@@ -132,7 +132,7 @@ Writes `<fit_dir>/distilled/plant.toml` (the best run's `[plant]` table, radio d
 - `--max-saturation`: 0 rejects any clipped IMU sample. Raise it to keep a run anyway.
 - `--bootstrap`: resamples for the learning curve. 0 runs the leave-one-run-out jackknife only.
 
-## `playground/calibration/fit_match_plant.py` options
+## `auto_battlebot/calibration/match/fit_match_plant.py` options
 
 - `--cmd-lead-ms`: the channel readback reaches the log tens of ms after the RF frame left the radio, so the effective delay on the logged timeline can be negative. A lead moves the delay profile minimum back inside the searchable range. Effective delay on the logged timeline is the fitted delay minus this lead.
 
@@ -143,13 +143,13 @@ Writes `<fit_dir>/distilled/plant.toml` (the best run's `[plant]` table, radio d
 
 ### `fit_mrs_buff_mk3_interim_plant.py`
 
-Fits Mrs Buff Mk3's MuJoCo plant to her jig-fitted grey-box plant (`playground/calibration/out/plant_stageA.toml`, measured on the floor with guard plates on), for use until a tagged session exists. The M4 model is driven with jig-shaped command tapes, its poses are treated as measurements, and the MuJoCo plant is fitted to them with the same staged CMA-ES and loss as the session fit. M4 is flat, so this pins drive and scrub, not tipping.
+Fits Mrs Buff Mk3's MuJoCo plant to her jig-fitted grey-box plant (`auto_battlebot/calibration/plant_stageA.toml`, measured on the floor with guard plates on), for use until a tagged session exists. The M4 model is driven with jig-shaped command tapes, its poses are treated as measurements, and the MuJoCo plant is fitted to them with the same staged CMA-ES and loss as the session fit. M4 is flat, so this pins drive and scrub, not tipping.
 
 Commands are what the app sends: `DifferentialDriveProcessor` output in [-1, 1], mixed per motor as left = linear - angular, right = linear + angular (positive angular turns counterclockwise). Her ESCs run open loop, so the voltage-source actuator model is the whole command chain after the delay.
 
 ```
-python playground/calibration/fit_mrs_buff_mk3_interim_plant.py \
-    --out playground/calibration/out/mujoco_sysid/mk3_interim
+python -m auto_battlebot.calibration.fit_mrs_buff_mk3_interim_plant \
+    --out data/calibration/mujoco_sysid/mk3_interim
 ```
 
 Writes `fit.json` (`load_fit_params` reads it), `holdout.json` (per-horizon errors and response checks against M4) and `fit.log`.
@@ -162,7 +162,7 @@ The scenario covers a quiet start, a forward step, a reversal through the deadzo
 
 ```
 source scripts/activate_python.sh
-python playground/calibration/make_plant_golden_fixture.py
+python tests/fixtures/generators/make_plant_golden_fixture.py
 ```
 
 ### `sim_stop_test.py`
@@ -178,17 +178,17 @@ Each run is the real binary (`build/auto_battlebot`) against `kinematic_sim_serv
 - `flipped`: pitch left its rest value by more than 60 deg. A flipping arm needs a lower `--max-linear-command`, not a better table.
 
 ```
-python playground/calibration/sim_stop_test.py \
-    --fit-file playground/calibration/out/mujoco_sysid/fit_<ts>/fit.json \
+python -m auto_battlebot.calibration.sim_stop_test \
+    --fit-file data/calibration/mujoco_sysid/fit_<ts>/fit.json \
     --arm current=config/mr_stabs_mk2_aer_zed_box.toml \
-    --arm distilled=playground/calibration/out/mujoco_sysid/fit_<ts>/distilled/plant.toml
+    --arm distilled=data/calibration/mujoco_sysid/fit_<ts>/distilled/plant.toml
 ```
 
 Build first (`scripts/build.sh`). Runs are sequential because the C++ side has the sim port hard-coded. Writes `<out>/results.csv` and one trace and log per run; `--out` defaults next to the fit file.
 
 ### `write_plant_configs.py`
 
-Pushes the fitted plant numbers from `plant_stageA.toml` into every consumer that hard-codes them. The numbers have three homes: the fit (`playground/calibration/out/plant_stageA.toml`, the only authored one), the kinematic sim (`simulation/sim_mrs_buff_mk3.toml`), and the C++ `[plant]` table (`config/robots/mrs_buff_mk3.toml`), which the our-robot EKF and `MotionProfileNavigation` both read.
+Pushes the fitted plant numbers from `plant_stageA.toml` into every consumer that hard-codes them. The numbers have three homes: the fit (`auto_battlebot/calibration/plant_stageA.toml`, the only authored one), the kinematic sim (`simulation/sim_mrs_buff_mk3.toml`), and the C++ `[plant]` table (`config/robots/mrs_buff_mk3.toml`), which the our-robot EKF and `MotionProfileNavigation` both read.
 
 - `SIM_FIELDS` takes every term. `delay_ms` is derived from `delay_s`: the sim takes milliseconds under `[latency]`, the controller seconds under `[our_robot]`.
 - Fields are matched by name over the whole file, so each name must be unique within a config. `_rewrite` exits on a duplicate.
@@ -198,15 +198,15 @@ Pushes the fitted plant numbers from `plant_stageA.toml` into every consumer tha
 
 ```
 source scripts/activate_python.sh
-python playground/calibration/write_plant_configs.py           # rewrite
-python playground/calibration/write_plant_configs.py --check   # report drift, change nothing
+python -m auto_battlebot.calibration.write_plant_configs           # rewrite
+python -m auto_battlebot.calibration.write_plant_configs --check   # report drift, change nothing
 ```
 
 Mr Stabs Mk2 has no jig fit. Its table comes from the MuJoCo fit through `distill_mujoco_plant.py` and goes into `config/robots/mr_stabs_mk2.toml` only (`MR_STABS_PLANT_CONFIG`); its sim config keeps the MuJoCo plant, so no sim fields are written. `config/robots/mr_stabs_mk2_geometry.toml` is not a fit and the script never writes it.
 
 ```
-python playground/calibration/write_plant_configs.py --robot mr_stabs_mk2 \
-    --fit playground/calibration/out/mujoco_sysid/fit_<ts>/distilled/plant.toml
+python -m auto_battlebot.calibration.write_plant_configs --robot mr_stabs_mk2 \
+    --fit data/calibration/mujoco_sysid/fit_<ts>/distilled/plant.toml
 ```
 
 ### `simulation/plants/kinematic.py`

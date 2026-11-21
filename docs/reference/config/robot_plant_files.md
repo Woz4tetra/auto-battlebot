@@ -23,7 +23,7 @@ are that fit. Mr Stabs Mk2 has no process noise fit of its own.
 
 ## Mrs Buff Mk3
 
-- Source: Stage A per-phase fit, `playground/calibration/out/plant_stageA.toml`, sessions
+- Source: Stage A per-phase fit, `auto_battlebot/calibration/plant_stageA.toml`, sessions
   2026-08-19 through 2026-08-23, model M4 (drift terms disabled by the ladder, written as zero).
   Measured with guard plates on, so their ground friction is part of the fitted plant.
 - `delay_s` is the onset-stack measurement (3486 edges, SNR 22.4), corroborated by the tau-pinned
@@ -35,7 +35,7 @@ are that fit. Mr Stabs Mk2 has no process noise fit of its own.
 
 ## Process noise
 
-- Source: `fit_process_noise.py` output, `playground/calibration/out/process_noise.toml`, same
+- Source: `fit_process_noise.py` output, `data/calibration/process_noise.toml`, same
   sessions and plant as the Mrs Buff fit. Only the EKF reads it.
 - Growth-law mechanisms: white-noise accel (h^3), scale-factor error on v and w (h^2, applied
   state-dependent at runtime), heading random walk (h), delay jitter (constant, the fit found
@@ -52,7 +52,7 @@ are that fit. Mr Stabs Mk2 has no process noise fit of its own.
 
 ## Mr Stabs Mk2 distilled
 
-- Source: `playground/calibration/out/mujoco_sysid/fit_2026-10-15_yolo_brake/distilled/plant.toml`.
+- Source: `data/calibration/mujoco_sysid/fit_2026-10-15_yolo_brake/distilled/plant.toml`.
   `write_plant_configs.py --robot mr_stabs_mk2 --fit <that file> --check` reports it up to date.
 - `write_plant_configs.py --robot mr_stabs_mk2` writes this file only.
 - The comments removed from `playback/mr_stabs_mk2_playback.toml` and

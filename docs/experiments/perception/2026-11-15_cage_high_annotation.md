@@ -1,6 +1,6 @@
 # Cage-high annotation script details
 
-## Annotating clips (`playground/bgsub_cage/annotate_cage_video.py`)
+## Annotating clips (`auto_battlebot/datasets/annotate_cage_video.py`)
 
 Annotate fixed-camera cage clips with YOLO detections, gated by the cage hull.
 
@@ -13,7 +13,7 @@ Usage:
     python annotate_cage_video.py CLIP_OR_DIR         --models a.pt b.pt -o OUT_DIR
 ```
 
-## Downloading clips (`playground/bgsub_cage/download_cage_video.py`)
+## Downloading clips (`auto_battlebot/datasets/download_cage_video.py`)
 
 Download NHRL fixed overhead cage video from BrettZone as 1080p clips.
 

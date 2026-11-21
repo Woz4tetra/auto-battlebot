@@ -24,19 +24,24 @@
   "hooks": {
     "Stop": [
       {
-        "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/lint --quick 1>&2"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/venv/bin/python -m auto_battlebot.verify.hooks stop",
+            "timeout": 1800,
+            "statusMessage": "Running scripts/verify --fast --changed"
           }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/venv/bin/python -m auto_battlebot.verify.hooks touch"
+          },
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/no_ai_slop_check.sh",
@@ -46,6 +51,18 @@
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR\"/scripts/comment_budget.py --root \"$CLAUDE_PROJECT_DIR\" hook",
             "statusMessage": "Checking comment budget"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "verifier",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/venv/bin/python -m auto_battlebot.verify.hooks subagent-stop",
+            "statusMessage": "Recording verifier verdict"
           }
         ]
       }

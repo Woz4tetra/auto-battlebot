@@ -23,7 +23,7 @@ from the sweep specs, which are listed below and live in the same commit.
 | `summarize_sweeps.py` | Printed the scored columns from one or more sweep output dirs, picking columns by scenario name. |
 | `run_stage4_sweeps.sh` | Ran the Stage 4 set (`stage3_stop`, `stage3_ram`, `stage3_track` by default) against the Mrs Buff Mk3 plant, then summarized. Flagged runs that produced no MCAP. |
 | `stage0_metrics.py` | Stage 0 baseline from existing Jetson fight recordings: end-to-end latency, perception reliability, aim, overshoot and wall contact, plus the share of wall collisions attributable to flat-plane keypoint projection error. |
-| `fit_plant.py` | First-order AR(1) plant identification from fight recordings, per axis: `v[k+1] = a*v[k] + b*cmd[k]`, so `tau = -dt/ln(a)` and `gain = b/(1-a)`. Superseded by the velocity jig, but `playground/calibration/fit_plant_calib.py` still extends the same method. |
+| `fit_plant.py` | First-order AR(1) plant identification from fight recordings, per axis: `v[k+1] = a*v[k] + b*cmd[k]`, so `tau = -dt/ln(a)` and `gain = b/(1-a)`. Superseded by the velocity jig, but `auto_battlebot/calibration/apriltag/fit_plant_calib.py` still extends the same method. |
 | `prediction_eval.py` | A/B over one SVO with the filter's velocity-based prediction on and off, measuring how much prediction buys during our-robot detection dropouts. |
 | `run_away_overshoot.py` | Per-goal-epoch overshoot from a recorded fight, with the five diagnostic leads on one time axis: goal churn, filtered speed error, open-loop stretches, heading-gate re-entry, solver plateau jitter. |
 

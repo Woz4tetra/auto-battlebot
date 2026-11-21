@@ -94,7 +94,7 @@ New `include/config/recording_catalog.hpp` and `src/config/recording_catalog.cpp
    `start_frame_for` with the same signature. Update callers:
    - `training/model_eval/make_eval_dataset.py` (`--start-frames` becomes `--catalog`)
    - `playground/opponent_prediction/run_replays.py`
-   - `tests/python/test_svo_start_frames.py`, renamed with `git mv`
+   - `auto_battlebot/recording/tests/test_svo_start_frames.py`, renamed with `git mv`
 3. C++ catalog loader and its GoogleTest: key lookup, stem lookup, missing `start_frame`, bad
    `path` type.
 4. Override hook in `load_classes_from_config` and the provenance fix. Tests in

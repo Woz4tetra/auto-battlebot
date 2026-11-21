@@ -8,9 +8,9 @@ yet, so nothing here is fit to data.
 
 ```bash
 source scripts/activate_python.sh
-python playground/calibration/lump_mr_stabs_mass_properties.py   # mass_properties.toml
-python playground/calibration/build_mr_stabs_mjcf.py             # collision/ + mr_stabs_mk2.xml
-python playground/calibration/mujoco_warp_spike.py               # checks, timestep study, throughput
+python -m auto_battlebot.mujoco_sim.lump_mr_stabs_mass_properties   # mass_properties.toml
+python -m auto_battlebot.mujoco_sim.build_mr_stabs_mjcf             # collision/ + mr_stabs_mk2.xml
+python scripts/calibration/mujoco_warp_spike.py               # checks, timestep study, throughput
 ```
 
 Inputs are in `simulation/assets/robots/mr_stabs_mk2/onshape_export/`: the Onshape URDF, the six
