@@ -29,14 +29,14 @@ Design facts for `training/synthetic/synthgen/` (`pipeline.py`, `robots.py`, `pr
 ## Segmentation pass indices
 
 - `synthgen/pass_index.py` `assign_pass_index()` gives each new mesh object a pass index one above the highest index in `bpy.data.objects`. Every site that creates a mesh calls it right after `set_cp("category_id", ...)`: `environment.py`, `cage.py` (box, cylinder, quad, backdrop, house bot), `distractors.py`, `robots.py` (robot meshes and damage pieces) and `damage_scene.py` (cutters).
-- Reason: BlenderProc 2.8.0 `RendererUtility.enable_segmentation_output` (line 469) numbers the existing meshes once with `obj.pass_index = index + 1`. `PostProcessingUtility` (line 340) maps the rendered index pass back to objects through `obj.pass_index`. A mesh created after that call has index 0, which is the background, so it drops out of the segmentation map.
-- With the index set at creation, build order stops mattering and the distractor pool refresh no longer re-arms segmentation. A later `enable_segmentation_output` call renumbers every mesh and stays consistent.
+- Reason: BlenderProc 2.8.0 `RendererUtility.enable_segmentation_output` numbers the existing meshes once with `obj.pass_index = index + 1`. `PostProcessingUtility` maps the rendered index pass back to objects through `obj.pass_index`. A mesh created after that call has index 0, which is the background, so it drops out of the segmentation map.
+- With the index set at creation, build order stops mattering and the distractor pool refresh needs no re-arming of segmentation. A later `enable_segmentation_output` call renumbers every mesh and stays consistent.
 - A damage piece is a Blender copy of its parent mesh and starts with the parent's index, so it needs its own.
 - The tests fake `bpy` with `blender_stubs`, so `tests/test_pass_index.py` covers the numbering rule. Nothing here has rendered in Blender.
 
 ## First import in BlenderProc scripts
 
-- `blenderproc run` calls `SetupUtility.check_if_setup_utilities_are_at_the_top` (`blenderproc/python/utility/SetupUtility.py`, line 389 in 2.8.0). It strips blank and `#` lines from the script and raises `RuntimeError` unless the first remaining line contains `import blenderproc` or `from blenderproc`.
+- `blenderproc run` calls `SetupUtility.check_if_setup_utilities_are_at_the_top` (BlenderProc 2.8.0). It strips blank and `#` lines from the script and raises `RuntimeError` unless the first remaining line contains `import blenderproc` or `from blenderproc`.
 - A docstring above the import fails the check. Shebangs and comments do not count.
 - The reason is that BlenderProc's `__init__` installs the packages Blender's Python needs and removes the repo from `sys.path`, so third-party imports placed before it fail.
 - Entry scripts keep `import blenderproc as bproc` on their first code line. `pyproject.toml` puts `blenderproc` in its own isort section ahead of the standard library, so `ruff` keeps that order without a skip comment.
@@ -104,39 +104,33 @@ Design facts for `training/synthetic/synthgen/` (`pipeline.py`, `robots.py`, `pr
 
 `house_bot_keypoints()` returns the front and back keypoints of the placed house bot in its parent's local frame, in metres, or `None` when the model has no geometry. The convention matches every other robot in the set, the one `nhrl_common.keypoints_along_axis` applies to the CAD distractors: both points sit on the model's centerline at ground height, at the front and back extremes of its footprint. The axis is known, not fitted. The house bot's LED face is its own +x, so +x is the front, the way `HouseBotBoxSpec.roll_deg` and `yaw_deg` already treat it.
 
-## Workarounds
-
-Each entry names the function that carries the workaround. Entries marked unverified restate the claim the removed comment made; the source was not read or the failure not reproduced.
-
-### Blender and BlenderProc
+## House bot orientation
 
 - `add_house_bot_model` (`synthgen/cage.py`): the GLB ships lying on its side. A roll about its x axis (the LED-face normal) stands it up, and the footprint is measured on the standing box. `size[0] <= 0` keeps the model's own dimensions.
 
-### Render state and denoising
+## Render state and denoising
 
 - `set_denoiser` (`synthgen/render_settings.py`): `name` is a cage spec value, "OPTIX", "INTEL" or "none". OptiX needs an OptiX device, so a CUDA or CPU run gets OpenImageDenoise, which Blender 4.2 also runs on the GPU when one renders. "INTEL" maps to the same OpenImageDenoise, minus BlenderProc's compositor node and its CPU round trip. Going through BlenderProc first clears whatever denoiser was active, compositor node included.
-- `OneWayGlass` (`synthgen/preview_render.py`): hides the pane the camera stands outside of, as the batch render does. Unlike `cage.set_one_way_glass` it writes `hide_render` directly instead of keyframing, because batch animates visibility across several poses per pass and preview shows one. The hidden set is rewritten only when it changes, because toggling visibility re-syncs geometry and discards Cycles' persistent-data cache. Unverified: cache behavior not measured.
+- `OneWayGlass` (`synthgen/preview_render.py`): hides the pane the camera stands outside of, as the batch render does. Unlike `cage.set_one_way_glass` it writes `hide_render` directly instead of keyframing, because batch animates visibility across several poses per pass and preview shows one. The hidden set is rewritten only when it changes, because toggling visibility re-syncs geometry and discards Cycles' persistent-data cache.
 - `panels_outside_camera` (`synthgen/cage_spec.py`): BlenderProc's segmentation stops at glass, so everything behind a pane the camera shoots through from outside the cage loses its label. Those panes are hidden. Panes seen from inside, across the arena, stay. The test is the wall plane, not the line of sight: a camera outside a wall but aimed away does not see that pane.
 
-### Pipeline order (`synthgen/pipeline.py`)
+## Pipeline order (`synthgen/pipeline.py`)
 
 1. `bproc.init()`, then devices and denoiser, resolution, samples, `enable_depth_output`, all before anything renders. Cycles keeps persistent data across the frames of one pass (BlenderProc's init turns it on), so the scene syncs once per pass rather than once per frame.
 2. Per scene: reset keyframes, ground scale, environment, select and pose robots, pool refresh check, place distractors, lights, material jitter, cameras, render.
 3. The clean (distractor-free) second render runs after the main render, only when obstructions are not ignored and distractors are active, at one sample. Only its segmap is read.
 4. `frame_set(local_idx)` runs before per-frame keypoint projection, because `world_to_camera_view` reads the camera pose animated at that frame.
 
-### Preview renderer (`synthgen/preview_render.py`)
+## Preview renderer (`synthgen/preview_render.py`)
 
 - Views `pinhole`, `distorted` and `rectified` come from `synthgen.lens`, the module the batch pipeline writes its frames through, so a pose flown in one view renders in batch as it looked. `pinhole` scales `resolution_percentage`. Warped views build the lens at preview size and its maps index pixels.
 - Mode switching writes a complete set of properties, never deltas. `restore_render_state` puts back the drift-prone half (color management, bounces, K, resolution) and the module writes the rest on top (engine, samples, denoising, persistent data, image format, resolution percentage). Preview and full mode go through the same transition, so neither inherits leftovers from the other.
 - The camera is posed by assigning `matrix_world`, never `add_camera_pose`. Keyframes would accumulate on every WASD frame and a later render would walk the whole animation range. `animation_data` stays `None` for the life of the process, which `_assert_no_keyframes` checks on every frame. If it ever appears, direct pose assignment is silently overwritten and WASD stops responding.
 
-### Docker image (`training/synthetic/docker/`)
+## Docker image (`training/synthetic/docker/`)
 
-- `entrypoint.sh` `link_baked_blender_into_home`: BlenderProc resolves Blender at `$HOME/blender`, and the image bakes it under `/root` (mode 0700). `/root` is made traversable and the install linked into the new home so the dropped user does not re-download Blender. Unverified: BlenderProc default path from its docs, not run.
 - `entrypoint.sh` `hand_hf_cache_to_host_user`: `HF_HOME` is a baked, root-owned directory unless a host cache is mounted over it. The top level is chowned to the host user (a no-op for a host-owned mount) so the cache is writable after the privilege drop.
-- `warmup.py`: `blenderproc pip install <pkg>` records only the named package (`install_default_packages=False`), so the installed-packages cache never lists BlenderProc's default runtime packages (pyyaml, imageio, gitpython, ...), and every runtime `blenderproc run` re-runs pip to check them ("Requirement already satisfied" spam). Running `blenderproc run` once at build goes through `setup_pip` with `install_default_packages=True` and records them in `<blender>/custom-python-packages/installed_packages_cache_v2.json`. The build step deletes any stale cache first. Unverified: `setup_pip` internals not read.
 
-### Tools
+## Tools
 
 - `discover_model_files` (`synthgen/asset_index.py`) skips any model whose JSON sidecar has `rejected: true`, the flag `review_nhrl_keypoints.py` sets.

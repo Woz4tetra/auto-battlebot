@@ -8,12 +8,10 @@
 - Nothing blocks the caller on the network.
 - The ring holds two minutes, so `poll_period` only sets how stale the newest row is when it lands, not whether rows are lost.
 
-Tests `StartsAtHeadThenReadsEverythingNew` and `RebootResyncsToTheNewHead` cover the head-only first poll and the reboot resync.
-
 ## Event decoding
 
 - `Esp32DiagnosticsEvent::host_receive_wall_ns` is the host wall clock (the MCAP log time base) when the line or reply arrived. `robot_millis` is `millis()` on the ESP32.
-- `parse_esp32_diagnostics_csv` accepts 20 fields (no `vbat`), 21 (no `ibat`), 22 (no yaw rates), 24 (no guard or `seq`), or 37. It returns empty for any other count or for a field that does not parse as its type. `RejectsUnknownFieldCounts` covers it.
+- `parse_esp32_diagnostics_csv` accepts 20 fields (no `vbat`), 21 (no `ibat`), 22 (no yaw rates), 24 (no guard or `seq`), or 37. It returns empty for any other count or for a field that does not parse as its type.
 - The firmware prints `nan` for `vbat`, `ibat` or a yaw rate it has no value for, and the parser leaves that optional empty. The yaw loop commands `nan` when it is not running. Firmware that predates a field omits the column, so the optional is empty there too.
 - `motor_speed_*_rad_s` is signed and NaN when the firmware has no estimate. `stall_flags` on the wire is bit 0 left, bit 1 right, and the event carries `left_stalled` and `right_stalled`. `MotorGuardState` and `MotorGuardSensors` match `motor_guard::State` and `motor_guard::Sensors` in `firmware/mr_stabs_mk2/lib/motor_guard/motor_guard.h`.
 - `to_esp32_diagnostics_json` writes non-finite numbers as `null`. A bare `nan` makes the Foxglove JSON payload unparseable. `NonFiniteBecomesNull` covers it. The JSON keys keep the firmware's names (`left_cmd`, `orientation_x`, `motor_amps_left`), not the C++ member names.
@@ -40,18 +38,17 @@ Every `GET /telemetry` reply starts with a `TelemetryBatchHeader` (`firmware/sha
 - `push()` is non-const and `read()` is const, so readers hold a `const` ring and cannot write.
 - Capacity 0 makes every push a no-op. `storage` must hold `capacity` records and outlive the ring.
 
-## Workarounds
+## Wi-Fi manager and firmware services
 
-- Station config: `WiFi.persistent(false)` in `wifi_manager.cpp`. The core otherwise writes the station config to flash on every `WiFi.begin()`, and a flash write stalls the control loop. The settings live in our own NVS namespace instead. WiFi settings writes go to flash too, so the diagnostics page changes them only while disarmed. The snapshot the page shows never carries passwords. The task owns the manager's state once `begin()` returns, and `snapshot()` reads it under `_lock`.
+- The core would otherwise write the station config to flash on every `WiFi.begin()`, and a flash write stalls the control loop, so the settings live in our own NVS namespace. Settings writes go to flash too, so the diagnostics page changes them only while disarmed. The snapshot the page shows never carries passwords. The task owns the manager's state once `begin()` returns, and `snapshot()` reads it under `_lock`.
 - Core dump erase writes flash, so it waits for the loop and refuses while armed.
 - CRSF telemetry: values go back to the radio as CRSF sensors, and NaN fields are sent as 0.
-- BNO055 (`updown_sensor.cpp`): the code reads CHIP_ID before the library's `begin()`, which returns only a bool and hides why it failed. The gyro unwrap tracks from the previous sample, which a reconnect leaves stale, so reconnect resets it. Adafruit's `getVector` ignores the `readLen` result and returns zeros, so samples read the gyro, Euler, linear and gravity registers through `read_registers` and decode them in `bno055_decode`. A failed read, or a failed per-sample CHIP_ID check, marks the sensor lost and reads stop until `begin()` succeeds. The new read path is not yet bench-verified.
+- BNO055 (`updown_sensor.cpp`): samples read the gyro, Euler, linear and gravity registers through `read_registers` and decode them in `bno055_decode`. A failed read, or a failed per-sample CHIP_ID check, marks the sensor lost and reads stop until `begin()` succeeds. The gyro unwrap resets on reconnect.
 
 ## USB bridge
 
 - `write_whole` writes a frame in one call once the USB ring buffer has room for all of it, so log lines and frames never split each other. It returns false when the laptop stopped reading.
 - Arduino's `log_e()` and friends write one character at a time through the ROM putc hook, from any task or core, with no lock, so they would land in the middle of a frame. The bridge collects them and lets the bridge task write whole lines between frames.
-- `WiFiClient::connected()` probes with a zero-length recv, which never reports an orderly close, so a finished response would hold its slot forever. `peer_closed()` peeks one byte instead: 0 means EOF.
 - The bridge task runs on core 1, where `Serial.begin()` put the USB-Serial/JTAG interrupt. Writing from core 0 raced it and lost whole 64-byte packets: 2 to 5 damaged frames per 10 kB file, none on core 1 (236 frames checked on 2026-10-23).
 
 ## Test fake server

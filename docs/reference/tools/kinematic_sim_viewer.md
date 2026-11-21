@@ -4,7 +4,7 @@
 
 ## Logical time
 
-Rendering costs wall-clock time and cannot corrupt a run. The sim owns logical time and ships `sim_time` in the response header, which the C++ side adopts through `ManualClock`. A slow render makes the sim slower in real time and changes nothing the controller sees. Keep that property when extending the viewer. `test_render_does_not_touch_sim_state` covers it.
+Rendering costs wall-clock time and cannot corrupt a run. The sim owns logical time and ships `sim_time` in the response header, which the C++ side adopts through `ManualClock`. A slow render makes the sim slower in real time and changes nothing the controller sees. Keep that property when extending the viewer.
 
 ## Layers
 

@@ -25,7 +25,7 @@
 
 ## `CameraConfig`
 
-Noop perception ignores the pixels, but the UI draws its overlay on this frame by projecting field points through these intrinsics. At the old 16x16 placeholder the whole overlay landed inside a handful of pixels and the pane read as black. 640x360 is small enough to stay cheap over the socket and large enough to look like the real camera pane.
+Noop perception ignores the pixels, but the UI draws its overlay on this frame by projecting field points through these intrinsics. 640x360 is small enough to stay cheap over the socket and large enough to look like the real camera pane.
 
 ## `PlantType`
 
@@ -121,7 +121,6 @@ Rendering costs wall-clock time but cannot corrupt a run. The sim owns logical t
 
 `FixedMaskModel` returns a constant non-empty FIELD mask for the headless kinematic sim. The Runner's field-init gate requires a non-empty mask. The field size comes from `FixedFieldFilter`, not from perception, so the constant mask satisfies the gate without running a segmentation model.
 
-## Workarounds
+## MuJoCo import
 
-- **Lazy MuJoCo imports.** `plants/__init__.py` imports `MujocoPlant` inside the branch that needs it. MuJoCo is an x86-only dependency (`pyproject.toml` pins it per platform), so on aarch64 a top-level import would fail with `ModuleNotFoundError: mujoco` and break the kinematic plant.
-- `tests/python/test_sensing_model.py` compares capture spacing to the frame period with a one-step tolerance. Captures land on the first 1 ms step at or after each frame time, so spacing jitters by up to one step while the clock keeps the frame period.
+`plants/__init__.py` imports `MujocoPlant` only in the branch that needs it. MuJoCo is an x86-only dependency (`pyproject.toml` pins it per platform), so a top-level import would fail on aarch64 and break the kinematic plant.

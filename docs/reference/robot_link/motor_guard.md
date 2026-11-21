@@ -62,11 +62,7 @@
 
 ## Placeholder defaults
 
-Step 0 of `docs/plans/motor_stall_protection_plan.md` (the bench measurements) was deferred, so every `Config` default is a placeholder chosen to err toward limiting early. `r_cold_ohm` sits below the MuJoCo fit, which overestimates current. `rise_max_c` is 20 C under the plan's 70 C.
-
-## Test plant
-
-`test_motor_guard.cpp` simulates two motors on a stiff pack. Current is the averaged ESC model the guard assumes, `I = (d V - Ke w) / R`, with `R` 15% below the guard's `R_cold` so the shunt gain has something to correct (`g` only corrects upward). A DShot stop freewheels and draws no current.
+Every `Config` default is a placeholder (no bench measurements yet) chosen to err toward limiting early. `r_cold_ohm` sits below the MuJoCo fit, which overestimates current. `rise_max_c` is 20 C under 70 C.
 
 ## Hard trip
 

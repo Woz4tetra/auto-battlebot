@@ -50,18 +50,10 @@ Usage:
     logo/gen_splash_animation.py --size 480x384 --fps-mult 1 --no-verify
 ```
 
-- `REF_SIZE`: Reference GIF geometry (the motion table is normalized against these).
-- `HOLD_LAST_MS`: Hold the assembled logo before the GIF ends/loops so playback doesn't cut off abruptly (the UI pauses the gif during this window, then fades to the app).
-- `RADIUS_FRAC`: Disc radius as a fraction of output height (from the reference GIF: disc radius 30 on a 128-tall canvas, disc centered).
-- `SVG_VIEWBOX_W`: SVG geometry, in path coordinates of bwbots_logo.svg (before the group's 0.2645833 scale). Used to size/position the pill and the final layout. black half-disc vertical extent.
-- `FINAL_HALF_GAP`: Final logo half-gap (flat edge of each half-disc to logo center), fraction of r. From the SVG: flats at x=203.5 / 277.2, gap 73.7 units on a 136.5 radius.
-- `GIF_FINAL_HALF_GAP`: The GIF's final half-gap is wider (10.5 px / 30 px); the measured split offsets below are rescaled so the same trajectory settles at the SVG's layout.
-- `gen_splash_animation.py`: Per-frame motion, measured from bwbots_splash_160x128.gif. left_off / right_off: signed offset of each half-disc's flat edge from the disc center, in units of disc radius (left half sits left of its flat edge). angle: clockwise rotation of the assembled disc, degrees (0 = white half right). pill: revealed width fraction of the pill (center-out wipe).
+## Keyframes
 
-`build_keyframes`:
+The motion table is measured from `bwbots_splash_160x128.gif`. `left_off` and `right_off` are the signed offset of each half-disc's flat edge from the disc center, in disc radii. `angle` is the clockwise rotation of the assembled disc in degrees (0 = white half right). `pill` is the revealed width fraction of the pill (center-out wipe).
 
-Adapt the measured table to the output canvas.
+The table is adapted to the output canvas. Slide-in offsets (frames 0-6) are scaled so the halves enter from the actual canvas edge (the reference table assumes a 5:4 canvas, 2.667 radii wide). The first visible frame keeps the reference look, with the flat edge 0.12 r inside the screen edge. Split offsets (frames 17+) are scaled so the same trajectory settles at the SVG layout (final half-gap 73.7 units on a 136.5 radius, against 10.5 px / 30 px in the GIF).
 
-Slide-in offsets (frames 0-6) are scaled so the halves enter from the actual canvas edge (the reference table assumed a 5:4 canvas, 2.667 radii wide). The first visible frame keeps the reference's look: the flat edge 0.12 r inside the screen edge. Split offsets (frames 17+) are scaled to settle at the SVG layout.
-
-- `main`: Expected: MAE 2-5 on spin frames, up to ~22 on split frames (intentional SVG-true pill artwork / gap vs the hand-made GIF) and elevated on slide frames when the canvas is wider than 5:4 (longer slide-in runway).
+Expected verification MAE is 2-5 on spin frames and up to about 22 on split frames (SVG-true pill artwork and gap against the hand-made GIF). It is elevated on slide frames when the canvas is wider than 5:4.

@@ -168,7 +168,7 @@ The `yolo26n` entry in `training/yolo/train.py` sets `imgsz` 640, the same as `y
 | --- | --- |
 | `yolo26n` config | Detect head. Its batch (128) matches `train.py`'s `yolo26n`, so a warm-start arm is comparable to the cold-start runs it is graded against (`data_epoch_min` Exp 2). |
 | `--save-period` | Writes `weights/epoch{0,N,2N,...}.pt` besides `last.pt` and `best.pt`. Produces the warm-start epochs-to-parity ladder for the `data_epoch_min` experiment. 0 disables. |
-| `--fraction` | Fine-tunes on the first FRACTION of the shuffled train split, val untouched. The single-source real-data lever for the warm-regime data-floor sweep (Exp 3, Phase A). |
+| `--fraction` | Fine-tunes on the first FRACTION of the shuffled train split, val untouched. The single-source real-data lever for the warm-regime data-floor sweep (Exp 3). |
 
 Its `hyper_params` use the `train.py` keys and meanings above with these differences:
 
@@ -332,11 +332,3 @@ python training/yolo/seg_to_boxonly_pose.py training/data/nhrl_seg/nhrl_robots \
     -o training/data/opponent_pose \
     --keep-class 1 --exclude-frame-classes 3 4 --out-class 2 --num-keypoints 2
 ```
-
-## Workarounds
-
-Facts that used to live in comments beside the code.
-
-### Export and engine build
-
-- The calibrator holds its CUDA buffer on the instance. TensorRT receives a raw device address and does not keep the allocation alive. torch already owns the CUDA context, so pycuda would be a second dependency for the same pointer.

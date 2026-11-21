@@ -18,9 +18,6 @@ How `firmware/mr_stabs_mk2` maps commands to ESC duty, decodes ESC replies, and 
 - Entry waits until COMBAT has lasted `REENTRY_MS` (`esc_config.h`).
 - Exiting restarts the ESCs. Entering again right away left them out of the bootloader.
 
-## Workarounds
+## Config request scheduling
 
-- ESC UART receive: `esc_config.cpp` sets the RX full threshold to 1 so each byte is handed over as it lands. The default 120-byte threshold holds a reply back for 62 ms at a time, longer than the 10 ms gap that ends it.
-- Shared UART pin: `uart_set_pin()` leaves the shared pin input only. Open drain gives the UART the line back. `gpio_set_direction()` reconnects the pin to plain GPIO output, so the UART's TX signal is routed to it again last. Unverified against IDF 4.4 source.
-- A pending ESC config request is checked after the frame, so a write always finishes before the pins change hands. `EscConfig::update()` runs from `loop()` every pass and at most one queued frame, which blocks for up to about 3 s (a write). Armed and driving refuse entry, and a radio button press exits. The HTTP side is safe to call from the network task.
-- DShot RMT channels: `DShot.cpp` declares NeoPixel's `rmt_reserved_channels[]` (defined in Adafruit NeoPixel `esp.c` on IDF below 5) and marks its own channels so NeoPixel skips them. pioarduino drops the array.
+A pending ESC config request is checked after the frame, so a write always finishes before the pins change hands. `EscConfig::update()` runs from `loop()` every pass and at most one queued frame, which blocks for up to about 3 s (a write). Armed and driving refuse entry, and a radio button press exits. The HTTP side is safe to call from the network task.
