@@ -11,17 +11,21 @@ import pandas as pd
 from scipy.optimize import least_squares
 
 FIX_COLUMNS = ["stamp_ns", "x", "y", "yaw", "conf"]
-GATE_MARGIN = 1.3
-MIN_CONF = 0.5
-SIZE_GATE_INLIER_RADIUS_M = 0.03
-OFFSETS_MS = tuple(range(-60, 61, 4))
-TAG_PAIR_MAX_OFFSET_NS = 20_000_000
 HALF_FRAME_NS = 8_400_000
-TAG_DROPOUT_MIN_GAP_NS = 100_000_000
-UPRIGHT_TILT_LIMIT_DEG = 15.0
 
 
 UpFromCameraAt = Callable[[np.ndarray], np.ndarray]
+
+
+@dataclass(frozen=True)
+class YoloFixSettings:
+    gate_margin: float = 1.3
+    min_conf: float = 0.5
+    size_gate_inlier_radius_m: float = 0.03
+    offsets_ms: tuple[int, ...] = tuple(range(-60, 61, 4))
+    tag_pair_max_offset_ns: int = 20_000_000
+    tag_dropout_min_gap_ns: int = 100_000_000
+    upright_tilt_limit_deg: float = 15.0
 
 
 @dataclass
@@ -126,9 +130,11 @@ def calibrate(
     camera_matrix: np.ndarray,
     up_from_camera_at: UpFromCameraAt,
     azimuth: float,
+    settings: YoloFixSettings | None = None,
 ) -> YoloCalibration:
     """Fit the projection against stamp-sorted, yaw-unwrapped tag poses on co-visible frames."""
-    best_per_frame = _best_per_frame(det[det["conf"] >= MIN_CONF])
+    cfg = settings or YoloFixSettings()
+    best_per_frame = _best_per_frame(det[det["conf"] >= cfg.min_conf])
     stamps = best_per_frame["stamp_ns"].to_numpy(np.int64)
     pose = up_from_camera_at(stamps)
 
@@ -140,7 +146,7 @@ def calibrate(
 
     def fit_at(offset_ns: int) -> tuple[float, np.ndarray, np.ndarray] | None:
         shifted = stamps + offset_ns
-        pair = np.abs(nearest_tag(shifted)) < TAG_PAIR_MAX_OFFSET_NS
+        pair = np.abs(nearest_tag(shifted)) < cfg.tag_pair_max_offset_ns
         if pair.sum() < 50:
             return None
         sub = best_per_frame[pair]
@@ -155,7 +161,7 @@ def calibrate(
         return float(np.median(np.hypot(*fit.fun.reshape(2, -1)))), fit.x, pair
 
     coarse: tuple[float, int] | None = None
-    for off_ms in OFFSETS_MS:
+    for off_ms in cfg.offsets_ms:
         result = fit_at(off_ms * 1_000_000)
         if result is not None and (coarse is None or result[0] < coarse[0]):
             coarse = (result[0], off_ms * 1_000_000)
@@ -175,10 +181,10 @@ def calibrate(
     dyaw = _wrap(proj["yaw"] - np.interp(shifted, tag_stamp_ns, tag_yaw))
     err = np.hypot(dx, dy)
     c, s = np.cos(azimuth), np.sin(azimuth)
-    inl = err < SIZE_GATE_INLIER_RADIUS_M
+    inl = err < cfg.size_gate_inlier_radius_m
     diag = _box_diag(sub)[inl]
     sep = proj["sep"][inl]
-    confident = det[det["conf"] >= MIN_CONF]
+    confident = det[det["conf"] >= cfg.min_conf]
     every = project_detections(
         confident,
         camera_matrix,
@@ -194,12 +200,12 @@ def calibrate(
         sigma_across_m=_robust_sigma(-s * dx + c * dy),
         sigma_yaw_rad=_robust_sigma(dyaw),
         box_diag_px=(
-            float(np.percentile(diag, 0.5) / GATE_MARGIN),
-            float(np.percentile(diag, 99.5) * GATE_MARGIN),
+            float(np.percentile(diag, 0.5) / cfg.gate_margin),
+            float(np.percentile(diag, 99.5) * cfg.gate_margin),
         ),
         keypoint_sep_m=(
-            float(np.percentile(sep, 0.5) / GATE_MARGIN),
-            float(np.percentile(sep, 99.5) * GATE_MARGIN),
+            float(np.percentile(sep, 0.5) / cfg.gate_margin),
+            float(np.percentile(sep, 99.5) * cfg.gate_margin),
         ),
         pairs=int(pair.sum()),
         position_error_mm={f"p{q}": float(1e3 * np.percentile(err, q)) for q in (50, 90, 99)},
@@ -214,15 +220,18 @@ def calibrate(
     )
 
 
-def flat_mask(esp32: pd.DataFrame, stamp_ns: np.ndarray) -> np.ndarray:
-    """True where the robot's own IMU says it is upright, within ``UPRIGHT_TILT_LIMIT_DEG``."""
+def flat_mask(
+    esp32: pd.DataFrame, stamp_ns: np.ndarray, settings: YoloFixSettings | None = None
+) -> np.ndarray:
+    """True where the robot's own IMU says it is upright, within ``upright_tilt_limit_deg``."""
+    cfg = settings or YoloFixSettings()
     e = esp32.sort_values("stamp_ns")
     t = e["stamp_ns"].to_numpy(np.int64)
     upright = e["is_upside_down"].to_numpy() == 0
     pitch = e["orientation_y"].to_numpy(float)
     roll = e["orientation_z"].to_numpy(float)
-    ok = upright & (np.abs(pitch - np.median(pitch[upright])) < UPRIGHT_TILT_LIMIT_DEG)
-    ok &= np.abs(roll - np.median(roll[upright])) < UPRIGHT_TILT_LIMIT_DEG
+    ok = upright & (np.abs(pitch - np.median(pitch[upright])) < cfg.upright_tilt_limit_deg)
+    ok &= np.abs(roll - np.median(roll[upright])) < cfg.upright_tilt_limit_deg
     at = np.clip(np.searchsorted(t, stamp_ns, side="right") - 1, 0, len(t) - 1)
     return np.asarray(ok[at])
 
@@ -234,10 +243,12 @@ def select_fixes(
     up_from_camera_at: UpFromCameraAt,
     tag_stamps_ns: np.ndarray,
     esp32: pd.DataFrame | None,
+    settings: YoloFixSettings | None = None,
 ) -> tuple[pd.DataFrame, dict[str, int]]:
     """One fix per frame in a tag dropout, stamped on the tag image clock, plus counts."""
+    cfg = settings or YoloFixSettings()
     report: dict[str, int] = {"detections": len(det)}
-    cand = det[det["conf"] >= MIN_CONF].reset_index(drop=True)
+    cand = det[det["conf"] >= cfg.min_conf].reset_index(drop=True)
     report["confident"] = len(cand)
     stamps = cand["stamp_ns"].to_numpy(np.int64)
     proj = project_detections(
@@ -259,11 +270,11 @@ def select_fixes(
     j = np.searchsorted(tags, shifted)
     inside = (j > 0) & (j < tags.size)
     j = np.clip(j, 1, tags.size - 1)
-    keep = inside & (tags[j] - tags[j - 1] > TAG_DROPOUT_MIN_GAP_NS)
+    keep = inside & (tags[j] - tags[j - 1] > cfg.tag_dropout_min_gap_ns)
     keep &= (tags[j] - shifted > HALF_FRAME_NS) & (shifted - tags[j - 1] > HALF_FRAME_NS)
     report["video_frames_in_dropouts"] = int(keep.sum())
     if esp32 is not None and len(esp32):
-        flat = flat_mask(esp32, shifted)
+        flat = flat_mask(esp32, shifted, cfg)
         report["dropped_not_flat"] = int((keep & ~flat).sum())
         keep &= flat
     rows = cand[keep]

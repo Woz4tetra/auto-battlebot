@@ -72,7 +72,7 @@ def _measurements(name: str) -> pd.DataFrame:
     field_from_camera = load_field_from_camera(mcap)
     t_up_field, _ = up_from_field(field_from_camera)
 
-    cand = det[det["conf"] >= yolo_field_fixes.MIN_CONF].reset_index(drop=True)
+    cand = det[det["conf"] >= yolo_field_fixes.YoloFixSettings().min_conf].reset_index(drop=True)
     stamps = cand["stamp_ns"].to_numpy(np.int64)
     up_from_camera = np.asarray(t_up_field @ field_from_camera.at(stamps))
     proj = yolo_field_fixes.project_detections(
