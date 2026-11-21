@@ -94,10 +94,6 @@ void AsyncPublisher::publish_robots(const RobotDescriptionsStamped &robots) {
     enqueue([this, robots] { inner_->publish_robots(robots); });
 }
 
-void AsyncPublisher::publish_blob_detections(const DetectionsStamped &detections) {
-    enqueue([this, detections] { inner_->publish_blob_detections(detections); });
-}
-
 void AsyncPublisher::publish_keypoint_detections(const DetectionsStamped &detections) {
     enqueue([this, detections] { inner_->publish_keypoint_detections(detections); });
 }

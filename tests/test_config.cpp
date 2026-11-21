@@ -69,9 +69,6 @@ camera_fps = 60
 [field_model]
 type = "NoopMaskModel"
 
-[robot_mask_model]
-type = "NoopRobotBlobModel"
-
 [field_filter]
 type = "NoopFieldFilter"
 
@@ -101,9 +98,6 @@ type = "NoopRgbdCamera"
 
 [field_model]
 type = "NoopMaskModel"
-
-[robot_mask_model]
-type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -142,9 +136,6 @@ type = "ZedRgbdCamera"
 
 [field_model]
 type = "NoopMaskModel"
-
-[robot_mask_model]
-type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -191,9 +182,6 @@ depth_mode = "ZED_ULTRA"
 [field_model]
 type = "NoopMaskModel"
 
-[robot_mask_model]
-type = "NoopRobotBlobModel"
-
 [field_filter]
 type = "NoopFieldFilter"
 
@@ -235,9 +223,6 @@ camera_fps = 90
 
 [field_model]
 type = "NoopMaskModel"
-
-[robot_mask_model]
-type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -282,9 +267,6 @@ video_recording = false
 [field_model]
 type = "NoopMaskModel"
 
-[robot_mask_model]
-type = "NoopRobotBlobModel"
-
 [field_filter]
 type = "NoopFieldFilter"
 
@@ -326,9 +308,6 @@ depth_mode = "ZED_ULTRA"
 [field_model]
 type = "NoopMaskModel"
 
-[robot_mask_model]
-type = "NoopRobotBlobModel"
-
 [field_filter]
 type = "NoopFieldFilter"
 
@@ -361,9 +340,6 @@ type = "UnknownCamera"
 
 [field_model]
 type = "NoopMaskModel"
-
-[robot_mask_model]
-type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -408,9 +384,6 @@ unknown_field = "should cause error"
 
 [field_model]
 type = "NoopMaskModel"
-
-[robot_mask_model]
-type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -468,9 +441,6 @@ type = "NoopRgbdCamera"
 [field_model]
 type = "NoopMaskModel"
 
-[robot_mask_model]
-type = "NoopRobotBlobModel"
-
 [field_filter]
 type = "NoopFieldFilter"
 
@@ -501,9 +471,6 @@ type = "NoopPublisher"
     ASSERT_NE(config.field_model, nullptr);
     EXPECT_EQ(config.field_model->type, "NoopMaskModel");
 
-    ASSERT_NE(config.robot_mask_model, nullptr);
-    EXPECT_EQ(config.robot_mask_model->type, "NoopRobotBlobModel");
-
     ASSERT_NE(config.field_filter, nullptr);
     EXPECT_EQ(config.field_filter->type, "NoopFieldFilter");
 
@@ -527,9 +494,6 @@ type = "NoopRgbdCamera"
 
 [field_model]
 type = "NoopMaskModel"
-
-[robot_mask_model]
-type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -570,9 +534,6 @@ type = "NoopRgbdCamera"
 
 [field_model]
 type = "NoopMaskModel"
-
-[robot_mask_model]
-type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -618,9 +579,6 @@ type = "NoopRgbdCamera"
 [field_model]
 type = "NoopMaskModel"
 
-[robot_mask_model]
-type = "NoopRobotBlobModel"
-
 [field_filter]
 type = "NoopFieldFilter"
 
@@ -657,9 +615,6 @@ type = "NoopRgbdCamera"
 
 [field_model]
 type = "NoopMaskModel"
-
-[robot_mask_model]
-type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -1225,9 +1180,6 @@ type = "NoopRgbdCamera"
 [field_model]
 type = "NoopMaskModel"
 
-[robot_mask_model]
-type = "NoopRobotBlobModel"
-
 [field_filter]
 type = "NoopFieldFilter"
 
@@ -1265,9 +1217,6 @@ type = "NoopRgbdCamera"
 
 [field_model]
 type = "NoopMaskModel"
-
-[robot_mask_model]
-type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -1459,9 +1408,6 @@ type = "NoopRgbdCamera"
 [field_model]
 type = "NoopMaskModel"
 
-[robot_mask_model]
-type = "NoopRobotBlobModel"
-
 [field_filter]
 type = "NoopFieldFilter"
 
@@ -1502,7 +1448,7 @@ type = "NoopPublisher"
         dynamic_cast<RobotFrontBackFilterConfiguration *>(config.robot_filter.get());
     ASSERT_NE(filter_config, nullptr);
 
-    const KeypointHeights &heights = filter_config->robot_keypoint_tracker_config.keypoint_heights;
+    const KeypointHeights &heights = filter_config->keypoint_heights;
     EXPECT_DOUBLE_EQ(heights.default_meters, 0.05);
     EXPECT_DOUBLE_EQ(heights.height_for(Label::OPPONENT), 0.09);
     EXPECT_DOUBLE_EQ(heights.height_for(Label::HOUSE_BOT), 0.05);
@@ -1524,9 +1470,6 @@ type = "NoopRgbdCamera"
 
 [field_model]
 type = "NoopMaskModel"
-
-[robot_mask_model]
-type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -1590,8 +1533,6 @@ gate_nis = 9.21
     EXPECT_DOUBLE_EQ(kalman_config->opponent_accel_psd, 12.5);
     EXPECT_DOUBLE_EQ(kalman_config->max_coast_s, 0.3);
     EXPECT_DOUBLE_EQ(kalman_config->gate_nis, 9.21);
-    EXPECT_DOUBLE_EQ(kalman_config->blob_position_sigma_m,
-                     KalmanMotionEstimatorConfiguration{}.blob_position_sigma_m);
 }
 
 TEST_F(ConfigTest, RobotFilterMotionEstimatorEkfModeRejectedUntilPlantModelExists) {
@@ -1723,9 +1664,6 @@ type = "NoopRgbdCamera"
 [field_model]
 type = "NoopMaskModel"
 
-[robot_mask_model]
-type = "NoopRobotBlobModel"
-
 [field_filter]
 type = "NoopFieldFilter"
 
@@ -1777,9 +1715,6 @@ type = "NoopRgbdCamera"
 
 [field_model]
 type = "NoopMaskModel"
-
-[robot_mask_model]
-type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"
@@ -1875,9 +1810,6 @@ type = "NoopRgbdCamera"
 
 [field_model]
 type = "NoopMaskModel"
-
-[robot_mask_model]
-type = "NoopRobotBlobModel"
 
 [field_filter]
 type = "NoopFieldFilter"

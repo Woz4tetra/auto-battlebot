@@ -45,9 +45,7 @@ the wall clock.
 | `/hazard_markers` | `protobuf` | `foxglove.SceneUpdate` | `protobuf` | yes |
 | `/robot_markers` | `protobuf` | `foxglove.SceneUpdate` | `protobuf` | yes |
 | `/nav_markers` | `protobuf` | `foxglove.SceneUpdate` | `protobuf` | yes |
-| `/blob_detections` | `json` | `auto_battlebot.Detections` | `jsonschema` | yes |
 | `/keypoint_detections` | `json` | `auto_battlebot.Detections` | `jsonschema` | yes |
-| `/blob_detections/annotations` | `protobuf` | `foxglove.ImageAnnotations` | `protobuf` | no, live only |
 | `/keypoint_detections/annotations` | `protobuf` | `foxglove.ImageAnnotations` | `protobuf` | no, live only |
 | `/diagnostics/<module>` | `json` | `auto_battlebot.Diagnostics` | `jsonschema` | yes |
 | `/robot/esp32_diagnostics` | `json` | `auto_battlebot.Esp32Diagnostics` | `jsonschema` | yes |
@@ -166,7 +164,9 @@ Recordings written before 2026-09-09 carry `svo_frame_index` and `svo_path` inst
 the video lived in a separate `.svo2` file. `auto_battlebot.recording.mcap_io` reads the old
 names and reports the index as `video_frame_index`, which is what it always was.
 
-## `/blob_detections`, `/keypoint_detections` (JSON)
+## `/keypoint_detections` (JSON)
+
+Recordings made before the blob model was removed also carry `/blob_detections` in the same format.
 
 Payload:
 
@@ -418,7 +418,7 @@ Entity ids the readers rely on:
   `nav_angular_head`, each `/<i>` with a running counter, and deletions for every absent
   namespace at id 0.
 
-## `/blob_detections/annotations`, `/keypoint_detections/annotations` (`foxglove.ImageAnnotations`)
+## `/keypoint_detections/annotations` (`foxglove.ImageAnnotations`)
 
 Live only. Per detection: a `PointsAnnotation` of type `LINE_LOOP` with the four box corners,
 `thickness` 2, `outline_color` from the label group; a `CircleAnnotation` per keypoint with
@@ -496,7 +496,7 @@ relay.
 
 ### Detections
 
-Raw detector output (`/blob_detections`, `/keypoint_detections`) is captured in original-image pixel coordinates before the blob/keypoint collapse, so offline tools can score the model itself. The JSON payload is `{"stamp":<sec>,"w":<px>,"h":<px>,"dets":[{"x1","y1","x2","y2","conf","class_id","label","kps"}]}`.
+Raw detector output (`/keypoint_detections`) is captured in original-image pixel coordinates before the keypoint collapse, so offline tools can score the model itself. The JSON payload is `{"stamp":<sec>,"w":<px>,"h":<px>,"dets":[{"x1","y1","x2","y2","conf","class_id","label","kps"}]}`.
 
 ### Behavior mode and targets
 

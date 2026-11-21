@@ -85,12 +85,6 @@ FoxglovePublisher::FoxglovePublisher(std::shared_ptr<VizSink> sink,
                      mcap_recorder_),
       nav_markers_("/nav_markers", "protobuf", sdk_schema<SceneUpdate>(), kLatched, sink_,
                    mcap_recorder_),
-      blob_detections_("/blob_detections", "json",
-                       json_schema(foxglove_adapters::kDetectionsSchemaName,
-                                   foxglove_adapters::kDetectionsSchema),
-                       kUnlatched, sink_, mcap_recorder_),
-      blob_annotations_("/blob_detections/annotations", "protobuf", sdk_schema<ImageAnnotations>(),
-                        kUnlatched, sink_, nullptr),
       keypoint_detections_("/keypoint_detections", "json",
                            json_schema(foxglove_adapters::kDetectionsSchemaName,
                                        foxglove_adapters::kDetectionsSchema),
@@ -308,11 +302,6 @@ void FoxglovePublisher::publish_robots(const RobotDescriptionsStamped &robots) {
     FunctionTimer timer(diagnostics_logger_, "publish_robots");
     auto scene = foxglove_adapters::to_robot_scene(robots);
     robot_markers_.log_message(scene, mcap_log_time_ns());
-}
-
-void FoxglovePublisher::publish_blob_detections(const DetectionsStamped &detections) {
-    FunctionTimer timer(diagnostics_logger_, "publish_blob_detections");
-    publish_detections_on(blob_detections_, blob_annotations_, detections);
 }
 
 void FoxglovePublisher::publish_keypoint_detections(const DetectionsStamped &detections) {

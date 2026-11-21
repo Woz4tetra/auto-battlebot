@@ -292,8 +292,7 @@ class ToyEnv:
         f = self.opp_filter
         before = f.output_stale.clone()
         var = torch.full((n,), 0.012**2, device=self.device, dtype=self.dtype)
-        keypoint = torch.ones(n, dtype=torch.bool, device=self.device)
-        f.update(out.stamp, out.measured[:, 1], out.xy[:, 1], out.yaw[:, 1], keypoint, var)
+        f.update(out.stamp, out.measured[:, 1], out.xy[:, 1], out.yaw[:, 1], var)
         f.output_stale = torch.where(out.delivered, f.output_stale, before)
 
     def step(self, action: torch.Tensor) -> Step:

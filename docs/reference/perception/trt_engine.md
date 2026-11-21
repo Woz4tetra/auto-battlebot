@@ -1,6 +1,6 @@
 # TensorRT engine wrapper (`TrtEngine`)
 
-`include/tensorrt_inference/trt_engine.hpp` wraps one serialized `.engine` file. `EngineSelector` probes candidate files with it and the three TensorRT models (`YoloKeypointModel`, `YoloBboxRobotBlobModel`, `DeeplabMaskModel`) run inference through it.
+`include/tensorrt_inference/trt_engine.hpp` wraps one serialized `.engine` file. `EngineSelector` probes candidate files with it and the two TensorRT models (`YoloKeypointModel`, `DeeplabMaskModel`) run inference through it.
 
 ## Loading
 

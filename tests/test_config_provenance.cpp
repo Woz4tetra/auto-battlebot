@@ -15,9 +15,6 @@ type = "NoopRgbdCamera"
 [field_model]
 type = "NoopMaskModel"
 
-[robot_mask_model]
-type = "NoopRobotBlobModel"
-
 [field_filter]
 type = "NoopFieldFilter"
 
@@ -77,7 +74,7 @@ TEST_F(ConfigProvenanceTest, NamesTheFileAndLineThatSetEachValue) {
 
     ResolvedConfig resolved = resolve(profile);
 
-    EXPECT_EQ(source(resolved, "health", "sample_period_ms"), "base.toml:33");
+    EXPECT_EQ(source(resolved, "health", "sample_period_ms"), "base.toml:30");
     EXPECT_EQ(source(resolved, "health", "enable"), "child.toml:4");
     EXPECT_EQ(resolved.find("health", "sample_period_ms")->value, "900");
 }
@@ -134,7 +131,7 @@ TEST_F(ConfigProvenanceTest, FormattedOutputReloadsAsTheSameValues) {
     const size_t line_start = text.find("sample_period_ms = 700");
     ASSERT_NE(line_start, std::string::npos) << text;
     const std::string line = text.substr(line_start, text.find('\n', line_start) - line_start);
-    EXPECT_NE(line.find("# p.toml:33"), std::string::npos) << line;
+    EXPECT_NE(line.find("# p.toml:30"), std::string::npos) << line;
 }
 
 TEST(FormatTomlValue, PrintsShortestRoundTripDoubles) {

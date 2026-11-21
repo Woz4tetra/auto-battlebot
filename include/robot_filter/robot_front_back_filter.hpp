@@ -15,7 +15,6 @@
 #include "robot_filter/front_back_keypoint_converter.hpp"
 #include "robot_filter/motion_estimator_interface.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
-#include "robot_filter/robot_keypoint_tracker.hpp"
 
 namespace auto_battlebot {
 class RobotFrontBackFilter : public RobotFilterInterface {
@@ -26,12 +25,10 @@ class RobotFrontBackFilter : public RobotFilterInterface {
 
     void predict(double now, CommandFeedback command_feedback) override;
 
-    void correct(ModelResultStamped keypoints, FieldDescription field, CameraInfo camera_info,
-                 ModelResultStamped robot_blob_keypoints) override;
+    void correct(ModelResultStamped keypoints, FieldDescription field,
+                 CameraInfo camera_info) override;
 
     RobotDescriptionsStamped state() const override { return state_; }
-
-    bool last_suppressed_own_blob() const override { return our_blob_present_no_keypoint_; }
 
    private:
     std::unordered_map<Label, RobotConfig> robot_configs_;
@@ -41,25 +38,14 @@ class RobotFrontBackFilter : public RobotFilterInterface {
     FrameId default_frame_id_;
     double max_jump_distance_;
     int max_consecutive_jump_rejects_;
-    double blob_overwrite_min_distance_meters_;
-    double blob_overwrite_size_scale_;
     std::map<Label, Size> size_overrides_;
     std::map<Label, Position2D> footprint_center_offsets_;
     double field_bounds_margin_meters_;
     double our_robot_hold_window_s_;
-    double our_keypoint_dropout_blob_radius_meters_;
-    double our_keypoint_dropout_blob_window_s_;
-    RobotKeypointTracker robot_keypoint_tracker_;
     FrameIdAssigner frame_id_assigner_;
     std::unique_ptr<MotionEstimatorInterface> motion_estimator_;
 
     RobotDescriptionsStamped state_;
-
-    bool our_blob_present_no_keypoint_ = false;
-    bool has_last_our_position_ = false;
-    Position last_our_position_{};
-    double last_our_size_x_ = 0.0;
-    double last_our_position_stamp_ = 0.0;
 
     std::vector<RobotDescription> convert_keypoints_to_measurements(
         const ModelResultStamped &model_results, const FieldDescription &field,
@@ -73,28 +59,6 @@ class RobotFrontBackFilter : public RobotFilterInterface {
     FrameId get_default_frame_id_for_label(const Label label) const;
 
     void apply_known_geometry(std::vector<RobotDescription> &descriptions) const;
-
-    bool is_blob_suppressed_by_keypoint(
-        const RobotKeypointDetection &blob,
-        const std::vector<RobotDescription> &keypoint_measurements) const;
-
-    int suppress_blobs_near_our_anchor(double stamp,
-                                       const std::vector<RobotDescription> &keypoint_measurements,
-                                       std::vector<RobotKeypointDetection> &blobs) const;
-
-    bool is_our_anchor_fresh(double stamp) const;
-
-    void update_our_position_anchor(const std::vector<RobotDescription> &descriptions,
-                                    double stamp);
-
-    std::vector<FrameId> get_assignment_frame_ids(
-        Label label, const std::vector<RobotDescription> &used_measurements) const;
-
-    void merge_blob_detections(const ModelResultStamped &robot_blob_keypoints,
-                               const std::vector<RobotDescription> &keypoint_measurements,
-                               const FieldDescription &field, const CameraInfo &camera_info,
-                               const Eigen::Matrix4d &tf_fieldcenter_from_camera, double stamp,
-                               std::vector<RobotDescription> &all_measurements);
 };
 
 }  // namespace auto_battlebot

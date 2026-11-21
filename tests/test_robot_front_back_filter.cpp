@@ -13,16 +13,13 @@ namespace {
 constexpr double kOurFrontX = 300.0;
 constexpr double kOurBackX = 340.0;
 constexpr double kOurRowY = 220.0;
-constexpr double kBlobRowFarFromHeldPoseY = 380.0;
-constexpr double kSpecificBlobConfidence = 0.95;
 constexpr double kLongAfterLastKeypointS = 1.0;
 
 RobotDescriptionsStamped run_filter(RobotFrontBackFilter &filter, ModelResultStamped keypoints,
                                     const FieldDescription &field, const CameraInfo &camera_info,
-                                    ModelResultStamped robot_blob_keypoints,
                                     const CommandFeedback &command_feedback) {
     filter.predict(keypoints.header.stamp, command_feedback);
-    filter.correct(std::move(keypoints), field, camera_info, std::move(robot_blob_keypoints));
+    filter.correct(std::move(keypoints), field, camera_info);
     return filter.state();
 }
 
@@ -108,15 +105,6 @@ ModelResultStamped make_our_keypoints(double stamp, double front_x, double back_
     return keypoints;
 }
 
-ModelResultStamped make_opponent_blob(double stamp, double front_x, double back_x, double y) {
-    ModelResultStamped blob;
-    blob.header.frame_id = FrameId::CAMERA;
-    blob.header.stamp = stamp;
-    append_keypoint_pair(blob, Label::OPPONENT, KeypointLabel::OPPONENT_FRONT,
-                         KeypointLabel::OPPONENT_BACK, 1, front_x, back_x, y, 0.8);
-    return blob;
-}
-
 RobotFrontBackFilterConfiguration make_our_robot_config() {
     RobotFrontBackFilterConfiguration config;
     config.front_keypoints = {KeypointLabel::OPPONENT_FRONT, KeypointLabel::MRS_BUFF_MK3_FRONT};
@@ -125,12 +113,6 @@ RobotFrontBackFilterConfiguration make_our_robot_config() {
     config.default_frame_id = FrameId::OUR_ROBOT_1;
     config.max_jump_distance = 1.0;
     config.max_consecutive_jump_rejects = 1;
-    config.blob_overwrite_min_distance_meters = 0.3;
-    config.blob_overwrite_size_scale = 0.5;
-    config.robot_keypoint_tracker_config.min_length_meters = 0.05;
-    config.robot_keypoint_tracker_config.max_length_meters = 2.0;
-    config.robot_keypoint_tracker_config.min_confidence = 0.2;
-    config.robot_keypoint_tracker_config.max_candidates = 8;
     return config;
 }
 }  // namespace
@@ -149,227 +131,25 @@ TEST(RobotFrontBackFilterTest, RejectsLargeJumpThenAcceptsAfterThreshold) {
 
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();
-    const ModelResultStamped empty_blob_keypoints;
     const CommandFeedback command_feedback;
 
     const auto first = run_filter(filter, make_opponent_keypoints(1.0, 300.0, 340.0), field,
-                                  camera_info, empty_blob_keypoints, command_feedback);
+                                  camera_info, command_feedback);
     ASSERT_EQ(first.descriptions.size(), 1u);
     const double first_x = first.descriptions[0].pose.position.x;
     EXPECT_FALSE(first.descriptions[0].is_stale);
 
     const auto second = run_filter(filter, make_opponent_keypoints(1.1, 460.0, 500.0), field,
-                                   camera_info, empty_blob_keypoints, command_feedback);
+                                   camera_info, command_feedback);
     ASSERT_EQ(second.descriptions.size(), 1u);
     EXPECT_TRUE(second.descriptions[0].is_stale);
     EXPECT_NEAR(second.descriptions[0].pose.position.x, first_x, 1e-6);
 
     const auto third = run_filter(filter, make_opponent_keypoints(1.2, 460.0, 500.0), field,
-                                  camera_info, empty_blob_keypoints, command_feedback);
+                                  camera_info, command_feedback);
     ASSERT_EQ(third.descriptions.size(), 1u);
     EXPECT_FALSE(third.descriptions[0].is_stale);
     EXPECT_GT(std::abs(third.descriptions[0].pose.position.x - first_x), 0.5);
-}
-
-TEST(RobotFrontBackFilterTest, BlobFallbackToOpponentRelabelsToOpponent) {
-    RobotFrontBackFilterConfiguration config;
-    config.front_keypoints = {KeypointLabel::OPPONENT_FRONT, KeypointLabel::MRS_BUFF_MK1_FRONT};
-    config.back_keypoints = {KeypointLabel::OPPONENT_BACK, KeypointLabel::MRS_BUFF_MK1_BACK};
-    config.label_to_frame_ids = {{Label::MRS_BUFF_MK1, {FrameId::THEIR_ROBOT_1}}};
-    config.default_frame_id = FrameId::THEIR_ROBOT_1;
-    config.max_jump_distance = 1.0;
-    config.max_consecutive_jump_rejects = 1;
-    config.robot_keypoint_tracker_config.min_length_meters = 0.05;
-    config.robot_keypoint_tracker_config.max_length_meters = 2.0;
-    config.robot_keypoint_tracker_config.min_confidence = 0.2;
-    config.robot_keypoint_tracker_config.max_candidates = 8;
-
-    RobotFrontBackFilter filter(config);
-    ASSERT_TRUE(filter.initialize(2));
-
-    const CameraInfo camera_info = make_camera_info();
-    const FieldDescription field = make_field();
-    const CommandFeedback command_feedback;
-
-    const ModelResultStamped opponent_keypoints = make_opponent_keypoints(1.0, 280.0, 320.0);
-
-    ModelResultStamped blob_keypoints;
-    blob_keypoints.header.frame_id = FrameId::CAMERA;
-    blob_keypoints.header.stamp = 1.0;
-    append_keypoint_pair(blob_keypoints, Label::MRS_BUFF_MK1, KeypointLabel::MRS_BUFF_MK1_FRONT,
-                         KeypointLabel::MRS_BUFF_MK1_BACK, 1, 430.0, 470.0, 240.0, 0.8);
-
-    const auto result = run_filter(filter, opponent_keypoints, field, camera_info, blob_keypoints,
-                                   command_feedback);
-    ASSERT_EQ(result.descriptions.size(), 2u);
-
-    const RobotDescription *kp_meas = nullptr;
-    const RobotDescription *blob_meas = nullptr;
-    for (const auto &desc : result.descriptions) {
-        if (desc.frame_id == FrameId::THEIR_ROBOT_1) kp_meas = &desc;
-        if (desc.frame_id == FrameId::THEIR_ROBOT_2) blob_meas = &desc;
-    }
-    ASSERT_NE(kp_meas, nullptr);
-    ASSERT_NE(blob_meas, nullptr);
-
-    EXPECT_EQ(kp_meas->label, Label::OPPONENT);
-    EXPECT_EQ(kp_meas->group, Group::THEIRS);
-
-    EXPECT_EQ(blob_meas->label, Label::OPPONENT);
-    EXPECT_EQ(blob_meas->group, Group::THEIRS);
-}
-
-TEST(RobotFrontBackFilterTest, GlobalAssignmentDoesNotDropSpecificLabelBlob) {
-    RobotFrontBackFilterConfiguration config;
-    config.front_keypoints = {KeypointLabel::OPPONENT_FRONT, KeypointLabel::MRS_BUFF_MK3_FRONT};
-    config.back_keypoints = {KeypointLabel::OPPONENT_BACK, KeypointLabel::MRS_BUFF_MK3_BACK};
-    config.label_to_frame_ids = {{Label::MRS_BUFF_MK3, {FrameId::THEIR_ROBOT_2}}};
-    config.default_frame_id = FrameId::THEIR_ROBOT_2;
-    config.max_jump_distance = 1.0;
-    config.max_consecutive_jump_rejects = 1;
-    config.robot_keypoint_tracker_config.min_length_meters = 0.05;
-    config.robot_keypoint_tracker_config.max_length_meters = 2.0;
-    config.robot_keypoint_tracker_config.min_confidence = 0.2;
-    config.robot_keypoint_tracker_config.max_candidates = 8;
-
-    RobotFrontBackFilter filter(config);
-    ASSERT_TRUE(filter.initialize(2));
-
-    const CameraInfo camera_info = make_camera_info();
-    const FieldDescription field = make_field();
-    const ModelResultStamped empty_keypoints;
-    const CommandFeedback command_feedback;
-
-    ModelResultStamped blob_keypoints;
-    blob_keypoints.header.frame_id = FrameId::CAMERA;
-    blob_keypoints.header.stamp = 1.0;
-    append_keypoint_pair(blob_keypoints, Label::OPPONENT, KeypointLabel::OPPONENT_FRONT,
-                         KeypointLabel::OPPONENT_BACK, 1, 200.0, 240.0, 240.0, 0.7);
-    append_keypoint_pair(blob_keypoints, Label::OPPONENT, KeypointLabel::OPPONENT_FRONT,
-                         KeypointLabel::OPPONENT_BACK, 2, 400.0, 440.0, 240.0, 0.6);
-    append_keypoint_pair(blob_keypoints, Label::MRS_BUFF_MK3, KeypointLabel::MRS_BUFF_MK3_FRONT,
-                         KeypointLabel::MRS_BUFF_MK3_BACK, 3, 300.0, 340.0, 240.0,
-                         kSpecificBlobConfidence);
-
-    const auto result =
-        run_filter(filter, empty_keypoints, field, camera_info, blob_keypoints, command_feedback);
-
-    ASSERT_EQ(result.descriptions.size(), 2u);
-
-    const RobotDescription *mk3_meas = nullptr;
-    const RobotDescription *opponent_meas = nullptr;
-    for (const auto &desc : result.descriptions) {
-        if (desc.frame_id == FrameId::THEIR_ROBOT_2) mk3_meas = &desc;
-        if (desc.frame_id == FrameId::THEIR_ROBOT_1) opponent_meas = &desc;
-    }
-    ASSERT_NE(mk3_meas, nullptr);
-    ASSERT_NE(opponent_meas, nullptr);
-
-    EXPECT_EQ(mk3_meas->label, Label::MRS_BUFF_MK3);
-    EXPECT_EQ(mk3_meas->group, Group::THEIRS);
-
-    EXPECT_EQ(opponent_meas->label, Label::OPPONENT);
-    EXPECT_EQ(opponent_meas->group, Group::THEIRS);
-}
-
-TEST(RobotFrontBackFilterTest, SharedSlotGoesToHigherConfidenceBlobWhicheverLabelItHas) {
-    const auto winner_x = [](double mk1_confidence, double mk3_confidence) {
-        RobotFrontBackFilterConfiguration config;
-        config.front_keypoints = {KeypointLabel::MRS_BUFF_MK1_FRONT,
-                                  KeypointLabel::MRS_BUFF_MK3_FRONT};
-        config.back_keypoints = {KeypointLabel::MRS_BUFF_MK1_BACK,
-                                 KeypointLabel::MRS_BUFF_MK3_BACK};
-        config.label_to_frame_ids = {{Label::MRS_BUFF_MK1, {FrameId::THEIR_ROBOT_1}},
-                                     {Label::MRS_BUFF_MK3, {FrameId::THEIR_ROBOT_1}}};
-        config.default_frame_id = FrameId::THEIR_ROBOT_1;
-        config.max_jump_distance = 1.0;
-        config.max_consecutive_jump_rejects = 1;
-        config.robot_keypoint_tracker_config.min_length_meters = 0.05;
-        config.robot_keypoint_tracker_config.max_length_meters = 2.0;
-        config.robot_keypoint_tracker_config.min_confidence = 0.2;
-        config.robot_keypoint_tracker_config.max_candidates = 8;
-        RobotFrontBackFilter filter(config);
-        EXPECT_TRUE(filter.initialize(1));
-
-        ModelResultStamped blob_keypoints;
-        blob_keypoints.header.frame_id = FrameId::CAMERA;
-        blob_keypoints.header.stamp = 1.0;
-        append_keypoint_pair(blob_keypoints, Label::MRS_BUFF_MK1, KeypointLabel::MRS_BUFF_MK1_FRONT,
-                             KeypointLabel::MRS_BUFF_MK1_BACK, 1, 200.0, 240.0, 240.0,
-                             mk1_confidence);
-        append_keypoint_pair(blob_keypoints, Label::MRS_BUFF_MK3, KeypointLabel::MRS_BUFF_MK3_FRONT,
-                             KeypointLabel::MRS_BUFF_MK3_BACK, 2, 400.0, 440.0, 240.0,
-                             mk3_confidence);
-
-        const auto result = run_filter(filter, ModelResultStamped{}, make_field(),
-                                       make_camera_info(), blob_keypoints, CommandFeedback{});
-        EXPECT_EQ(result.descriptions.size(), 1u);
-        return result.descriptions.empty() ? 0.0 : result.descriptions.front().pose.position.x;
-    };
-
-    EXPECT_NE(winner_x(0.9, 0.5), winner_x(0.5, 0.9))
-        << "the winner follows confidence, not which label is first in the enum";
-}
-
-TEST(RobotFrontBackFilterTest, FlagsLeakOpportunityOnKeypointMiss) {
-    RobotFrontBackFilterConfiguration config = make_our_robot_config();
-    RobotFrontBackFilter filter(config);
-    ASSERT_TRUE(filter.initialize(1));
-
-    const CameraInfo camera_info = make_camera_info();
-    const FieldDescription field = make_field();
-    const ModelResultStamped no_blob;
-    const CommandFeedback command_feedback;
-
-    const auto first = run_filter(filter, make_our_keypoints(1.0, kOurFrontX, kOurBackX, kOurRowY),
-                                  field, camera_info, no_blob, command_feedback);
-    ASSERT_EQ(first.descriptions.size(), 1u);
-    ASSERT_EQ(first.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
-    EXPECT_FALSE(filter.last_suppressed_own_blob());
-
-    const auto second =
-        run_filter(filter, make_empty_keypoints(1.1), field, camera_info,
-                   make_opponent_blob(1.1, kOurFrontX, kOurBackX, kOurRowY), command_feedback);
-    EXPECT_TRUE(filter.last_suppressed_own_blob());
-    (void)second;
-}
-
-TEST(RobotFrontBackFilterTest, NoLeakFlagWhenBlobFarFromHeldPose) {
-    RobotFrontBackFilterConfiguration config = make_our_robot_config();
-    RobotFrontBackFilter filter(config);
-    ASSERT_TRUE(filter.initialize(1));
-
-    const CameraInfo camera_info = make_camera_info();
-    const FieldDescription field = make_field();
-    const ModelResultStamped no_blob;
-    const CommandFeedback command_feedback;
-
-    run_filter(filter, make_our_keypoints(1.0, kOurFrontX, kOurBackX, kOurRowY), field, camera_info,
-               no_blob, command_feedback);
-
-    const ModelResultStamped no_keypoints;
-    run_filter(filter, no_keypoints, field, camera_info,
-               make_opponent_blob(1.1, kOurFrontX, kOurBackX, kBlobRowFarFromHeldPoseY),
-               command_feedback);
-    EXPECT_FALSE(filter.last_suppressed_own_blob());
-}
-
-TEST(RobotFrontBackFilterTest, NoLeakFlagWhenOurKeypointPresent) {
-    RobotFrontBackFilterConfiguration config = make_our_robot_config();
-    RobotFrontBackFilter filter(config);
-    ASSERT_TRUE(filter.initialize(1));
-
-    const CameraInfo camera_info = make_camera_info();
-    const FieldDescription field = make_field();
-    const ModelResultStamped no_blob;
-    const CommandFeedback command_feedback;
-
-    run_filter(filter, make_our_keypoints(1.0, kOurFrontX, kOurBackX, kOurRowY), field, camera_info,
-               no_blob, command_feedback);
-
-    run_filter(filter, make_our_keypoints(1.1, kOurFrontX, kOurBackX, kOurRowY), field, camera_info,
-               make_opponent_blob(1.1, kOurFrontX, kOurBackX, kOurRowY), command_feedback);
-    EXPECT_FALSE(filter.last_suppressed_own_blob());
 }
 
 TEST(RobotFrontBackFilterTest, DropoutFrameOutputCarriesTheKeypointStamp) {
@@ -379,13 +159,12 @@ TEST(RobotFrontBackFilterTest, DropoutFrameOutputCarriesTheKeypointStamp) {
 
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();
-    const ModelResultStamped no_blob;
     const CommandFeedback command_feedback;
 
     run_filter(filter, make_our_keypoints(1.0, kOurFrontX, kOurBackX, kOurRowY), field, camera_info,
-               no_blob, command_feedback);
-    const auto dropout = run_filter(filter, make_empty_keypoints(1.1), field, camera_info, no_blob,
-                                    command_feedback);
+               command_feedback);
+    const auto dropout =
+        run_filter(filter, make_empty_keypoints(1.1), field, camera_info, command_feedback);
 
     EXPECT_DOUBLE_EQ(dropout.header.stamp, 1.1);
 }
@@ -398,25 +177,24 @@ TEST(RobotFrontBackFilterTest, DecaysStaleOurRobotAfterHoldWindow) {
 
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();
-    const ModelResultStamped no_blob;
     const CommandFeedback command_feedback;
 
     const auto first = run_filter(filter, make_our_keypoints(1.0, kOurFrontX, kOurBackX, kOurRowY),
-                                  field, camera_info, no_blob, command_feedback);
+                                  field, camera_info, command_feedback);
     ASSERT_EQ(first.descriptions.size(), 1u);
     ASSERT_EQ(first.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
     EXPECT_FALSE(first.descriptions[0].is_stale);
 
     const auto within =
         run_filter(filter, make_empty_keypoints(1.0 + 0.5 * config.our_robot_hold_window_s), field,
-                   camera_info, no_blob, command_feedback);
+                   camera_info, command_feedback);
     ASSERT_EQ(within.descriptions.size(), 1u);
     EXPECT_EQ(within.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
     EXPECT_TRUE(within.descriptions[0].is_stale);
 
     const auto expired =
         run_filter(filter, make_empty_keypoints(1.0 + config.our_robot_hold_window_s + 0.05), field,
-                   camera_info, no_blob, command_feedback);
+                   camera_info, command_feedback);
     EXPECT_TRUE(expired.descriptions.empty());
 }
 
@@ -428,14 +206,13 @@ TEST(RobotFrontBackFilterTest, HoldsStaleOurRobotWhenDecayDisabled) {
 
     const CameraInfo camera_info = make_camera_info();
     const FieldDescription field = make_field();
-    const ModelResultStamped no_blob;
     const CommandFeedback command_feedback;
 
     run_filter(filter, make_our_keypoints(1.0, kOurFrontX, kOurBackX, kOurRowY), field, camera_info,
-               no_blob, command_feedback);
+               command_feedback);
 
     const auto held = run_filter(filter, make_empty_keypoints(1.0 + kLongAfterLastKeypointS), field,
-                                 camera_info, no_blob, command_feedback);
+                                 camera_info, command_feedback);
     ASSERT_EQ(held.descriptions.size(), 1u);
     EXPECT_EQ(held.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
     EXPECT_TRUE(held.descriptions[0].is_stale);
@@ -450,120 +227,6 @@ const RobotDescription *find_frame_id(const RobotDescriptionsStamped &result, Fr
 }
 }  // namespace
 
-TEST(RobotFrontBackFilterTest, SuppressesBlobOnOurHeldPoseDuringKeypointDropout) {
-    RobotFrontBackFilterConfiguration config = make_our_robot_config();
-    RobotFrontBackFilter filter(config);
-    ASSERT_TRUE(filter.initialize(1));
-
-    const CameraInfo camera_info = make_camera_info();
-    const FieldDescription field = make_field();
-    const ModelResultStamped no_blob;
-    const CommandFeedback command_feedback;
-
-    run_filter(filter, make_our_keypoints(1.0, kOurFrontX, kOurBackX, kOurRowY), field, camera_info,
-               no_blob, command_feedback);
-
-    const auto result =
-        run_filter(filter, make_empty_keypoints(1.1), field, camera_info,
-                   make_opponent_blob(1.1, kOurFrontX, kOurBackX, kOurRowY), command_feedback);
-
-    EXPECT_TRUE(filter.last_suppressed_own_blob());
-    EXPECT_EQ(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
-}
-
-TEST(RobotFrontBackFilterTest, AnchorOutlivesDroppedOurTrack) {
-    RobotFrontBackFilterConfiguration config = make_our_robot_config();
-    config.our_robot_hold_window_s = 0.15;
-    config.our_keypoint_dropout_blob_window_s = 1.0;
-    RobotFrontBackFilter filter(config);
-    ASSERT_TRUE(filter.initialize(1));
-
-    const CameraInfo camera_info = make_camera_info();
-    const FieldDescription field = make_field();
-    const ModelResultStamped no_blob;
-    const CommandFeedback command_feedback;
-
-    run_filter(filter, make_our_keypoints(1.0, kOurFrontX, kOurBackX, kOurRowY), field, camera_info,
-               no_blob, command_feedback);
-    const auto dropped =
-        run_filter(filter, make_empty_keypoints(1.3), field, camera_info,
-                   make_opponent_blob(1.3, kOurFrontX, kOurBackX, kOurRowY), command_feedback);
-
-    EXPECT_EQ(find_frame_id(dropped, FrameId::OUR_ROBOT_1), nullptr);
-
-    const auto later =
-        run_filter(filter, make_empty_keypoints(1.5), field, camera_info,
-                   make_opponent_blob(1.5, kOurFrontX, kOurBackX, kOurRowY), command_feedback);
-    EXPECT_TRUE(filter.last_suppressed_own_blob());
-    EXPECT_EQ(find_frame_id(later, FrameId::THEIR_ROBOT_1), nullptr);
-}
-
-TEST(RobotFrontBackFilterTest, EmitsBlobOnOurHeldPoseAfterWindowExpires) {
-    RobotFrontBackFilterConfiguration config = make_our_robot_config();
-    config.our_keypoint_dropout_blob_window_s = 0.4;
-    RobotFrontBackFilter filter(config);
-    ASSERT_TRUE(filter.initialize(1));
-
-    const CameraInfo camera_info = make_camera_info();
-    const FieldDescription field = make_field();
-    const ModelResultStamped no_blob;
-    const CommandFeedback command_feedback;
-
-    run_filter(filter, make_our_keypoints(1.0, kOurFrontX, kOurBackX, kOurRowY), field, camera_info,
-               no_blob, command_feedback);
-
-    const double past_hold_window_stamp = 1.0 + config.our_robot_hold_window_s + 1.0;
-    const auto result =
-        run_filter(filter, make_empty_keypoints(past_hold_window_stamp), field, camera_info,
-                   make_opponent_blob(past_hold_window_stamp, kOurFrontX, kOurBackX, kOurRowY),
-                   command_feedback);
-
-    EXPECT_FALSE(filter.last_suppressed_own_blob());
-    EXPECT_NE(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
-}
-
-TEST(RobotFrontBackFilterTest, KeepsBlobOutsideRadiusDuringKeypointDropout) {
-    RobotFrontBackFilterConfiguration config = make_our_robot_config();
-    RobotFrontBackFilter filter(config);
-    ASSERT_TRUE(filter.initialize(1));
-
-    const CameraInfo camera_info = make_camera_info();
-    const FieldDescription field = make_field();
-    const ModelResultStamped no_blob;
-    const CommandFeedback command_feedback;
-
-    run_filter(filter, make_our_keypoints(1.0, kOurFrontX, kOurBackX, kOurRowY), field, camera_info,
-               no_blob, command_feedback);
-
-    const auto result = run_filter(
-        filter, make_empty_keypoints(1.1), field, camera_info,
-        make_opponent_blob(1.1, kOurFrontX, kOurBackX, kBlobRowFarFromHeldPoseY), command_feedback);
-
-    EXPECT_FALSE(filter.last_suppressed_own_blob());
-    EXPECT_NE(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
-}
-
-TEST(RobotFrontBackFilterTest, ZeroRadiusDisablesDropoutSuppression) {
-    RobotFrontBackFilterConfiguration config = make_our_robot_config();
-    config.our_keypoint_dropout_blob_radius_meters = 0.0;
-    RobotFrontBackFilter filter(config);
-    ASSERT_TRUE(filter.initialize(1));
-
-    const CameraInfo camera_info = make_camera_info();
-    const FieldDescription field = make_field();
-    const ModelResultStamped no_blob;
-    const CommandFeedback command_feedback;
-
-    run_filter(filter, make_our_keypoints(1.0, kOurFrontX, kOurBackX, kOurRowY), field, camera_info,
-               no_blob, command_feedback);
-
-    const auto result =
-        run_filter(filter, make_empty_keypoints(1.1), field, camera_info,
-                   make_opponent_blob(1.1, kOurFrontX, kOurBackX, kOurRowY), command_feedback);
-
-    EXPECT_FALSE(filter.last_suppressed_own_blob());
-    EXPECT_NE(find_frame_id(result, FrameId::THEIR_ROBOT_1), nullptr);
-}
 RobotFrontBackFilterConfiguration make_kalman_opponent_config() {
     RobotFrontBackFilterConfiguration config;
     config.front_keypoints = {KeypointLabel::OPPONENT_FRONT};
@@ -571,10 +234,6 @@ RobotFrontBackFilterConfiguration make_kalman_opponent_config() {
     config.label_to_frame_ids = {{Label::OPPONENT, {FrameId::THEIR_ROBOT_1}}};
     config.default_frame_id = FrameId::THEIR_ROBOT_1;
     config.max_jump_distance = 1.0;
-    config.robot_keypoint_tracker_config.min_length_meters = 0.05;
-    config.robot_keypoint_tracker_config.max_length_meters = 2.0;
-    config.robot_keypoint_tracker_config.min_confidence = 0.2;
-    config.robot_keypoint_tracker_config.max_candidates = 8;
     auto kalman = std::make_shared<KalmanMotionEstimatorConfiguration>();
     kalman->opponent_mode = OpponentMode::KALMAN;
     kalman->opponent_max_coast_s = 1.0;
@@ -598,7 +257,7 @@ double drive_opponent_to(RobotFrontBackFilter &filter, const CameraInfo &camera_
     for (int i = 0; i < frames; ++i) {
         stamp = 1.0 + i * kFrameDt;
         run_filter(filter, make_moving_opponent_keypoints(stamp), field, camera_info,
-                   ModelResultStamped{}, CommandFeedback{});
+                   CommandFeedback{});
     }
     return stamp;
 }
@@ -622,7 +281,7 @@ TEST(RobotFrontBackFilterTest, CorrectWithStampOlderThanPredict) {
     const double late_stamp = last + kFrameDt;
     lockstep.predict(late_stamp, CommandFeedback{});
     lockstep.correct(make_moving_opponent_keypoints(late_stamp, kLateMeasurementShiftPixels), field,
-                     camera_info, ModelResultStamped{});
+                     camera_info);
     lockstep.predict(late_stamp + kReadAfterCorrectS, CommandFeedback{});
     const RobotDescriptionsStamped expected = lockstep.state();
 
@@ -633,7 +292,7 @@ TEST(RobotFrontBackFilterTest, CorrectWithStampOlderThanPredict) {
     outrun.predict(late_stamp + 0.1, CommandFeedback{});
     outrun.predict(late_stamp + 0.2, CommandFeedback{});
     outrun.correct(make_moving_opponent_keypoints(late_stamp, kLateMeasurementShiftPixels), field,
-                   camera_info, ModelResultStamped{});
+                   camera_info);
     outrun.predict(late_stamp + kReadAfterCorrectS, CommandFeedback{});
     const RobotDescriptionsStamped actual = outrun.state();
 

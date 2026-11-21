@@ -50,10 +50,8 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
     double opponent_heading_sigma_rad = 0.15;
     double opponent_position_sigma_m = 0.03;
     int heading_flip_reinit_count = 3;
-    std::vector<Label> heading_blind_labels;
 
     double keypoint_position_sigma_m = 0.03;
-    double blob_position_sigma_m = 0.10;
     double keypoint_heading_sigma_rad = 0.15;
     double position_sigma_per_meter = 0.0;
 
@@ -89,17 +87,7 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
         PARSE_FIELD_DOUBLE(opponent_position_sigma_m)
         heading_flip_reinit_count = static_cast<int>(
             parser.get_optional_int("heading_flip_reinit_count", heading_flip_reinit_count));
-        for (const std::string &name :
-             parser.get_optional_vector<std::string>("heading_blind_labels")) {
-            const auto label = magic_enum::enum_cast<Label>(name);
-            if (!label.has_value()) {
-                throw std::invalid_argument("Invalid Label value: '" + name +
-                                            "' for field 'heading_blind_labels'");
-            }
-            heading_blind_labels.push_back(*label);
-        }
         PARSE_FIELD_DOUBLE(keypoint_position_sigma_m)
-        PARSE_FIELD_DOUBLE(blob_position_sigma_m)
         PARSE_FIELD_DOUBLE(keypoint_heading_sigma_rad)
         PARSE_FIELD_DOUBLE(position_sigma_per_meter)
         PARSE_FIELD_DOUBLE(gate_nis)

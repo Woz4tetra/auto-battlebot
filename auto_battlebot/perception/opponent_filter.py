@@ -81,7 +81,6 @@ class OpponentFilter:
         config: OpponentFilterConfig,
         field_half_extent: torch.Tensor | None = None,
         margin: float = 0.0,
-        heading_blind_rows: torch.Tensor | None = None,
         device: torch.device | str = "cpu",
         dtype: torch.dtype = torch.float64,
     ) -> None:
@@ -114,16 +113,6 @@ class OpponentFilter:
             None
             if field_half_extent is None
             else field_half_extent.to(device=self.device, dtype=dtype) + margin
-        )
-        if heading_blind_rows is not None and tuple(heading_blind_rows.shape) != (batch,):
-            raise ValueError(
-                f"heading_blind_rows must have shape ({batch},), got "
-                f"{tuple(heading_blind_rows.shape)}"
-            )
-        self.heading_blind_rows = (
-            torch.zeros(batch, dtype=torch.bool, device=self.device)
-            if heading_blind_rows is None
-            else heading_blind_rows.to(self.device)
         )
 
         b = batch
@@ -302,7 +291,6 @@ class OpponentFilter:
         mask: torch.Tensor,
         xy: torch.Tensor,
         yaw: torch.Tensor,
-        measures_heading: torch.Tensor,
         position_variance: torch.Tensor,
         stamp: torch.Tensor,
     ) -> None:
@@ -322,7 +310,7 @@ class OpponentFilter:
         self.p[rows, OMEGA, OMEGA] = self.initial_yaw_rate_sigma[rows] ** 2
         self.heading_initialized[rows] = False
         self.consecutive_flips[rows] = 0
-        self._init_heading(mask & measures_heading, yaw)
+        self._init_heading(mask, yaw)
         self.stamp[rows] = stamp[rows]
         self.last_measured[rows] = stamp[rows]
         self.consecutive_rejects[rows] = 0
@@ -339,7 +327,6 @@ class OpponentFilter:
         has_measurement: torch.Tensor,
         xy: torch.Tensor,
         yaw: torch.Tensor,
-        is_keypoint: torch.Tensor,
         measurement_position_variance: torch.Tensor,
     ) -> tuple[RenderedEstimate, UpdateStats]:
         """KalmanMotionEstimator::update for the opponent rows."""
@@ -348,11 +335,10 @@ class OpponentFilter:
         yaw = yaw.to(device=self.device, dtype=self.dtype)
         measurement_position_variance = self._rows(measurement_position_variance)
         has_measurement = has_measurement.to(self.device)
-        measures_heading = is_keypoint.to(self.device) & ~self.heading_blind_rows
         false = torch.zeros(self.batch, dtype=torch.bool, device=self.device)
 
         new = has_measurement & ~self.active
-        self._init_track(new, xy, yaw, measures_heading, measurement_position_variance, t)
+        self._init_track(new, xy, yaw, measurement_position_variance, t)
         existing = has_measurement & ~new
 
         late = existing & (t < self.stamp)
@@ -368,9 +354,8 @@ class OpponentFilter:
         h[1, PY] = 1.0
         accepted, position_nis = self._ekf_update(existing, xy, h, r, self.gate_nis, [False, False])
 
-        heading_rows = accepted & measures_heading
-        first_heading = heading_rows & ~self.heading_initialized
-        tracked = heading_rows & self.heading_initialized
+        first_heading = accepted & ~self.heading_initialized
+        tracked = accepted & self.heading_initialized
         within = (wrap_angle(yaw - self.x[:, THETA]).abs() <= math.pi / 2.0) | (
             self.p[:, THETA, THETA] >= FLIP_TEST_MAX_VARIANCE
         )
@@ -407,7 +392,7 @@ class OpponentFilter:
             rejected, self.consecutive_rejects + 1, self.consecutive_rejects
         )
         reinit = rejected & (self.consecutive_rejects >= self.reinit_after_rejects)
-        self._init_track(reinit, xy, yaw, measures_heading, measurement_position_variance, t)
+        self._init_track(reinit, xy, yaw, measurement_position_variance, t)
 
         self.output_stale = self.output_stale | (self.active & ~has_measurement)
         self._advance(t, self.active & self.output_stale)
@@ -450,7 +435,7 @@ class OpponentFilter:
         largest = 0.5 * (a + c) + torch.sqrt(0.25 * (a - c) ** 2 + b * b)
         position_sigma = torch.sqrt(torch.clamp(largest, min=0.0))
 
-        known = self.heading_initialized & ~self.heading_blind_rows
+        known = self.heading_initialized
         inf = torch.full_like(x, math.inf)
         return RenderedEstimate(
             x=x,

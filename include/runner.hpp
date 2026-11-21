@@ -29,13 +29,11 @@
 #include "mask_model/mask_model_interface.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
 #include "navigation/navigation_interface.hpp"
-#include "perception_batch/parallel_model_batch.hpp"
 #include "publisher/publisher_interface.hpp"
 #include "quittable.hpp"
 #include "remote/command_queue.hpp"
 #include "remote/status_bus.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
-#include "robot_blob_model/robot_blob_model_interface.hpp"
 #include "robot_descriptions_cache.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "runner_config.hpp"
@@ -62,12 +60,10 @@ class Runner : public Quittable {
     Runner(const RunnerConfiguration &runner_config, std::shared_ptr<RgbdCameraInterface> camera,
            std::shared_ptr<HealthLogger> health_logger,
            std::shared_ptr<MaskModelInterface> field_model,
-           std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
            std::shared_ptr<FieldFilterInterface> field_filter,
            std::shared_ptr<KeypointModelInterface> keypoint_model,
            std::shared_ptr<KeypointHeightGate> height_gate,
            std::shared_ptr<StaticDetectionGate> static_gate,
-           std::shared_ptr<ParallelModelBatch> perception_batch,
            std::shared_ptr<ControlLoopInterface> control_loop,
            std::shared_ptr<PublisherInterface> publisher,
            SystemActionCallback system_action_callback,
@@ -111,12 +107,10 @@ class Runner : public Quittable {
     RunnerConfiguration runner_config_;
     std::shared_ptr<RgbdCameraInterface> camera_;
     std::shared_ptr<MaskModelInterface> field_model_;
-    std::shared_ptr<RobotBlobModelInterface> robot_mask_model_;
     std::shared_ptr<FieldFilterInterface> field_filter_;
     std::shared_ptr<KeypointModelInterface> keypoint_model_;
     std::shared_ptr<KeypointHeightGate> height_gate_;
     std::shared_ptr<StaticDetectionGate> static_gate_;
-    std::shared_ptr<ParallelModelBatch> perception_batch_;
     std::shared_ptr<ControlLoopInterface> control_loop_;
     std::shared_ptr<PublisherInterface> publisher_;
     std::shared_ptr<McapRecorder> mcap_recorder_;

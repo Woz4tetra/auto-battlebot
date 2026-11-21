@@ -105,7 +105,6 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     void init_opponent(OpponentTrack &track, const RobotDescription &measurement, double stamp,
                        double position_variance);
     void init_opponent_heading(OpponentTrack &track, double yaw) const;
-    bool measures_heading(const RobotDescription &measurement) const;
     ekf::Mat<2, 2> measurement_noise_for(const RobotDescription &measurement,
                                          const MotionEstimatorContext &context) const;
     RobotDescription render_opponent(const OpponentTrack &track, const FieldDescription &field,

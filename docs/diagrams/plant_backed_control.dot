@@ -42,7 +42,7 @@ digraph PlantBackedControl {
     subgraph cluster_perception {
         label="Perception (~30 Hz)";
         fontname="Helvetica"; fontsize=13; color="#CBD5E1"; style="rounded"; bgcolor="#FCFCFD";
-        meas [label=<<b>keypoints + robot blobs</b><br align="left"/>projected onto the field plane<br align="left"/>>];
+        meas [label=<<b>front/back keypoints</b><br align="left"/>projected onto the field plane<br align="left"/>>];
     }
 
     /* ---------- filter ---------- */
@@ -50,7 +50,7 @@ digraph PlantBackedControl {
         label="RobotFrontBackFilter";
         fontname="Helvetica"; fontsize=13; color="#A5B4FC"; style="rounded"; bgcolor="#F5F7FF";
 
-        assoc [label=<<b>Association front-end</b><br align="left"/>FrontBackKeypointConverter pairs front/back<br align="left"/>blob merge suppresses duplicates<br align="left"/>FrameIdAssigner: nearest-neighbor + jump gate<br align="left"/>>];
+        assoc [label=<<b>Association front-end</b><br align="left"/>FrontBackKeypointConverter pairs front/back<br align="left"/>FrameIdAssigner: nearest-neighbor + jump gate<br align="left"/>>];
 
         subgraph cluster_estimator {
             label="KalmanMotionEstimator  (MotionEstimatorInterface seam)";
@@ -63,7 +63,7 @@ digraph PlantBackedControl {
 
             our [
                 fillcolor="#DCFCE7" color="#4ADE80"
-                label=<<b>Our robot: 5-state EKF</b>  [x, y, theta, v, w]<br align="left"/><br align="left"/>propagate through <b>JigPlantModel</b> (forward plant)<br align="left"/>&#8226; commands re-read at t &#8722; delay_s, 2 ms arc substeps<br align="left"/>&#8226; per-sign deadzone, asymmetric first-order lag<br align="left"/>&#8226; steer-brake and angular-droop coupling<br align="left"/>correct: keypoint pose (position + heading)<br align="left"/>or blob centroid (position only)<br align="left"/>heading innovation &gt; pi/2 &#8594; position rows only<br align="left"/>>
+                label=<<b>Our robot: 5-state EKF</b>  [x, y, theta, v, w]<br align="left"/><br align="left"/>propagate through <b>JigPlantModel</b> (forward plant)<br align="left"/>&#8226; commands re-read at t &#8722; delay_s, 2 ms arc substeps<br align="left"/>&#8226; per-sign deadzone, asymmetric first-order lag<br align="left"/>&#8226; steer-brake and angular-droop coupling<br align="left"/>correct: keypoint pose (position + heading)<br align="left"/>heading innovation &gt; pi/2 &#8594; position rows only<br align="left"/>>
             ];
 
             opp [

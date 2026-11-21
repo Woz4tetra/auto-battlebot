@@ -64,7 +64,7 @@ Two modes, selected by `our_robot_mode`:
   substeps through per-sign deadzones, asymmetric first-order lag, and the steer-brake and
   angular-droop coupling terms.
 
-Keypoint measurements correct position and heading; blob centroids correct position only.
+Every measurement corrects position and heading.
 A heading innovation past pi/2 also falls back to the position rows, because the
 front/back keypoint converter can flip a robot and folding a flipped heading in would spin
 the whole state.

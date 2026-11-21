@@ -96,11 +96,6 @@ survives.
 
 - `our_robot_hold_window_s`: drop an unmeasured our-robot track after this long without a keypoint
   confirmation instead of predicting it forward.
-- `our_keypoint_dropout_blob_radius_meters` / `_window_s`: while the keypoint model misses our
-  robot, blob detections inside this radius of our last pose are discarded. The blob model cannot
-  tell our robot from an opponent, so an unsuppressed blob there becomes an opponent sitting on top
-  of us. The window outlives the hold window on purpose: the track decays before a typical dropout
-  ends.
 - `[robot_filter.motion_estimator]`: `KalmanMotionEstimator`, opponents on the 6-state filter. The
   heading block (`opponent_yaw_accel_psd`, `opponent_heading_sigma_rad`), `opponent_max_coast_s` and
   `opponent_position_sigma_m` are grid-searched on the 2026-10-15 Mr Stabs Mk2 sysid sessions
@@ -152,8 +147,8 @@ The ZED X One S is monocular: no depth, no visual odometry. Everything that read
 it:
 
 - the field filter solves off the fiducial board instead of fitting the point cloud
-- the height gate abstains on the empty depth image (`reject_enable = false` says so), and the
-  static gate is on because it is the only gate left
+- the height gate abstains on the empty depth image (`reject_enable = false` says so). The static
+  gate is enabled, but the runner tick does not call it
 - `/field_points` stops publishing
 
 The camera runs the full sensor; `RES_960x600` bins it for up to 120 fps. The SVO bitrate is the ZED
@@ -219,10 +214,7 @@ live-vs-replay tag comparison shows the 15 Mbps default loses nothing.
   the distilled Mr Stabs plant.
 - `playback/brettzone_cage_high`: NHRL's fixed `Cage-N-Overhead-High` footage, re-wrapped by
   `scripts/nhrl_to_recordings.py`, which writes the file on the set's first clip; `MANIFEST.md` in
-  the set's `data/saved_recordings/` directory lists the rest. The generator also sets
-  `robot_mask_model.their_robot_labels`: without it every detection is classified OTHER and dropped
-  before it becomes a keypoint, so the annotated frame fills with boxes while the filter stays
-  empty. One fixed 1080p
+  the set's `data/saved_recordings/` directory lists the rest. One fixed 1080p
   view, no depth, no visual odometry, so the field filter fits the outline (no fiducial board in
   broadcast footage). The intrinsics are backed out of NHRL's stated field of view
   (`camera_calibrations.md`) and the homography inherits that error linearly, so ranges are

@@ -1,6 +1,6 @@
 # Python TensorRT YOLO (`trt_yolo`)
 
-`auto_battlebot/perception/trt_yolo.py` mirrors the C++ `YoloKeypointModel` and `YoloBboxRobotBlobModel` path so eval scores the pipeline the robot runs. `training/yolo/test_tensorrt_video.py` (video visualization) and `auto_battlebot/eval` (detector scoring) share it. It needs tensorrt, pycuda, opencv-python, and numpy.
+`auto_battlebot/perception/trt_yolo.py` mirrors the C++ `YoloKeypointModel` path so eval scores the pipeline the robot runs. It also decodes plain detect engines, which only eval runs. `training/yolo/test_tensorrt_video.py` (video visualization) and `auto_battlebot/eval` (detector scoring) share it. It needs tensorrt, pycuda, opencv-python, and numpy.
 
 ## Head types
 

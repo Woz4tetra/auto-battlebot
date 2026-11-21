@@ -139,7 +139,7 @@ void ControlLoop::run_cycle() {
         FunctionTimer timer(diagnostics_logger_, "robot_filter.update");
         if (measurement) {
             robot_filter_->correct(measurement->keypoints, measurement->field_description,
-                                   measurement->camera_info, measurement->robot_blob_keypoints);
+                                   measurement->camera_info);
         }
         robot_filter_->predict(clock_->now(), command_feedback_);
         robots = robot_filter_->state();
@@ -158,12 +158,9 @@ void ControlLoop::run_cycle() {
                 our_live = 1;
             }
         }
-        const int our_blob_no_keypoint = robot_filter_->last_suppressed_own_blob() ? 1 : 0;
-        diagnostics_logger_->debug("perception",
-                                   {{"their_count_total", their_total},
-                                    {"their_count_live", their_live},
-                                    {"our_present_live", our_live},
-                                    {"our_blob_present_no_keypoint", our_blob_no_keypoint}});
+        diagnostics_logger_->debug("perception", {{"their_count_total", their_total},
+                                                  {"their_count_live", their_live},
+                                                  {"our_present_live", our_live}});
     };
     if (measurement) log_raw_detection_counts();
 
@@ -195,7 +192,6 @@ void ControlLoop::run_cycle() {
         output_.behavior_mode = behavior_mode;
         output_.manual_target = target_override.has_value();
         output_.hazards = field_description_->hazards;
-        output_.our_blob_present_no_keypoint = robot_filter_->last_suppressed_own_blob();
         visualization_ = navigation_->get_last_visualization();
     }
 }

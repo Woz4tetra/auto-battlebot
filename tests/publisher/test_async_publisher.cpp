@@ -25,7 +25,6 @@ class RecordingPublisher : public PublisherInterface {
     void publish_robots(const RobotDescriptionsStamped &robots) override {
         record(robots.header.stamp);
     }
-    void publish_blob_detections(const DetectionsStamped &) override {}
     void publish_keypoint_detections(const DetectionsStamped &) override {}
     void publish_navigation(const NavigationVisualization &) override {}
 

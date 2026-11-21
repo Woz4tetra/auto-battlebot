@@ -3,9 +3,6 @@ extends = "simulation/_simulation"
 [field_model]
 type = "FixedMaskModel"
 
-[robot_mask_model]
-type = "NoopRobotBlobModel"
-
 [field_filter]
 type = "FixedFieldFilter"
 size_x = 2.4

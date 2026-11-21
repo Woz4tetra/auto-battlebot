@@ -24,7 +24,6 @@
 #include "keypoint_filter/static_gate.hpp"
 #include "logging/logging.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
-#include "perception_batch/parallel_model_batch.hpp"
 #include "publisher/config.hpp"
 #include "quittable.hpp"
 #include "remote/command_decode.hpp"
@@ -86,11 +85,9 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     auto publisher = make_publisher(*class_config.publisher, viz_sink, mcap_recorder);
     auto camera = make_rgbd_camera(*class_config.camera, mcap_recorder);
     auto field_model = make_mask_model(*class_config.field_model);
-    auto robot_mask_model = make_robot_blob_model(*class_config.robot_mask_model);
     auto field_filter = make_field_filter(*class_config.field_filter);
     auto keypoint_model =
         make_keypoint_model(*class_config.keypoint_model, viz_sink, mcap_recorder);
-    auto perception_batch = std::make_shared<ParallelModelBatch>(keypoint_model, robot_mask_model);
     auto clock = make_clock(*class_config.clock);
     auto robot_filter = make_robot_filter(*class_config.robot_filter, clock);
     auto target_selector = make_target_selector(*class_config.target_selector);
@@ -136,8 +133,8 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     auto command_queue = remote.commands;
 
     Runner runner(
-        class_config.runner, camera, health_logger, field_model, robot_mask_model, field_filter,
-        keypoint_model, height_gate, static_gate, perception_batch, control_loop, publisher,
+        class_config.runner, camera, health_logger, field_model, field_filter, keypoint_model,
+        height_gate, static_gate, control_loop, publisher,
         [&pending_system_action](SystemAction action) { pending_system_action = action; },
         [profile_selector](const std::string& name) {
             write_selection_file(profile_selector, name);

@@ -20,8 +20,8 @@ class GroundTruthRobotFilter : public RobotFilterInterface {
 
     bool initialize(int opponent_count) override;
 
-    void correct(ModelResultStamped keypoints, FieldDescription field, CameraInfo camera_info,
-                 ModelResultStamped robot_blob_keypoints) override;
+    void correct(ModelResultStamped keypoints, FieldDescription field,
+                 CameraInfo camera_info) override;
 
     RobotDescriptionsStamped state() const override { return state_; }
 

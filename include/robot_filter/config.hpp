@@ -5,9 +5,9 @@
 
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
+#include "robot_filter/keypoint_heights.hpp"
 #include "robot_filter/motion_estimator_config.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
-#include "robot_filter/robot_keypoint_tracker.hpp"
 #include "time/clock_interface.hpp"
 
 namespace auto_battlebot {
@@ -40,13 +40,9 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
     FrameId default_frame_id;
     double max_jump_distance = 0.3;
     int max_consecutive_jump_rejects = 5;
-    double blob_overwrite_min_distance_meters = 0.20;
-    double blob_overwrite_size_scale = 0.5;
     double field_bounds_margin_meters = 0.2;
     double our_robot_hold_window_s = 0.15;
-    double our_keypoint_dropout_blob_radius_meters = 0.4;
-    double our_keypoint_dropout_blob_window_s = 1.0;
-    RobotKeypointTrackerConfig robot_keypoint_tracker_config;
+    KeypointHeights keypoint_heights;
     std::shared_ptr<MotionEstimatorConfiguration> motion_estimator =
         std::make_shared<DeadReckoningMotionEstimatorConfiguration>();
 
@@ -60,19 +56,15 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
         PARSE_FIELD_DOUBLE(max_jump_distance)
         max_consecutive_jump_rejects = static_cast<int>(
             parser.get_optional_int("max_consecutive_jump_rejects", max_consecutive_jump_rejects));
-        blob_overwrite_min_distance_meters = parser.get_optional_double(
-            "blob_overwrite_min_distance_meters", blob_overwrite_min_distance_meters);
-        blob_overwrite_size_scale =
-            parser.get_optional_double("blob_overwrite_size_scale", blob_overwrite_size_scale);
         field_bounds_margin_meters =
             parser.get_optional_double("field_bounds_margin_meters", field_bounds_margin_meters);
         our_robot_hold_window_s =
             parser.get_optional_double("our_robot_hold_window_s", our_robot_hold_window_s);
-        our_keypoint_dropout_blob_radius_meters = parser.get_optional_double(
-            "our_keypoint_dropout_blob_radius_meters", our_keypoint_dropout_blob_radius_meters);
-        our_keypoint_dropout_blob_window_s = parser.get_optional_double(
-            "our_keypoint_dropout_blob_window_s", our_keypoint_dropout_blob_window_s);
-        parse_robot_keypoint_tracker_config(parser);
+        keypoint_heights.default_meters =
+            parser.get_optional_double("keypoint_height_meters", keypoint_heights.default_meters);
+        parse_keypoint_heights_per_label(parser, "keypoint_height_meters_per_label");
+        parse_robot_sizes_per_label(parser, "robot_size_meters_per_label");
+        parse_footprint_center_offsets(parser, "footprint_center_offset_per_label");
         parse_motion_estimator(parser);
         parser.validate_no_extra_fields();
     }
@@ -89,23 +81,6 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
         ConfigParser sub_parser(*table_ptr, "robot_filter.motion_estimator");
         motion_estimator =
             ConfigFactory<MotionEstimatorConfiguration>::instance().create_and_parse(sub_parser);
-    }
-
-    void parse_robot_keypoint_tracker_config(ConfigParser &parser) {
-        robot_keypoint_tracker_config.min_length_meters = parser.get_optional_double(
-            "robot_blob_min_length_meters", robot_keypoint_tracker_config.min_length_meters);
-        robot_keypoint_tracker_config.max_length_meters = parser.get_optional_double(
-            "robot_blob_max_length_meters", robot_keypoint_tracker_config.max_length_meters);
-        robot_keypoint_tracker_config.min_confidence = parser.get_optional_double(
-            "robot_blob_min_confidence", robot_keypoint_tracker_config.min_confidence);
-        robot_keypoint_tracker_config.keypoint_heights.default_meters = parser.get_optional_double(
-            "keypoint_height_meters",
-            robot_keypoint_tracker_config.keypoint_heights.default_meters);
-        parse_keypoint_heights_per_label(parser, "keypoint_height_meters_per_label");
-        parse_robot_sizes_per_label(parser, "robot_size_meters_per_label");
-        parse_footprint_center_offsets(parser, "footprint_center_offset_per_label");
-        robot_keypoint_tracker_config.max_candidates = static_cast<int>(parser.get_optional_int(
-            "robot_blob_max_candidates", robot_keypoint_tracker_config.max_candidates));
     }
 
     std::map<Label, Size> robot_size_meters_per_label;
@@ -185,8 +160,7 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
             if (!height.has_value()) {
                 throw ConfigValidationError("Value for '" + label_str + "' must be a number");
             }
-            robot_keypoint_tracker_config.keypoint_heights.per_label_meters[label_opt.value()] =
-                *height;
+            keypoint_heights.per_label_meters[label_opt.value()] = *height;
         }
     }
 

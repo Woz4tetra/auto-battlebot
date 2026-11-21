@@ -28,12 +28,10 @@ END_S = NUM_FRAMES * FRAME_DT + 0.45
 FIELD_SIZE = 4.0
 MARGIN = 0.2
 KEYPOINT_SIGMA = 0.03
-BLOB_SIGMA = 0.10
 MAX_COAST_S = 0.2
 COAST_RECORD_STRIDE = 10
 SEED = 7
 
-BLOB_FRAMES = set(range(5))
 FLIP_FRAMES = {30, 45, 46, 47}
 LATE_FRAME = 52
 LATE_LATENCY_S = 0.30
@@ -102,7 +100,6 @@ class Event:
     x: float = 0.0
     y: float = 0.0
     yaw: float = 0.0
-    keypoint: int = 0
 
     @property
     def fixture_time_s(self) -> float:
@@ -132,22 +129,9 @@ def scenario() -> list[Event]:
         if k in FLIP_FRAMES:
             yaw += math.pi
         yaw = math.atan2(math.sin(yaw), math.cos(yaw))
-        if k in BLOB_FRAMES:
-            events.append(
-                Event(KIND_MEASURED, stamp + latency, shutter_stamp_s=stamp, x=x, y=y, keypoint=0)
-            )
-        else:
-            events.append(
-                Event(
-                    KIND_MEASURED,
-                    stamp + latency,
-                    shutter_stamp_s=stamp,
-                    x=x,
-                    y=y,
-                    yaw=yaw,
-                    keypoint=1,
-                )
-            )
+        events.append(
+            Event(KIND_MEASURED, stamp + latency, shutter_stamp_s=stamp, x=x, y=y, yaw=yaw)
+        )
     num_ticks = int(round(END_S / TICK_DT))
     for i in range(num_ticks):
         now = T0 + i * TICK_DT
@@ -189,13 +173,12 @@ def run_mirror(events: list[Event]) -> Records:
                 continue
         else:
             measured = torch.tensor([ev.kind == KIND_MEASURED])
-            variance = (KEYPOINT_SIGMA if ev.keypoint else BLOB_SIGMA) ** 2
+            variance = KEYPOINT_SIGMA**2
             out, _ = filt.update(
                 ev.shutter_stamp_s,
                 measured,
                 torch.tensor([[ev.x, ev.y]], dtype=torch.float64),
                 torch.tensor([ev.yaw], dtype=torch.float64),
-                torch.tensor([bool(ev.keypoint)]),
                 variance,
             )
             if not bool(out.active[0]):
@@ -277,7 +260,6 @@ def main() -> None:
         emit_array("double", "kMeasX", [e.x for e in ev], 4),
         emit_array("double", "kMeasY", [e.y for e in ev], 4),
         emit_array("double", "kMeasYaw", [e.yaw for e in ev], 4),
-        emit_array("int", "kMeasKeypoint", [e.keypoint for e in ev], 24),
         emit_array("int", "kRecorded", records.recorded, 24),
         emit_array("double", "kRender", [v for row in records.render for v in row], 5),
         emit_array("double", "kState", [v for row in records.state for v in row.flat()], 4),

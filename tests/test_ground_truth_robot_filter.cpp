@@ -27,7 +27,7 @@ class GroundTruthRobotFilterTest : public ::testing::Test {
         }
         SimConnection::instance()->set_last_measurements(frame);
         clock_->set(stamp);
-        filter.correct({}, {}, {}, {});
+        filter.correct({}, {}, {});
     }
 
     static std::optional<RobotDescription> find(const GroundTruthRobotFilter &filter,

@@ -149,12 +149,8 @@ Board geometry defaults match the manufactured board.
 | --- | --- |
 | `max_jump_distance` | Measurements that land further than this (m) from the track's last known position are rejected |
 | `max_consecutive_jump_rejects` | After this many consecutive rejected frames the measurement is accepted anyway, which resets the track |
-| `blob_overwrite_min_distance_meters` | Minimum radius (m) around a keypoint detection inside which blobs are suppressed |
-| `blob_overwrite_size_scale` | Scale on the blob and keypoint size estimates that sets the suppression radius |
 | `field_bounds_margin_meters` | Margin (m) added to the field half extents before a measurement is rejected as out of bounds |
 | `our_robot_hold_window_s` | How long an unmeasured our-robot track is held before it is dropped from the output. Without it a stale "ours" detection is predicted forward indefinitely. 0 or below disables the decay and holds forever |
-| `our_keypoint_dropout_blob_radius_meters` | Radius around our robot's last held pose inside which blob detections are discarded while the keypoint model is not detecting our robot. The blob model cannot identify our robot, so without this an undetected own robot is emitted as an opponent at our own position. 0 or below disables the suppression |
-| `our_keypoint_dropout_blob_window_s` | How long after our robot's last keypoint-confirmed frame the suppression radius stays active. It outlives `our_robot_hold_window_s` on purpose: the track decays sooner than a typical keypoint dropout ends. 0 or below disables the suppression |
 | `[robot_filter.motion_estimator]` | Propagation strategy behind the association front-end. Absent selects dead reckoning |
 | `robot_size_meters_per_label` | Known footprint per label as `[x, y, z]` in metres, replacing the detector's box. The box measures pixels, not the robot, and a loose one on the house bot inflates every keep-out built from it. Labels absent here keep the measured box, which is logged to the `detected_size` channel so a detector regression stays visible |
 | `footprint_center_offset_per_label` | `RobotDescription::footprint_center_offset` per label as `[x, y]` in metres in the body frame. Labels absent here have their footprint centred on the pose |
@@ -178,11 +174,9 @@ No fields. The estimator scales the normalized stick command to body velocity wi
 | `opponent_yaw_accel_psd` | Continuous white-noise yaw acceleration PSD (rad^2/s^3) for the opponent heading block, which runs a constant-yaw-rate model independent of the translation block |
 | `initial_yaw_rate_sigma` | Sigma (rad/s) on the opponent yaw rate when the heading block initializes |
 | `opponent_heading_sigma_rad` | Heading measurement sigma for opponent keypoint poses. Separate from `keypoint_heading_sigma_rad` because that one also tunes the our-robot EKF |
-| `opponent_position_sigma_m` | Position measurement sigma for opponent keypoint poses, before the per-meter range term. Separate from `keypoint_position_sigma_m`, which also tunes the our-robot EKF. Blob centroids keep `blob_position_sigma_m` |
+| `opponent_position_sigma_m` | Position measurement sigma for opponent keypoint poses, before the per-meter range term. Separate from `keypoint_position_sigma_m`, which also tunes the our-robot EKF. |
 | `heading_flip_reinit_count` | Consecutive opponent heading measurements more than pi/2 from the track (flips) after which the heading block re-initializes at the measured heading. A run of consistent flips means the track had the front wrong, not the keypoint model |
-| `heading_blind_labels` | Labels whose heading is never measured: full-body spinners and robots the keypoint model cannot orient. Their heading sigma renders as infinite, which tells navigation the front is unknown |
 | `keypoint_position_sigma_m` | Position measurement sigma for keypoint-derived poses |
-| `blob_position_sigma_m` | Position measurement sigma for blob centroids |
 | `keypoint_heading_sigma_rad` | Heading measurement sigma for keypoint-derived poses, our-robot EKF only |
 | `position_sigma_per_meter` | Extra position sigma per meter of camera range, added on top of the base sigma. 0 disables range dependence |
 | `gate_nis` | Innovation gate on normalized innovation squared, chi-square with 2 DOF. 11.83 is the 99.7% quantile. Values <= 0 disable gating |
@@ -365,7 +359,6 @@ Replay of an MCAP recording carrying `/camera/video`. It is separate from the li
 | `max_loop_rate_hz` | Loop pacing. 0 free-runs |
 | `default_behavior_mode` | Behavior mode at startup. The dashboard changes it at runtime; headless sim and playback runs pin `RUN_AWAY` here |
 | `auto_tracking_by_default` | Start with the target selector picking the target. false starts with the target held at the field center until the dashboard places it |
-| `parallel_models` | Run the keypoint and robot blob models on parallel worker threads (`ParallelModelBatch`). false calls them sequentially in the tick |
 
 ## `[target_selector]`
 

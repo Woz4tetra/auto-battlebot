@@ -390,7 +390,6 @@ RobotDescription make_our_pose_measurement(const PlantState &truth) {
     description.group = Group::OURS;
     description.pose = pose2d_to_pose(Pose2D{truth.x, truth.y, truth.theta});
     description.size = Size{0.25, 0.25, 0.1};
-    description.keypoints.push_back(Position{truth.x, truth.y, 0.0});
     return description;
 }
 
@@ -529,7 +528,6 @@ RobotDescription make_opponent_pose_measurement(double x, double y, double yaw,
     description.label = label;
     description.pose = pose2d_to_pose(Pose2D{x, y, yaw});
     description.pose.position.z = 0.05;
-    description.keypoints.push_back(Position{x, y, 0.05});
     return description;
 }
 
@@ -678,51 +676,6 @@ TEST(KalmanMotionEstimatorTest, OpponentHeadingAfterLongDropoutIsNotCalledAFlip)
     EXPECT_NEAR(angle_error(yaw_of(outputs[0]), turned), 0.0, 0.05);
 }
 
-TEST(KalmanMotionEstimatorTest, OpponentBlobBornTrackHasUnknownHeadingUntilKeypoint) {
-    KalmanMotionEstimator estimator{kalman_opponents_config()};
-    FrameIdAssigner assigner(10.0, 5);
-    const FieldDescription field = make_field();
-    const MotionEstimatorContext context;
-
-    auto [t, x, y] =
-        run_constant_velocity(estimator, assigner, field, context, 10, 1.0, 2.0, 0.5, 0.0);
-    auto coasted = estimator.coast(t);
-    ASSERT_TRUE(coasted.has_value());
-    ASSERT_EQ(coasted->size(), 1u);
-    EXPECT_FALSE((*coasted)[0].uncertainty.heading_sigma_rad.has_value());
-    EXPECT_FALSE((*coasted)[0].uncertainty.yaw_rate_sigma_rad_s.has_value());
-    EXPECT_EQ((*coasted)[0].velocity.omega_radps, 0.0);
-    EXPECT_TRUE((*coasted)[0].uncertainty.position_sigma_major_axis_m.has_value());
-
-    t += kDt;
-    x += 0.5 * kDt;
-    estimator.predict(t, CommandFeedback{});
-    auto outputs =
-        estimator.update({make_opponent_pose_measurement(x, y, 2.5)}, t, assigner, field, context);
-    ASSERT_EQ(outputs.size(), 1u);
-    EXPECT_NEAR(angle_error(yaw_of(outputs[0]), 2.5), 0.0, 1e-9);
-    EXPECT_TRUE(outputs[0].uncertainty.heading_sigma_rad.has_value());
-}
-
-TEST(KalmanMotionEstimatorTest, OpponentHeadingBlindLabelNeverCorrectsHeading) {
-    KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
-    config.heading_blind_labels = {Label::OPPONENT};
-    KalmanMotionEstimator estimator{config};
-    FrameIdAssigner assigner(10.0, 5);
-    const FieldDescription field = make_field();
-    const MotionEstimatorContext context;
-
-    TurningTruth initial;
-    const auto [t, truth] = run_turning(estimator, assigner, field, context, 40, initial);
-    auto coasted = estimator.coast(t);
-    ASSERT_TRUE(coasted.has_value());
-    ASSERT_EQ(coasted->size(), 1u);
-    EXPECT_FALSE((*coasted)[0].uncertainty.heading_sigma_rad.has_value());
-    EXPECT_FALSE((*coasted)[0].uncertainty.yaw_rate_sigma_rad_s.has_value());
-    EXPECT_EQ((*coasted)[0].velocity.omega_radps, 0.0);
-    EXPECT_NEAR((*coasted)[0].pose.position.x, truth.x + truth.vx * kCoastLeadS, 0.05);
-}
-
 TEST(KalmanMotionEstimatorTest, OpponentLateMeasurementRewindRestoresHeading) {
     KalmanMotionEstimator estimator{kalman_opponents_config()};
     FrameIdAssigner assigner(10.0, 5);
@@ -856,11 +809,8 @@ TEST(KalmanMotionEstimatorTest, OpponentArmMatchesPythonMirrorGoldenFixture) {
         } else {
             std::vector<RobotDescription> measurements;
             if (kind == golden::kKindMeasured) {
-                measurements.push_back(
-                    golden::kMeasKeypoint[i]
-                        ? make_opponent_pose_measurement(golden::kMeasX[i], golden::kMeasY[i],
-                                                         golden::kMeasYaw[i])
-                        : make_opponent_measurement(golden::kMeasX[i], golden::kMeasY[i]));
+                measurements.push_back(make_opponent_pose_measurement(
+                    golden::kMeasX[i], golden::kMeasY[i], golden::kMeasYaw[i]));
             }
             outputs = estimator.update(measurements, time, assigner, field, context);
         }
@@ -1058,31 +1008,6 @@ TEST(KalmanMotionEstimatorTest, NoisySpeedDoesNotRejectPosition) {
                                           assigner, field, context);
     ASSERT_EQ(outputs.size(), 1u);
     EXPECT_GT(outputs[0].pose.position.x, 0.05);
-}
-
-TEST(KalmanMotionEstimatorTest, HeadingBlindSigmasOmitted) {
-    TestDiagnosticsLogger::reset();
-    auto backend = std::make_shared<RecordingBackend>();
-    DiagnosticsLogger::initialize({backend});
-    {
-        KalmanMotionEstimator estimator{kalman_opponents_config()};
-        FrameIdAssigner assigner(10.0, 5);
-        const FieldDescription field = make_field();
-        const MotionEstimatorContext context;
-        const auto [t, x, y] =
-            run_constant_velocity(estimator, assigner, field, context, 10, 1.0, 2.0, 0.5, 0.0);
-        estimator.coast(t);
-        DiagnosticsLogger::publish();
-    }
-    bool found = false;
-    for (const DiagnosticStatusSnapshot &snapshot : backend->last_snapshots()) {
-        if (snapshot.subsection != "opponent_THEIR_ROBOT_1") continue;
-        found = true;
-        EXPECT_EQ(snapshot.values.count("heading_sigma_rad"), 0u);
-        EXPECT_EQ(snapshot.values.count("yaw_rate_sigma_rad_s"), 0u);
-    }
-    TestDiagnosticsLogger::reset();
-    EXPECT_TRUE(found);
 }
 
 TEST(KalmanMotionEstimatorTest, RenderLeadEqualsPlantDelay) {

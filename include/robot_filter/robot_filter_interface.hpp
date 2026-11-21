@@ -12,11 +12,9 @@ class RobotFilterInterface {
                          [[maybe_unused]] CommandFeedback command_feedback) {}
 
     virtual void correct(ModelResultStamped keypoints, FieldDescription field,
-                         CameraInfo camera_info, ModelResultStamped robot_blob_keypoints) = 0;
+                         CameraInfo camera_info) = 0;
 
     virtual RobotDescriptionsStamped state() const = 0;
-
-    virtual bool last_suppressed_own_blob() const { return false; }
 };
 
 }  // namespace auto_battlebot

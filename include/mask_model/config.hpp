@@ -55,6 +55,4 @@ std::shared_ptr<MaskModelInterface> make_mask_model(const MaskModelConfiguration
 std::unique_ptr<MaskModelConfiguration> parse_mask_model_config(ConfigParser &parser);
 std::unique_ptr<MaskModelConfiguration> load_field_model_from_toml(
     toml::table const &toml_data, std::vector<std::string> &parsed_sections);
-std::unique_ptr<MaskModelConfiguration> load_robot_mask_model_from_toml(
-    toml::table const &toml_data, std::vector<std::string> &parsed_sections);
 }  // namespace auto_battlebot

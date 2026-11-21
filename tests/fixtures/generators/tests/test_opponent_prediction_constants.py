@@ -22,4 +22,3 @@ def _cpp_default(name: str) -> float:
 def test_golden_fixture_sigmas_match_cpp_defaults() -> None:
     fixture = make_opponent_filter_golden_fixture
     assert fixture.KEYPOINT_SIGMA == _cpp_default("opponent_position_sigma_m")
-    assert fixture.BLOB_SIGMA == _cpp_default("blob_position_sigma_m")

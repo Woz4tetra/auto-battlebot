@@ -42,8 +42,7 @@ bool GroundTruthRobotFilter::initialize(int opponent_count) {
 
 void GroundTruthRobotFilter::correct([[maybe_unused]] ModelResultStamped keypoints,
                                      [[maybe_unused]] FieldDescription field,
-                                     [[maybe_unused]] CameraInfo camera_info,
-                                     [[maybe_unused]] ModelResultStamped robot_blob_keypoints) {
+                                     [[maybe_unused]] CameraInfo camera_info) {
     RobotDescriptionsStamped result;
     result.header.frame_id = FrameId::FIELD;
     result.header.stamp = clock_->now();

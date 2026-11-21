@@ -130,8 +130,7 @@ class OrderRecordingFilter : public RobotFilterInterface {
    public:
     bool initialize(int) override { return true; }
     void predict(double, CommandFeedback) override { calls.push_back("predict"); }
-    void correct(ModelResultStamped keypoints, FieldDescription, CameraInfo,
-                 ModelResultStamped) override {
+    void correct(ModelResultStamped keypoints, FieldDescription, CameraInfo) override {
         calls.push_back("correct");
         corrected_stamps.push_back(keypoints.header.stamp);
     }
@@ -192,13 +191,7 @@ RobotFrontBackFilterConfiguration make_filter_config() {
     config.default_frame_id = FrameId::OUR_ROBOT_1;
     config.max_jump_distance = 1.0;
     config.max_consecutive_jump_rejects = 1;
-    config.blob_overwrite_min_distance_meters = 0.3;
-    config.blob_overwrite_size_scale = 0.5;
     config.our_robot_hold_window_s = 0.4;
-    config.robot_keypoint_tracker_config.min_length_meters = 0.05;
-    config.robot_keypoint_tracker_config.max_length_meters = 2.0;
-    config.robot_keypoint_tracker_config.min_confidence = 0.2;
-    config.robot_keypoint_tracker_config.max_candidates = 8;
     return config;
 }
 
@@ -212,8 +205,6 @@ std::vector<ControlMeasurement> make_measurements(int count) {
         m.field_description = field;
         m.keypoints.header.frame_id = FrameId::CAMERA;
         m.keypoints.header.stamp = 1.0 + 0.0333 * i;
-        m.robot_blob_keypoints.header.frame_id = FrameId::CAMERA;
-        m.robot_blob_keypoints.header.stamp = m.keypoints.header.stamp;
 
         if ((i % kOurPeriod) < kOurSeenFrames) {
             const double x = 260.0 + 40.0 * std::sin(i * 0.05);
@@ -262,7 +253,7 @@ TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
             const CommandFeedback feedback = transmitter.update();
             clock->set(m.keypoints.header.stamp);
             filter.predict(clock->now(), feedback);
-            filter.correct(m.keypoints, m.field_description, m.camera_info, m.robot_blob_keypoints);
+            filter.correct(m.keypoints, m.field_description, m.camera_info);
             const RobotDescriptionsStamped robots = filter.state();
             auto cached = cache.resolve(robots);
             transmitter.send(navigation.update(cached.robots, m.field_description, {}));

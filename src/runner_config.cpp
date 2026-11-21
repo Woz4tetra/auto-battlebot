@@ -28,7 +28,6 @@ void load_runner_from_toml(toml::table const &toml_data, std::vector<std::string
     out.default_behavior_mode = default_behavior_mode;
     out.auto_tracking_by_default =
         parser.get_optional_bool("auto_tracking_by_default", out.auto_tracking_by_default);
-    out.parallel_models = parser.get_optional_bool("parallel_models", out.parallel_models);
     parser.validate_no_extra_fields();
     parsed_sections.push_back("runner");
 }

@@ -17,7 +17,6 @@ class PublisherInterface {
         const FieldDescriptionWithInlierPoints &initial_field_description) = 0;
     virtual void publish_hazards(const FieldDescription &field_description) = 0;
     virtual void publish_robots(const RobotDescriptionsStamped &robots) = 0;
-    virtual void publish_blob_detections(const DetectionsStamped &detections) = 0;
     virtual void publish_keypoint_detections(const DetectionsStamped &detections) = 0;
     virtual void publish_navigation(const NavigationVisualization &nav) = 0;
     virtual void flush() {}

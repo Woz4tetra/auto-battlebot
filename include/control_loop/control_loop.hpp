@@ -21,7 +21,6 @@ namespace auto_battlebot {
 
 struct ControlMeasurement {
     ModelResultStamped keypoints;
-    ModelResultStamped robot_blob_keypoints;
     FieldDescription field_description;
     CameraInfo camera_info;
 };
@@ -34,7 +33,6 @@ struct ControlOutput {
     TargetSelection target;
     VelocityCommand command;
     CommandFeedback command_feedback;
-    bool our_blob_present_no_keypoint = false;
     BehaviorMode behavior_mode = BehaviorMode::ATTACK;
     bool manual_target = false;
     std::vector<FieldHazard> hazards;

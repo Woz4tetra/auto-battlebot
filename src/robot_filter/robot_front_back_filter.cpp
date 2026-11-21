@@ -3,8 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <magic_enum.hpp>
-#include <numeric>
-#include <set>
 
 #include "data_structures/robot.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
@@ -13,13 +11,6 @@
 #include "transform_utils.hpp"
 
 namespace {
-double position_distance(const auto_battlebot::Position &a, const auto_battlebot::Position &b) {
-    double dx = a.x - b.x;
-    double dy = a.y - b.y;
-    double dz = a.z - b.z;
-    return std::sqrt(dx * dx + dy * dy + dz * dz);
-}
-
 bool is_within_field_bounds(const auto_battlebot::Position &position,
                             const auto_battlebot::FieldDescription &field, double margin_meters) {
     const double width = field.size.size.x;
@@ -30,22 +21,14 @@ bool is_within_field_bounds(const auto_battlebot::Position &position,
     return std::abs(position.x) <= half_x && std::abs(position.y) <= half_y;
 }
 
-const auto_battlebot::Position &position_of(const auto_battlebot::RobotDescription &d) {
-    return d.pose.position;
-}
-const auto_battlebot::Position &position_of(const auto_battlebot::RobotKeypointDetection &d) {
-    return d.description.pose.position;
-}
-
-template <typename T>
-void erase_out_of_field(std::vector<T> &items, const auto_battlebot::FieldDescription &field,
-                        double margin_meters) {
-    items.erase(std::remove_if(items.begin(), items.end(),
-                               [&field, margin_meters](const T &item) {
-                                   return !is_within_field_bounds(position_of(item), field,
-                                                                  margin_meters);
-                               }),
-                items.end());
+void erase_out_of_field(std::vector<auto_battlebot::RobotDescription> &items,
+                        const auto_battlebot::FieldDescription &field, double margin_meters) {
+    items.erase(
+        std::remove_if(items.begin(), items.end(),
+                       [&field, margin_meters](const auto_battlebot::RobotDescription &item) {
+                           return !is_within_field_bounds(item.pose.position, field, margin_meters);
+                       }),
+        items.end());
 }
 
 auto_battlebot::Group infer_group_from_frame_ids(
@@ -78,21 +61,16 @@ RobotFrontBackFilter::RobotFrontBackFilter(const RobotFrontBackFilterConfigurati
       default_frame_id_(config.default_frame_id),
       max_jump_distance_(config.max_jump_distance),
       max_consecutive_jump_rejects_(config.max_consecutive_jump_rejects),
-      blob_overwrite_min_distance_meters_(config.blob_overwrite_min_distance_meters),
-      blob_overwrite_size_scale_(config.blob_overwrite_size_scale),
       size_overrides_(config.robot_size_meters_per_label),
       footprint_center_offsets_(config.footprint_center_offset_per_label),
       field_bounds_margin_meters_(config.field_bounds_margin_meters),
       our_robot_hold_window_s_(config.our_robot_hold_window_s),
-      our_keypoint_dropout_blob_radius_meters_(config.our_keypoint_dropout_blob_radius_meters),
-      our_keypoint_dropout_blob_window_s_(config.our_keypoint_dropout_blob_window_s),
-      robot_keypoint_tracker_(config.robot_keypoint_tracker_config),
       frame_id_assigner_(config.max_jump_distance, config.max_consecutive_jump_rejects),
       motion_estimator_(make_motion_estimator(*config.motion_estimator)) {
     FrontBackKeypointConverterConfig converter_config;
     converter_config.front_keypoints = config.front_keypoints;
     converter_config.back_keypoints = config.back_keypoints;
-    converter_config.keypoint_heights = config.robot_keypoint_tracker_config.keypoint_heights;
+    converter_config.keypoint_heights = config.keypoint_heights;
     keypoint_converter_ = std::make_unique<FrontBackKeypointConverter>(converter_config);
 }
 
@@ -113,15 +91,10 @@ bool RobotFrontBackFilter::initialize(int opponent_count) {
     robot_configs_.clear();
     frame_id_assigner_.reset();
     motion_estimator_->reset();
-    our_blob_present_no_keypoint_ = false;
-    has_last_our_position_ = false;
-    last_our_size_x_ = 0.0;
-    last_our_position_stamp_ = 0.0;
     for (const auto &[label, frame_ids] : label_to_frame_ids_) {
         robot_configs_[label] = RobotConfig{label, infer_group_from_frame_ids(frame_ids)};
     }
     robot_configs_[Label::OPPONENT] = RobotConfig{Label::OPPONENT, Group::THEIRS};
-    robot_keypoint_tracker_.set_robot_configs(robot_configs_);
     return true;
 }
 
@@ -136,28 +109,18 @@ void RobotFrontBackFilter::predict(double now, CommandFeedback command_feedback)
 }
 
 void RobotFrontBackFilter::correct(ModelResultStamped keypoints, FieldDescription field,
-                                   CameraInfo camera_info,
-                                   ModelResultStamped robot_blob_keypoints) {
+                                   CameraInfo camera_info) {
     RobotDescriptionsStamped result;
     result.header.frame_id = FrameId::FIELD;
     result.header.stamp = keypoints.header.stamp;
     const Eigen::Matrix4d tf_fieldcenter_from_camera =
         field.tf_camera_from_fieldcenter.tf.inverse();
 
-    our_blob_present_no_keypoint_ = false;
-
     auto all_measurements = convert_keypoints_to_measurements(keypoints, field, camera_info,
                                                               tf_fieldcenter_from_camera);
     erase_out_of_field(all_measurements, field, field_bounds_margin_meters_);
-    const std::vector<RobotDescription> keypoint_measurements = all_measurements;
     const int num_keypoint_measurements = static_cast<int>(all_measurements.size());
 
-    if (!robot_blob_keypoints.keypoints.empty() && field.child_frame_id != FrameId::EMPTY) {
-        merge_blob_detections(robot_blob_keypoints, keypoint_measurements, field, camera_info,
-                              tf_fieldcenter_from_camera, result.header.stamp, all_measurements);
-    }
-
-    const int num_measurements_before_temporal = static_cast<int>(all_measurements.size());
     MotionEstimatorContext estimator_context;
     estimator_context.tf_fieldcenter_from_camera = tf_fieldcenter_from_camera;
     estimator_context.camera_info = camera_info;
@@ -167,14 +130,10 @@ void RobotFrontBackFilter::correct(ModelResultStamped keypoints, FieldDescriptio
         motion_estimator_->update(std::move(all_measurements), result.header.stamp,
                                   frame_id_assigner_, field, estimator_context);
 
-    update_our_position_anchor(result.descriptions, result.header.stamp);
-
     diagnostics_logger_->debug(
         {{"num_input_keypoints", static_cast<int>(keypoints.keypoints.size())},
-         {"num_input_blob_keypoints", static_cast<int>(robot_blob_keypoints.keypoints.size())},
          {"field_frame_valid", field.child_frame_id == FrameId::EMPTY ? "false" : "true"},
          {"num_keypoint_measurements", num_keypoint_measurements},
-         {"num_measurements_before_temporal", num_measurements_before_temporal},
          {"num_measurements_after_temporal", static_cast<int>(result.descriptions.size())}});
 
     state_ = std::move(result);
@@ -200,189 +159,6 @@ void RobotFrontBackFilter::apply_known_geometry(std::vector<RobotDescription> &d
         description.size = found->second;
     }
     if (!detected.empty()) diagnostics_logger_->debug("detected_size", detected);
-}
-
-bool RobotFrontBackFilter::is_blob_suppressed_by_keypoint(
-    const RobotKeypointDetection &blob,
-    const std::vector<RobotDescription> &keypoint_measurements) const {
-    return std::any_of(keypoint_measurements.begin(), keypoint_measurements.end(),
-                       [this, &blob](const RobotDescription &keypoint_measurement) {
-                           const double overwrite_radius =
-                               std::max(blob_overwrite_min_distance_meters_,
-                                        blob_overwrite_size_scale_ * (blob.description.size.x +
-                                                                      keypoint_measurement.size.x));
-                           const double dist = position_distance(
-                               blob.description.pose.position, keypoint_measurement.pose.position);
-                           return dist <= overwrite_radius;
-                       });
-}
-
-bool RobotFrontBackFilter::is_our_anchor_fresh(double stamp) const {
-    if (!has_last_our_position_) return false;
-    if (our_keypoint_dropout_blob_window_s_ <= 0.0) return false;
-    const double age = stamp - last_our_position_stamp_;
-    return age >= 0.0 && age <= our_keypoint_dropout_blob_window_s_;
-}
-
-int RobotFrontBackFilter::suppress_blobs_near_our_anchor(
-    double stamp, const std::vector<RobotDescription> &keypoint_measurements,
-    std::vector<RobotKeypointDetection> &blobs) const {
-    if (our_keypoint_dropout_blob_radius_meters_ <= 0.0) return 0;
-    if (!is_our_anchor_fresh(stamp)) return 0;
-
-    const bool our_keypoint_present =
-        std::any_of(keypoint_measurements.begin(), keypoint_measurements.end(),
-                    [](const RobotDescription &measurement) {
-                        return measurement.frame_id == FrameId::OUR_ROBOT_1;
-                    });
-    if (our_keypoint_present) return 0;
-
-    const auto removed_begin =
-        std::remove_if(blobs.begin(), blobs.end(), [this](const RobotKeypointDetection &blob) {
-            return position_distance(blob.description.pose.position, last_our_position_) <=
-                   our_keypoint_dropout_blob_radius_meters_;
-        });
-    const int num_removed = static_cast<int>(std::distance(removed_begin, blobs.end()));
-    blobs.erase(removed_begin, blobs.end());
-    return num_removed;
-}
-
-void RobotFrontBackFilter::update_our_position_anchor(
-    const std::vector<RobotDescription> &descriptions, double stamp) {
-    for (const auto &description : descriptions) {
-        if (description.frame_id == FrameId::OUR_ROBOT_1) {
-            has_last_our_position_ = true;
-            last_our_position_ = description.pose.position;
-            last_our_size_x_ = description.size.x;
-            last_our_position_stamp_ = stamp;
-            return;
-        }
-    }
-}
-
-std::vector<FrameId> RobotFrontBackFilter::get_assignment_frame_ids(
-    Label label, const std::vector<RobotDescription> &used_measurements) const {
-    auto is_used = [&used_measurements](FrameId fid) {
-        return std::any_of(used_measurements.begin(), used_measurements.end(),
-                           [fid](const RobotDescription &m) { return m.frame_id == fid; });
-    };
-
-    std::vector<FrameId> assignment_fids;
-    for (const auto &fid : get_frame_ids_for_label(label)) {
-        if (!is_used(fid)) assignment_fids.push_back(fid);
-    }
-
-    if (assignment_fids.empty() && label != Label::OPPONENT &&
-        group_for_label(label, robot_configs_) == Group::THEIRS) {
-        for (const auto &fid : get_frame_ids_for_label(Label::OPPONENT)) {
-            if (!is_used(fid)) assignment_fids.push_back(fid);
-        }
-    }
-
-    return assignment_fids;
-}
-
-void RobotFrontBackFilter::merge_blob_detections(
-    const ModelResultStamped &robot_blob_keypoints,
-    const std::vector<RobotDescription> &keypoint_measurements, const FieldDescription &field,
-    const CameraInfo &camera_info, const Eigen::Matrix4d &tf_fieldcenter_from_camera, double stamp,
-    std::vector<RobotDescription> &all_measurements) {
-    auto blob_detections =
-        robot_keypoint_tracker_.detect_with_confidence(robot_blob_keypoints, field, camera_info);
-    const int blob_candidates_before_overwrite = static_cast<int>(blob_detections.size());
-
-    const auto transform_blobs_to_field = [&]() {
-        for (auto &blob_detection : blob_detections) {
-            auto blob_pos = blob_detection.description.pose.position;
-            const Eigen::Vector3d blob_center_camera(blob_pos.x, blob_pos.y, blob_pos.z);
-            blob_detection.description.pose.position =
-                vector_to_position(transform_point(tf_fieldcenter_from_camera, blob_center_camera));
-        }
-    };
-    transform_blobs_to_field();
-
-    erase_out_of_field(blob_detections, field, field_bounds_margin_meters_);
-
-    blob_detections.erase(
-        std::remove_if(blob_detections.begin(), blob_detections.end(),
-                       [this, &keypoint_measurements](const RobotKeypointDetection &blob) {
-                           return is_blob_suppressed_by_keypoint(blob, keypoint_measurements);
-                       }),
-        blob_detections.end());
-
-    const int num_blobs_suppressed_near_us =
-        suppress_blobs_near_our_anchor(stamp, keypoint_measurements, blob_detections);
-    our_blob_present_no_keypoint_ = num_blobs_suppressed_near_us > 0;
-
-    diagnostics_logger_->debug(
-        {{"num_blob_candidates_before_overwrite", blob_candidates_before_overwrite},
-         {"num_blob_candidates_after_overwrite", static_cast<int>(blob_detections.size())},
-         {"num_blob_candidates_suppressed",
-          blob_candidates_before_overwrite - static_cast<int>(blob_detections.size())},
-         {"num_blob_candidates_suppressed_near_us", num_blobs_suppressed_near_us}});
-
-    std::map<Label, std::vector<MeasurementWithConfidence>> grouped_blob_measurements;
-    for (auto &blob_detection : blob_detections) {
-        grouped_blob_measurements[blob_detection.description.label].push_back(
-            {blob_detection.confidence, std::move(blob_detection.description)});
-    }
-    diagnostics_logger_->debug(
-        {{"num_blob_labels_with_candidates", static_cast<int>(grouped_blob_measurements.size())}});
-
-    std::vector<MeasurementWithConfidence> pool;
-    std::vector<std::vector<FrameId>> pool_allowed_fids;
-    std::set<FrameId> available_fids_set;
-    for (auto &[label, measurements] : grouped_blob_measurements) {
-        const std::vector<FrameId> allowed = get_assignment_frame_ids(label, keypoint_measurements);
-        for (auto fid : allowed) available_fids_set.insert(fid);
-        diagnostics_logger_->debug(
-            std::string("blob_pool_") + std::string(magic_enum::enum_name(label)),
-            {{"num_candidates", static_cast<int>(measurements.size())},
-             {"num_allowed_fids", static_cast<int>(allowed.size())}});
-        for (auto &m : measurements) {
-            pool_allowed_fids.push_back(allowed);
-            pool.push_back(std::move(m));
-        }
-    }
-
-    if (pool.empty() || available_fids_set.empty()) {
-        diagnostics_logger_->debug(
-            {{"num_blob_pool", static_cast<int>(pool.size())},
-             {"num_available_fids", static_cast<int>(available_fids_set.size())},
-             {"num_assigned", 0}});
-        return;
-    }
-
-    std::vector<size_t> order(pool.size());
-    std::iota(order.begin(), order.end(), 0);
-    std::sort(order.begin(), order.end(),
-              [&pool](size_t a, size_t b) { return pool[a].confidence > pool[b].confidence; });
-    std::vector<MeasurementWithConfidence> sorted_pool;
-    std::vector<std::vector<FrameId>> sorted_allowed;
-    sorted_pool.reserve(pool.size());
-    sorted_allowed.reserve(pool.size());
-    for (size_t i : order) {
-        sorted_pool.push_back(std::move(pool[i]));
-        sorted_allowed.push_back(std::move(pool_allowed_fids[i]));
-    }
-
-    const std::vector<FrameId> available_fids(available_fids_set.begin(), available_fids_set.end());
-    auto assigned =
-        frame_id_assigner_.assign(sorted_pool, available_fids, diagnostics_logger_, sorted_allowed);
-
-    diagnostics_logger_->debug({{"num_blob_pool", static_cast<int>(sorted_pool.size())},
-                                {"num_available_fids", static_cast<int>(available_fids.size())},
-                                {"num_assigned", static_cast<int>(assigned.size())}});
-
-    for (auto &a : assigned) {
-        a.pose.rotation = Rotation{1.0, 0.0, 0.0, 0.0};
-        const std::vector<FrameId> own_fids = get_frame_ids_for_label(a.label);
-        const bool used_fallback =
-            std::find(own_fids.begin(), own_fids.end(), a.frame_id) == own_fids.end();
-        if (used_fallback) a.label = Label::OPPONENT;
-        a.group = group_for_frame_id(a.frame_id, a.group);
-        all_measurements.push_back(std::move(a));
-    }
 }
 
 std::vector<RobotDescription> RobotFrontBackFilter::convert_keypoints_to_measurements(

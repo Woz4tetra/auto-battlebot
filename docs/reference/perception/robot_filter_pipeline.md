@@ -26,11 +26,8 @@ Regenerate the SVG after editing `diagrams/robot_filter.dot`:
 ## Inputs
 
 - `keypoints`: front/back keypoints per detected robot, from the keypoint model.
-- `robot_blob_keypoints`: segmentation blob detections, a fallback when keypoints are missing.
-- `YoloBboxRobotBlobModel` produces the blob detections from a plain YOLO detect engine (output
-  `[1, 4 + num_classes, num_predictions]`) with no mask-prototype branch. Consumers only need box
-  centers and the front/back midline, both of which come straight from the box, so dropping the
-  segmentation head costs them nothing. Measurements: `docs/experiments/perception/seg_vs_bbox_2026-07-18.md`.
+- Every class the keypoint model detects has FRONT and BACK keypoints, so every measurement carries a
+  yaw. There is no box-only fallback path.
 - `field + camera_info`: the field transform and intrinsics used to project pixels onto the field plane.
 - `command_feedback`: the velocity command currently driving OUR_ROBOT_1, read back from the transmitter
   (live RC channels on hardware). Only our robot has feedback, so only our robot gets predicted.
@@ -50,10 +47,7 @@ Regenerate the SVG after editing `diagrams/robot_filter.dot`:
    nearest-neighbor against each track's last position, with a `max_jump_distance` gate that rejects
    implausible jumps (and force-accepts after `max_consecutive_jump_rejects` to recover from a bad lock).
 
-2. **`merge_blob_detections`** adds blob detections, suppressing any that fall near an existing keypoint
-   measurement so the same robot is not counted twice, and assigns leftover frame_ids.
-
-3. **`RobotTemporalMotionFilter::update_with_prediction`** stores the measured robots, then for any
+2. **`RobotTemporalMotionFilter::update_with_prediction`** stores the measured robots, then for any
    tracked robot that was not measured this frame and has command feedback (OUR_ROBOT_1), dead-reckons
    its pose forward along the commanded velocity, clips it to the field, and flags it `is_stale`. It
    emits one `RobotDescription` per tracked robot, measured or predicted.
@@ -68,15 +62,6 @@ Three per-`FrameId` maps survive across frames:
 - `last_description_per_frame_id_`: the last full pose of each tracked robot.
 - `last_timestamp_per_frame_id_`: the last time each robot appeared in the output, used only to compute
   the `dt` for dead-reckoning.
-
-## Blob fallback and our-robot blob suppression
-
-- A blob with a specific THEIRS label (for example `MRS_BUFF_MK1`) that cannot take its own configured `FrameId`, because a keypoint detection took it, falls back to a generic `OPPONENT` slot. The resulting `RobotDescription` is relabeled `Label::OPPONENT` so label, `frame_id`, and group stay consistent. Without the relabel, downstream consumers see a specific-model label in a generic slot, and the label flips back the next tick a proper slot frees up (an ID swap).
-- `Label::OPPONENT` maps to one `FrameId` per opponent, so `initialize(2)` maps it to `{THEIR_ROBOT_1, THEIR_ROBOT_2}`. A specific label with only `{THEIR_ROBOT_1}` can have its slot taken by an `OPPONENT` keypoint while a free `OPPONENT` fallback slot remains.
-- A fallback blob must sit apart from the keypoint detection in the image, or `is_blob_suppressed_by_keypoint` discards it before it can reach the fallback slot.
-- When blobs compete for a shared slot, the highest confidence wins the global greedy assignment, whichever label the blob has.
-- The blob model has no class for our robot. During a keypoint dropout, a blob on our own held position would get an opponent `FrameId` and be targeted, so the filter discards blobs within `our_keypoint_dropout_blob_radius_meters` of our last position anchor.
-- The suppression is time-bounded by `our_keypoint_dropout_blob_window_s`. Once the window elapses the anchor is no longer trusted, so a genuine opponent parked where we were last seen becomes targetable again.
 
 ## Why prediction is load-bearing
 
@@ -100,8 +85,8 @@ This helps the common short dropouts and drifts on rare long ones.
 
 - State: the 6-state model `[px, py, vx, vy, theta, omega]`. It also covers the snapshot ring and rewind, the gated position update, the ungated heading row with its flip test, reinitialization, and the render (wall stop, clip, sigmas).
 - Config fields accept a float or a per-row tensor, so a grid search runs every candidate as its own row of one batch.
-- `field_half_extent` is the field's half size, shape `(batch, 2)`, or `None` for no field. With no field the C++ skips the clip and the wall stop when the field size is not positive, and the mirror does the same. `margin` is `field_bounds_margin_meters`. `heading_blind_rows` is a `(batch,)` bool marking rows whose label is in `heading_blind_labels`. Wrong shapes raise `ValueError`.
-- `update` takes `has_measurement` (a measurement arrived this frame), `yaw` (the measurement's rotation, 0 for a blob whose rotation is identity), `is_keypoint`, and `measurement_position_variance` (the diagonal from `measurement_noise_for`).
+- `field_half_extent` is the field's half size, shape `(batch, 2)`, or `None` for no field. With no field the C++ skips the clip and the wall stop when the field size is not positive, and the mirror does the same. `margin` is `field_bounds_margin_meters`. A wrong shape raises `ValueError`.
+- `update` takes `has_measurement` (a measurement arrived this frame), `yaw` (the measured heading), and `measurement_position_variance` (the diagonal from `measurement_noise_for`).
 - A change to the C++ opponent arm lands here in the same commit. `tests/test_kalman_motion_estimator.cpp` checks the C++ side and `auto_battlebot/perception/tests/test_opponent_filter.py` checks this side against the same fixture, `tests/robot_filter/opponent_filter_golden_data.hpp`. Regenerate it with `tests/fixtures/generators/make_opponent_filter_golden_fixture.py`.
 
 ## Sysid sessions as opponent-filter data
@@ -112,13 +97,6 @@ This helps the common short dropouts and drifts on rare long ones.
 - The projection uses the per-session calibration the `_yolo` bundle fitted against the tag (`yolo_field_fixes.calibrate`): plane height, axle offset, video clock offset, and the size gates that drop the floor marker board.
 - Ground truth is the tag-only smoother bundle (`smooth_tag_poses.py` without `--yolo`) on the smoother's 5 ms grid (`truth_5ms_grid`), same clock and frame. It never contains a YOLO fix, because scoring YOLO against a YOLO-filled bundle scores the model against itself. Loading a truth bundle whose `measurements.csv` has `source == "yolo"` rows raises `ValueError`.
 - The bundle interpolates through tag dropouts, so truth is trusted only within `TRUTH_MAX_GAP_NS` of an accepted tag detection, and only while the robot is upright.
-
-## Parallel model batch
-
-- `ParallelModelBatch` runs the keypoint model and the robot blob model on one worker thread each. `update()` dispatches the image and blocks until both finish.
-- The wait is bounded at 1 s so a hung model cannot stall the main loop. On timeout the missing model's result fields stay default-constructed (empty keypoints). A late worker drops its result when the request id has moved on.
-- A worker copies the image and camera info together under `mutex_`, so the pair always belongs to the same request. The robot blob model takes only the image. All request, result and done-id fields are guarded by `mutex_`.
-- The image is a shallow `cv::Mat` copy. Each worker takes its own, so the pixel buffer stays alive when `update()` times out and the caller frees its image.
 
 ## Frame and size conventions
 
@@ -150,7 +128,7 @@ Suppresses robot-blob detections that hold the same field position for seconds o
 - Known cost: an immobilised opponent that stops for `min_dwell_seconds` looks like scenery and is suppressed. That is what `min_dwell_seconds` trades.
 - A cluster loses its static verdict the moment an observation lands outside `static_radius_meters` of its running mean, so a robot that stops and then moves again is picked straight back up.
 - A robot driving onto an already suppressed graphic widens the cluster past `static_radius_meters` and lifts suppression, so it never stays invisible. When it leaves, the graphic is suppressed again without a restart.
-- Robot blobs only. Our own robot's keypoints come from a separate model and are not gated.
+- The runner tick does not call it, because no model produces robot blobs. `[keypoint_filter.static] enable` has no effect on any profile.
 - The cluster statistic is the running mean distance from the cluster mean, not the maximum. Both statistics stop averaging past `responsiveness_window` and start tracking, so a robot parking on a logo can still move the verdict after thousands of frames.
 - The averaging weight is capped so both statistics keep tracking instead of going numb. Below `responsiveness_window` the statistic is an exact running mean, above it an exponential one with that time constant.
 - A group's field position is the centroid of its `model_results` projected onto the plane. Where the height gate supplied a measured height, the projection uses it, so a tall robot's footprint is not pushed outward by the flat-plane assumption.
@@ -164,14 +142,14 @@ Keypoint heights correct the radial bias of flat-plane projection. Heights are p
 
 ## Motion estimator seam
 
-- `MotionEstimatorInterface` is the propagation seam inside `RobotFrontBackFilter`. It owns per-track motion state between the association front-end (keypoint conversion, blob merging, FrameId assignment) and the emitted `RobotDescriptions`. Implementations swap the state estimation strategy (dead reckoning vs Kalman) without touching association.
+- `MotionEstimatorInterface` is the propagation seam inside `RobotFrontBackFilter`. It owns per-track motion state between the association front-end (keypoint conversion, FrameId assignment) and the emitted `RobotDescriptions`. Implementations swap the state estimation strategy (dead reckoning vs Kalman) without touching association.
 - Call pattern mirrors `RobotFilterInterface`: `predict()` at control rate, `update()` at perception rate, and the two are not in lockstep.
 - Render lead: `coast()` renders `render_lead_s()` past `now`. Consumers steer by a state that has to describe the field when the command they are computing reaches the wheels, not when the shutter closed. 0 means render at `now`.
 
 ### Kalman arm
 
 - Non-OURS tracks run a 6-state linear Kalman filter [px, py, vx, vy, theta, omega]: a constant-velocity translation block and an independent constant-yaw-rate heading block, each driven by its own continuous white-noise acceleration.
-- Keypoint measurements correct position and heading, blob centroids position only. Position is chi-square gated, with reinitialization after repeated rejects.
+- Every measurement corrects position and heading. Position is chi-square gated, with reinitialization after repeated rejects.
 - A heading more than pi/2 off the track is a front/back flip and corrects nothing; a run of flips re-initializes the heading block.
 - Unmeasured tracks predict forward with growing covariance up to `max_coast_s` of track age, then hold position and heading. The opponent horizon is `opponent_max_coast_s` (`docs/experiments/control/2026-10-15_opponent_max_coast.md`).
 - Measurements older than the track state (perception latency) rewind to a stored snapshot, correct at the measurement's own stamp, and re-propagate.
@@ -207,7 +185,7 @@ The gate measures relief (the median height of the box's inscribed circle over t
 
 - Relief, not absolute height, decides flatness: if the fitted plane has drifted or the whole area sits above it, a flat graphic there is still flat and goes.
 - The ceiling uses absolute height because relief alone admits walls and people. A metre off the floor is not a robot.
-- Blob keypoints sit at the ends of the box midline, which land on the floor beside a robot. Sampling the inscribed circle reads the robot where sampling at the keypoints reads the floor.
+- Sampling the box's inscribed circle reads the robot. Sampling at the keypoints can read the floor beside it.
 - A missing depth frame abstains instead of dropping detections, so a dropped frame never blinds the pipeline. A model that produces no boxes cannot be gated, only annotated.
 - A group survives whole. One keypoint over a hole in the depth map still measures from its partner, and both keep the group height, because a half-dropped front/back pair is useless downstream.
 - `ModelResultStamped::boxes` is indexed by `Keypoint::detection_index`. It is empty for models that produce no boxes. It has an entry for every detection, including ones that yielded no keypoints, so the index stays aligned with what the detector emitted and `box_for` returns the right detection's box.
@@ -230,10 +208,6 @@ its randomization range. The lockstep sim and the kinematic sim server pass thei
 since they capture one frame per tick.
 
 The sensing file's `dropout.enabled` is true by default. False delivers every captured frame, so the robot never drops out.
-
-## Our-robot dropout blob drop
-
-`suppress_blobs_near_our_anchor` removes blobs within `our_keypoint_dropout_blob_radius_meters_` of our robot's held pose while no `OUR_ROBOT_1` keypoint measurement exists this frame. The blob model has no class for our robot, so such a blob would be assigned an opponent FrameId at our own location and navigation would steer into it. It does nothing when our keypoint is present (`is_blob_suppressed_by_keypoint` covers that case) or when the anchor is stale. It returns the number of blobs removed.
 
 ## Ground-truth filter slots
 

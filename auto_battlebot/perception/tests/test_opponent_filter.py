@@ -74,11 +74,6 @@ def test_field_half_extent_shape_checked() -> None:
         _bank(field_half_extent=torch.ones(3))
 
 
-def test_heading_blind_rows_shape_checked() -> None:
-    with pytest.raises(ValueError, match="heading_blind_rows"):
-        _bank(heading_blind_rows=torch.zeros(2, dtype=torch.bool))
-
-
 def _run_rows(filt: OpponentFilter, events: list[golden.Event]) -> list[np.ndarray]:
     rows = []
     b = filt.batch
@@ -91,8 +86,7 @@ def _run_rows(filt: OpponentFilter, events: list[golden.Event]) -> list[np.ndarr
                 torch.full((b,), ev.kind == golden.KIND_MEASURED),
                 torch.tensor([[ev.x, ev.y]] * b, dtype=torch.float64),
                 torch.tensor([ev.yaw] * b, dtype=torch.float64),
-                torch.full((b,), bool(ev.keypoint)),
-                (golden.KEYPOINT_SIGMA if ev.keypoint else golden.BLOB_SIGMA) ** 2,
+                golden.KEYPOINT_SIGMA**2,
             )
         rows.append(torch.stack([out.x, out.y, out.yaw, out.position_sigma_m], dim=1).numpy())
     return rows

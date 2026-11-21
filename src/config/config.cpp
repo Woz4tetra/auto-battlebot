@@ -257,7 +257,6 @@ ClassConfiguration load_classes_from_config(const std::filesystem::path &path,
         config.plant = load_plant_from_toml(toml_data, parsed_sections);
         config.camera = load_camera_from_toml(toml_data, parsed_sections);
         config.field_model = load_field_model_from_toml(toml_data, parsed_sections);
-        config.robot_mask_model = load_robot_blob_model_from_toml(toml_data, parsed_sections);
         config.field_filter = load_field_filter_from_toml(toml_data, parsed_sections);
         config.keypoint_model = load_keypoint_model_from_toml(toml_data, parsed_sections);
         config.keypoint_filter = load_keypoint_filter_from_toml(toml_data, parsed_sections);

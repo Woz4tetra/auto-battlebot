@@ -10,9 +10,6 @@ distance_threshold = 0.05
 [field_model]
 type = "DeepLabMaskModel"
 
-[robot_mask_model]
-type = "NoopRobotBlobModel"
-
 [keypoint_model]
 type = "YoloKeypointModel"
 label_indices = ["MR_STABS_MK2", "MRS_BUFF_MK3"]
@@ -72,17 +69,8 @@ back_keypoints = [
   "OPPONENT_BACK",
 ]
 
-robot_blob_min_length_meters = 0.08
-robot_blob_max_length_meters = 0.7
-robot_blob_min_confidence = 0.4
-robot_blob_max_candidates = 8
-blob_overwrite_min_distance_meters = 0.20
-blob_overwrite_size_scale = 0.5
 field_bounds_margin_meters = 0.2
 our_robot_hold_window_s = 0.5
-
-our_keypoint_dropout_blob_radius_meters = 0.4
-our_keypoint_dropout_blob_window_s = 1.0
 
 keypoint_height_meters = 0.03
 
@@ -150,7 +138,6 @@ default_opponent_count = 1
 autonomy_enabled_by_default = true
 default_behavior_mode = "ATTACK"
 auto_tracking_by_default = true
-parallel_models = true
 
 [mcap]
 enable = false

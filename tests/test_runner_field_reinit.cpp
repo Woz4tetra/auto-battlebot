@@ -12,7 +12,6 @@
 #include "navigation/noop_navigation.hpp"
 #include "publisher/noop_publisher.hpp"
 #include "rgbd_camera/noop_rgbd_camera.hpp"
-#include "robot_blob_model/noop_robot_blob_model.hpp"
 #include "robot_filter/noop_robot_filter.hpp"
 #include "runner.hpp"
 #include "target_selector/noop_target.hpp"
@@ -95,7 +94,6 @@ TEST(RunnerFieldReinit, FieldReinitClearsTheStaticGateClusters) {
 
     auto camera = std::make_shared<NoopRgbdCamera>();
     auto keypoint_model = std::make_shared<NoopKeypointModel>();
-    auto blob_model = std::make_shared<NoopRobotBlobModel>();
     auto loop = std::make_shared<ControlLoop>(
         std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
         std::make_shared<NoopNavigation>(), std::make_shared<NoopTransmitter>(),
@@ -104,9 +102,8 @@ TEST(RunnerFieldReinit, FieldReinitClearsTheStaticGateClusters) {
     auto commands = remote.commands;
     Runner runner(
         RunnerConfiguration{}, camera, std::make_shared<HealthLogger>(HealthConfiguration{}),
-        std::make_shared<SolidMaskModel>(), blob_model, std::make_shared<PlaneFieldFilter>(),
-        keypoint_model, std::make_shared<KeypointHeightGate>(KeypointHeightGateConfiguration{}),
-        gate, std::make_shared<ParallelModelBatch>(keypoint_model, blob_model),
+        std::make_shared<SolidMaskModel>(), std::make_shared<PlaneFieldFilter>(), keypoint_model,
+        std::make_shared<KeypointHeightGate>(KeypointHeightGateConfiguration{}), gate,
         std::make_shared<SteppedControlLoop>(loop, 0.0), std::make_shared<NoopPublisher>(),
         [](SystemAction) {}, [](const std::string &) {}, nullptr, nullptr, std::move(remote));
 

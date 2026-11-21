@@ -35,7 +35,6 @@ class AsyncPublisher : public PublisherInterface {
         const FieldDescriptionWithInlierPoints &initial_field_description) override;
     void publish_hazards(const FieldDescription &field_description) override;
     void publish_robots(const RobotDescriptionsStamped &robots) override;
-    void publish_blob_detections(const DetectionsStamped &detections) override;
     void publish_keypoint_detections(const DetectionsStamped &detections) override;
     void publish_navigation(const NavigationVisualization &nav) override;
     void flush() override;

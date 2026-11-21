@@ -183,7 +183,7 @@ TEST(FoxglovePublisherTest, PublishesWithoutSinks) {
     EXPECT_NO_THROW(publisher.publish_robots(robots));
 
     const DetectionsStamped unframed_detections;
-    EXPECT_NO_THROW(publisher.publish_blob_detections(unframed_detections));
+    EXPECT_NO_THROW(publisher.publish_keypoint_detections(unframed_detections));
     DetectionsStamped framed_detections;
     framed_detections.header.frame_id = FrameId::CAMERA;
     EXPECT_NO_THROW(publisher.publish_keypoint_detections(framed_detections));
@@ -244,7 +244,7 @@ TEST(FoxglovePublisherTest, AnnotationsAreLiveOnly) {
         Detection2D det;
         det.label = Label::MR_STABS_MK1;
         detections.detections.push_back(det);
-        publisher.publish_blob_detections(detections);
+        publisher.publish_keypoint_detections(detections);
     }
     recorder->close();
     std::filesystem::current_path(cwd);
@@ -252,8 +252,8 @@ TEST(FoxglovePublisherTest, AnnotationsAreLiveOnly) {
     ASSERT_TRUE(std::filesystem::exists(file));
     std::ifstream in(file, std::ios::binary);
     std::string contents((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    EXPECT_NE(contents.find("/blob_detections"), std::string::npos);
-    EXPECT_EQ(contents.find("/blob_detections/annotations"), std::string::npos);
+    EXPECT_NE(contents.find("/keypoint_detections"), std::string::npos);
+    EXPECT_EQ(contents.find("/keypoint_detections/annotations"), std::string::npos);
     EXPECT_NE(contents.find("auto_battlebot.Detections"), std::string::npos);
     std::filesystem::remove_all(scratch);
 }
@@ -273,7 +273,7 @@ TEST(FoxglovePublisherTest, SubscribedAnnotationsStayOutOfTheRecording) {
     {
         FoxglovePublisher publisher(sink, recorder);
         ASSERT_TRUE(relay.accept_client());
-        ASSERT_TRUE(relay.subscribe_to("/blob_detections/annotations"));
+        ASSERT_TRUE(relay.subscribe_to("/keypoint_detections/annotations"));
         for (int i = 0; i < 300; ++i) {
             DetectionsStamped detections;
             detections.header.frame_id = FrameId::CAMERA;
@@ -281,7 +281,7 @@ TEST(FoxglovePublisherTest, SubscribedAnnotationsStayOutOfTheRecording) {
             Detection2D det;
             det.label = Label::MR_STABS_MK1;
             detections.detections.push_back(det);
-            publisher.publish_blob_detections(detections);
+            publisher.publish_keypoint_detections(detections);
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
     }
@@ -291,8 +291,8 @@ TEST(FoxglovePublisherTest, SubscribedAnnotationsStayOutOfTheRecording) {
     ASSERT_TRUE(std::filesystem::exists(file));
     std::ifstream in(file, std::ios::binary);
     std::string contents((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    EXPECT_NE(contents.find("/blob_detections"), std::string::npos);
-    EXPECT_EQ(contents.find("/blob_detections/annotations"), std::string::npos);
+    EXPECT_NE(contents.find("/keypoint_detections"), std::string::npos);
+    EXPECT_EQ(contents.find("/keypoint_detections/annotations"), std::string::npos);
     std::filesystem::remove_all(scratch);
 }
 
@@ -318,10 +318,8 @@ TEST(OutputChannelTest, ZeroLengthPayloadsNeverReachTheRelay) {
 
 TEST(FoxglovePublisherTest, EmptyHeaderDetectionsAreNotRecorded) {
     const Recording recording = record([](FoxglovePublisher &publisher) {
-        publisher.publish_blob_detections(DetectionsStamped{});
         publisher.publish_keypoint_detections(DetectionsStamped{});
     });
-    EXPECT_EQ(recording.count("/blob_detections"), 0u);
     EXPECT_EQ(recording.count("/keypoint_detections"), 0u);
 }
 
@@ -330,10 +328,10 @@ TEST(FoxglovePublisherTest, DetectionsAreRecordedAtTheFrameStamp) {
         DetectionsStamped detections;
         detections.header.frame_id = FrameId::CAMERA;
         detections.header.stamp = 2.5;
-        publisher.publish_blob_detections(detections);
+        publisher.publish_keypoint_detections(detections);
     });
-    ASSERT_EQ(recording.at("/blob_detections").size(), 1u);
-    EXPECT_EQ(recording.at("/blob_detections").front().log_time, 2500000000u);
+    ASSERT_EQ(recording.at("/keypoint_detections").size(), 1u);
+    EXPECT_EQ(recording.at("/keypoint_detections").front().log_time, 2500000000u);
 }
 
 TEST(FoxglovePublisherTest, HazardsArePublishedEvenWhenThereAreNone) {

@@ -225,7 +225,7 @@ void KalmanMotionEstimator::init_our_ekf(OurEkfTrack &track, const RobotDescript
     track.speed_ref_y = pose.y;
     track.speed_ref_yaw = pose.yaw;
     track.speed_ref_stamp = stamp;
-    track.has_speed_ref = !measurement.keypoints.empty();
+    track.has_speed_ref = true;
 }
 
 RobotDescription KalmanMotionEstimator::render_our_ekf(const OurEkfTrack &track,
@@ -239,12 +239,6 @@ RobotDescription KalmanMotionEstimator::render_our_ekf(const OurEkfTrack &track,
     description.velocity = Velocity2D{velocity_field.x(), velocity_field.y(), state.w};
     description.is_stale = stale;
     return description;
-}
-
-bool KalmanMotionEstimator::measures_heading(const RobotDescription &measurement) const {
-    if (measurement.keypoints.empty()) return false;
-    const auto &blind = config_.heading_blind_labels;
-    return std::find(blind.begin(), blind.end(), measurement.label) == blind.end();
 }
 
 void KalmanMotionEstimator::init_opponent_heading(OpponentTrack &track, double yaw) const {
@@ -272,15 +266,7 @@ void KalmanMotionEstimator::init_opponent(OpponentTrack &track, const RobotDescr
     const double velocity_variance =
         config_.initial_velocity_sigma * config_.initial_velocity_sigma;
     track.covariance(kVx, kVx) = track.covariance(kVy, kVy) = velocity_variance;
-    if (measures_heading(measurement)) {
-        init_opponent_heading(track, pose_to_pose2d(measurement.pose).yaw);
-    } else {
-        track.covariance(kTheta, kTheta) = kMaxHeadingVariance;
-        track.covariance(kOmega, kOmega) =
-            config_.initial_yaw_rate_sigma * config_.initial_yaw_rate_sigma;
-        track.heading_initialized = false;
-        track.consecutive_heading_flips = 0;
-    }
+    init_opponent_heading(track, pose_to_pose2d(measurement.pose).yaw);
     track.state_stamp = stamp;
     track.last_measured_stamp = stamp;
     track.consecutive_rejects = 0;
@@ -293,11 +279,8 @@ void KalmanMotionEstimator::init_opponent(OpponentTrack &track, const RobotDescr
 
 ekf::Mat<2, 2> KalmanMotionEstimator::measurement_noise_for(
     const RobotDescription &measurement, const MotionEstimatorContext &context) const {
-    const bool is_blob = measurement.keypoints.empty();
-    const double keypoint_sigma = measurement.group == Group::OURS
-                                      ? config_.keypoint_position_sigma_m
-                                      : config_.opponent_position_sigma_m;
-    double sigma = is_blob ? config_.blob_position_sigma_m : keypoint_sigma;
+    double sigma = measurement.group == Group::OURS ? config_.keypoint_position_sigma_m
+                                                    : config_.opponent_position_sigma_m;
     if (config_.position_sigma_per_meter > 0.0) {
         const Eigen::Vector3d camera_position =
             context.tf_fieldcenter_from_camera.block<3, 1>(0, 3);
@@ -324,12 +307,8 @@ RobotDescription KalmanMotionEstimator::render_opponent(const OpponentTrack &tra
     description.uncertainty.position_sigma_major_axis_m =
         std::sqrt(std::max(0.0, position_eigen.eigenvalues().maxCoeff()));
 
-    const bool heading_known =
-        track.heading_initialized &&
-        std::find(config_.heading_blind_labels.begin(), config_.heading_blind_labels.end(),
-                  description.label) == config_.heading_blind_labels.end();
     double omega = 0.0;
-    if (heading_known) {
+    if (track.heading_initialized) {
         const double z = description.pose.position.z;
         description.pose = pose2d_to_pose(
             Pose2D{description.pose.position.x, description.pose.position.y, track.state(kTheta)});
@@ -388,26 +367,22 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
                 track.state.w;
 
             const bool has_heading =
-                !input.keypoints.empty() &&
                 std::abs(ekf::wrap_angle(measured_pose.yaw - track.state.theta)) <= M_PI / 2.0;
-            if (!input.keypoints.empty() && !has_heading) ++num_heading_flips;
+            if (!has_heading) ++num_heading_flips;
 
-            if (!input.keypoints.empty()) {
-                diagnostics_logger_->debug(
-                    "our_heading",
-                    {{"frame_id", std::string(magic_enum::enum_name(input.frame_id))},
-                     {"accepted", has_heading ? 1 : 0},
-                     {"state_theta_deg", track.state.theta * 180.0 / M_PI},
-                     {"state_w_dps", track.state.w * 180.0 / M_PI},
-                     {"state_v", track.state.v},
-                     {"measured_yaw_deg", measured_pose.yaw * 180.0 / M_PI},
-                     {"innovation_deg",
-                      ekf::wrap_angle(measured_pose.yaw - track.state.theta) * 180.0 / M_PI},
-                     {"cov_theta_deg",
-                      std::sqrt(std::max(0.0, track.covariance(2, 2))) * 180.0 / M_PI},
-                     {"cov_w_dps", std::sqrt(std::max(0.0, track.covariance(4, 4))) * 180.0 / M_PI},
-                     {"stamp_age_s", timestamp - track.last_measured_stamp}});
-            }
+            diagnostics_logger_->debug(
+                "our_heading",
+                {{"frame_id", std::string(magic_enum::enum_name(input.frame_id))},
+                 {"accepted", has_heading ? 1 : 0},
+                 {"state_theta_deg", track.state.theta * 180.0 / M_PI},
+                 {"state_w_dps", track.state.w * 180.0 / M_PI},
+                 {"state_v", track.state.v},
+                 {"measured_yaw_deg", measured_pose.yaw * 180.0 / M_PI},
+                 {"innovation_deg",
+                  ekf::wrap_angle(measured_pose.yaw - track.state.theta) * 180.0 / M_PI},
+                 {"cov_theta_deg", std::sqrt(std::max(0.0, track.covariance(2, 2))) * 180.0 / M_PI},
+                 {"cov_w_dps", std::sqrt(std::max(0.0, track.covariance(4, 4))) * 180.0 / M_PI},
+                 {"stamp_age_s", timestamp - track.last_measured_stamp}});
 
             double speed_measurement = 0.0;
             double speed_variance = 0.0;
@@ -494,7 +469,7 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
                     track.speed_ref_y = measured_pose.y;
                     track.speed_ref_yaw = measured_pose.yaw;
                     track.speed_ref_stamp = timestamp;
-                    track.has_speed_ref = !input.keypoints.empty();
+                    track.has_speed_ref = true;
                 }
             } else {
                 ++num_gated;
@@ -514,7 +489,6 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
              {"x", input.pose.position.x},
              {"y", input.pose.position.y},
              {"yaw", pose_to_pose2d(input.pose).yaw},
-             {"keypoint", input.keypoints.empty() ? 0 : 1},
              {"label", std::string(magic_enum::enum_name(input.label))}});
 
         if (config_.opponent_mode == OpponentMode::HOLD) {
@@ -549,7 +523,7 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
             measurement_noise, config_.gate_nis, {false, false}, kOpponentWrappedAngleStates,
             config_.covariance_floor);
 
-        if (outcome.accepted && measures_heading(input)) {
+        if (outcome.accepted) {
             const double measured_yaw = pose_to_pose2d(input.pose).yaw;
             if (!track.heading_initialized) {
                 init_opponent_heading(track, measured_yaw);

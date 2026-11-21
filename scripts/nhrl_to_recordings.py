@@ -125,9 +125,6 @@ def write_playback_config(
 video_file_path = "{first.as_posix()}"
 start_frame = 0
 
-[robot_mask_model]
-their_robot_labels = ["OPPONENT"]
-
 [robot_filter.label_mapping]
 "{args.our_robot}" = ["OUR_ROBOT_1"]
 

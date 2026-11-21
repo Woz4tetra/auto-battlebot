@@ -15,12 +15,10 @@ namespace auto_battlebot {
 Runner::Runner(
     const RunnerConfiguration &runner_config, std::shared_ptr<RgbdCameraInterface> camera,
     std::shared_ptr<HealthLogger> health_logger, std::shared_ptr<MaskModelInterface> field_model,
-    std::shared_ptr<RobotBlobModelInterface> robot_mask_model,
     std::shared_ptr<FieldFilterInterface> field_filter,
     std::shared_ptr<KeypointModelInterface> keypoint_model,
     std::shared_ptr<KeypointHeightGate> height_gate,
     std::shared_ptr<StaticDetectionGate> static_gate,
-    std::shared_ptr<ParallelModelBatch> perception_batch,
     std::shared_ptr<ControlLoopInterface> control_loop,
     std::shared_ptr<PublisherInterface> publisher, SystemActionCallback system_action_callback,
     ProfileSelectCallback profile_select_callback, std::shared_ptr<McapRecorder> mcap_recorder,
@@ -28,12 +26,10 @@ Runner::Runner(
     : runner_config_(runner_config),
       camera_(camera),
       field_model_(field_model),
-      robot_mask_model_(robot_mask_model),
       field_filter_(field_filter),
       keypoint_model_(keypoint_model),
       height_gate_(std::move(height_gate)),
       static_gate_(std::move(static_gate)),
-      perception_batch_(std::move(perception_batch)),
       control_loop_(std::move(control_loop)),
       publisher_(publisher),
       mcap_recorder_(std::move(mcap_recorder)),
@@ -506,9 +502,6 @@ void Runner::initialize() {
     if (!field_model_->initialize()) {
         throw std::runtime_error("Failed to initialize field model");
     }
-    if (!robot_mask_model_->initialize()) {
-        throw std::runtime_error("Failed to initialize robot blob model");
-    }
     if (!keypoint_model_->initialize()) {
         throw std::runtime_error("Failed to initialize keypoint model");
     }
@@ -663,43 +656,19 @@ bool Runner::tick() {
     }
 
     ModelResultStamped keypoints;
-    ModelResultStamped robot_blob_keypoints;
-    if (runner_config_.parallel_models) {
-        FunctionTimer timer(diagnostics_logger_, "perception_batch.update");
-        BatchResult batch = perception_batch_->update(camera_data.rgb, camera_data.camera_info);
-        keypoints = std::move(batch.keypoints);
-        robot_blob_keypoints = std::move(batch.robot_blob_keypoints);
-        DiagnosticsData keypoint_timing;
-        keypoint_timing["elapsed_ms"] = batch.keypoint_model_elapsed_ms;
-        diagnostics_logger_->info("keypoint_model.update", keypoint_timing, "");
-        DiagnosticsData robot_blob_timing;
-        robot_blob_timing["elapsed_ms"] = batch.robot_blob_model_elapsed_ms;
-        diagnostics_logger_->info("robot_mask_model.update", robot_blob_timing, "");
-    } else {
-        {
-            FunctionTimer timer(diagnostics_logger_, "keypoint_model.update");
-            keypoints = keypoint_model_->update(camera_data.rgb, camera_data.camera_info);
-        }
-        {
-            FunctionTimer timer(diagnostics_logger_, "robot_mask_model.update");
-            robot_blob_keypoints = robot_mask_model_->update(camera_data.rgb);
-        }
+    {
+        FunctionTimer timer(diagnostics_logger_, "keypoint_model.update");
+        keypoints = keypoint_model_->update(camera_data.rgb, camera_data.camera_info);
     }
 
     {
         FunctionTimer timer(diagnostics_logger_, "keypoint_filter");
-        robot_blob_keypoints =
-            static_gate_->filter(robot_blob_keypoints, camera_data.camera_info, field_description,
-                                 camera_data.rgb.header.stamp);
         keypoints = height_gate_->filter(keypoints, camera_data.depth, camera_data.camera_info,
                                          field_description);
-        robot_blob_keypoints = height_gate_->filter(robot_blob_keypoints, camera_data.depth,
-                                                    camera_data.camera_info, field_description);
     }
 
     control_loop_->submit_measurement(ControlMeasurement{
         .keypoints = keypoints,
-        .robot_blob_keypoints = robot_blob_keypoints,
         .field_description = field_description,
         .camera_info = camera_data.camera_info,
     });
@@ -727,7 +696,6 @@ bool Runner::tick() {
         publisher_->publish_field_description(field_description, *initial_field_description_);
         publisher_->publish_hazards(hazard_view);
         publisher_->publish_robots(robots);
-        publisher_->publish_blob_detections(robot_mask_model_->last_detections_original_px());
         publisher_->publish_keypoint_detections(keypoint_model_->last_detections());
         publisher_->publish_navigation(control_loop_->last_visualization());
     }
