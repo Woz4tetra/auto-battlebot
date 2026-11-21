@@ -25,7 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVER = REPO_ROOT / "simulation" / "kinematic_sim_server.py"
 BINARY = REPO_ROOT / "build" / "auto_battlebot"
 SIM_CONFIG = REPO_ROOT / "simulation" / "sim_mr_stabs_mk2.toml"
-CPP_BASE = "simulation/mr_stabs_mk2_motion_profile_sim"
+CPP_BASE = "simulation/mr_stabs_mk2_kinematic_sim"
 SETTLED_SPEED_MPS = 0.05
 FLIP_DEG = 60.0
 

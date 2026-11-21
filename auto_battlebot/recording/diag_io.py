@@ -26,7 +26,8 @@ TF_STATIC_TOPIC = "/tf_static"
 
 PURSUIT_NAV_HW_ID = "pursuit_nav"
 MOTION_PROFILE_NAV_HW_ID = "motion_profile_nav"
-NAV_HW_IDS = frozenset({PURSUIT_NAV_HW_ID, MOTION_PROFILE_NAV_HW_ID})
+RECORDING_ONLY_NAV_HW_IDS = frozenset({PURSUIT_NAV_HW_ID})
+NAV_HW_IDS = frozenset({MOTION_PROFILE_NAV_HW_ID}) | RECORDING_ONLY_NAV_HW_IDS
 RUNNER_HW_ID = "runner"
 TRANSMITTER_HW_ID = "opentx_transmitter"
 

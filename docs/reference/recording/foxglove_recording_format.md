@@ -181,7 +181,7 @@ original-image pixels.
 
 ## `/diagnostics/<module>` (JSON)
 
-One channel per `DiagnosticsModuleLogger` name (`runner`, `pursuit_nav`,
+One channel per `DiagnosticsModuleLogger` name (`runner`, `motion_profile_nav`,
 `opentx_transmitter`, ...). The topic is `/diagnostics/` + module name. One message per
 `DiagnosticsLogger::publish()` tick that had data for that module. Payload:
 
@@ -207,7 +207,7 @@ are the flattened `DiagnosticsData` keys (`/`-joined nested keys, `/N` array ind
 values are typed: JSON integers for `int`, JSON numbers for `double` (NaN and infinities become
 `null`), JSON strings for `std::string`. Nothing is stringified.
 
-Foxglove plot path example: `/diagnostics/pursuit_nav.pursuit_nav.values.heading_error`.
+Foxglove plot path example: `/diagnostics/motion_profile_nav.profile.values.angle_error_deg`.
 
 ## `/robot/esp32_diagnostics` (JSON)
 

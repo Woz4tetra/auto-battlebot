@@ -56,7 +56,7 @@ Loaded with `from` (`config_extends.md`). Each holds one fact used by more than 
 | `transmitters/playback.toml` | `playback/_playback`, `playback/_video_playback` |
 | `navigation/mr_stabs_mk2_rl.toml` | `mr_stabs_mk2_aer_zed_box`, `mr_stabs_mk2_fid_zed_box` |
 | `navigation/mrs_buff_mk3_rl.toml` | `mrs_buff_mk3_zed_box`, `mrs_buff_mk3_aer_zed_box` |
-| `navigation/motion_profile.toml` | `_common`, `simulation/mr_stabs_mk2_motion_profile_sim`, `playground/rl/lockstep_eval.py` |
+| `navigation/motion_profile.toml` | `_common`, `playground/rl/lockstep_eval.py` |
 | `field_filters/fiducial_1p5m.toml` | `mr_stabs_mk2_fid_zed_box`, `mr_stabs_mk2_sysid_zed_box` |
 | `keypoint_models/mr_stabs_mk2_apriltag.toml` | `mr_stabs_mk2_sysid_zed_box`, `playback/mr_stabs_mk2_sysid_playback` |
 
@@ -211,8 +211,8 @@ live-vs-replay tag comparison shows the 15 Mbps default loses nothing.
   recording names. Set it to re-rectify old footage against a revised calibration.
 - `playback/mrs_buff_mk3_playback`: hazard files for the venues are
   `config/hazards/massd_arena_north_south.toml` and `config/hazards/aer_arena_east_west.toml`.
-- `playback/mr_stabs_mk2_playback`: pursuit and dead reckoning, matching the hardware profiles that
-  predate the Mr Stabs plant fit.
+- `playback/mr_stabs_mk2_playback`: `MotionProfileNavigation` from `_common` and dead reckoning, on
+  the distilled Mr Stabs plant.
 - `playback/brettzone_cage_high`: NHRL's fixed `Cage-N-Overhead-High` footage, re-wrapped by
   `scripts/nhrl_to_recordings.py`, which writes the file on the set's first clip; `MANIFEST.md` in
   the set's `data/saved_recordings/` directory lists the rest. The generator also sets
@@ -243,7 +243,7 @@ All pair with a sim-side config under `simulation/` and run through `./scripts/r
   poses are not thread safe, and stepping makes a run reproducible. 250 Hz keeps the threaded loop's
   cycle rate, in sim time.
 - `kinematic_sim`: headless control tuning with `simulation/kinematic_sim_server.py`. Perception is
-  bypassed and ground-truth poses come from the sim, so `PursuitNavigation` runs unchanged.
+  bypassed and ground-truth poses come from the sim, so `MotionProfileNavigation` runs unchanged.
   `GroundTruthRobotFilter` maps poses by order (GT[0] is OUR_ROBOT_1, the rest are theirs). Actuation
   latency is modelled in sim ticks by the server, so `SimTransmitter.command_delay_ms` stays 0 (it
   is wall-clock based and would not survive accelerated runs). `max_loop_rate_hz = 0` free-runs, paced
@@ -260,13 +260,12 @@ All pair with a sim-side config under `simulation/` and run through `./scripts/r
   `[[opponents]]` in order. The Mk2 file sets the sim opponent's footprint, which a detector box
   would report; without it the filter sizes the opponent from keypoint spacing (about 0.1 m).
   `playground/rl/lockstep_eval.py` extends these per scenario.
-- `mr_stabs_mk2_motion_profile_sim`: Mr Stabs on `MotionProfileNavigation` against the MuJoCo
+- `mr_stabs_mk2_kinematic_sim`: Mr Stabs on `MotionProfileNavigation` against the MuJoCo
   plant, to check a `[plant]` table distilled from the MuJoCo fit
   (`playground/calibration/distill_mujoco_plant.py`). `playground/calibration/sim_stop_test.py`
   drives it headless, one run per goal.
-- `mrs_buff_mk3_kinematic_sim`: `MotionProfileNavigation`, which Mrs Buff ships with. Only that
-  controller runs the hazard tangent and goal-legality layers; on pursuit the robot drives into a
-  hole and backs off only once it is on the lip.
+- `mrs_buff_mk3_kinematic_sim`: `MotionProfileNavigation`, which Mrs Buff ships with. It runs the hazard
+  tangent and goal-legality layers.
 - `mr_stabs_mk2_rl_sim`, `mrs_buff_mk3_rl_sim`: `RlPolicyNavigation`. Swap the bundle for any export
   under `data/models/nav_policies/` (`playground/rl/export_checkpoint.py`). The Mk3 bundle is queue
   job 64's 07:17 checkpoint (`rl_nav_mk3_c_margin2`, weapon off). With the hazard barrier on and its

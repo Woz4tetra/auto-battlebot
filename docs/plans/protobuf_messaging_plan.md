@@ -1397,7 +1397,7 @@ rate for that reason.
 | F2 | 5 | `pb_encode` of a full Telemetry on the ESP32-S3 takes under 100 us, measured with `esp_timer` over 10,000 frames |
 | F3 | 5 | Over a 5-minute bench session, `round_trip_us` p50 and p99 are within 0.2 ms of the baseline taken from the current firmware in Phase 5 step 1. With an old robot and a new host, and with an old dongle and a new host, the host reports the mismatch within 1 s |
 | F4 | 5 | `sizeof(auto_battlebot_msg_link_Telemetry)` is recorded in the Ring memory table. Free PSRAM after the ring allocation is at least what it is today, with `TELEMETRY_RING_PSRAM_RECORDS` cut to match |
-| S1 | 6 | The lockstep smoke test (Mr Stabs Mk2, pursuit, 450 ticks, `config/simulation/mr_stabs_mk2_kinematic_sim_sensing.toml`) gives the same result as before: the same tick count to first command and the same final distance. Its wall-clock tick rate is within 5% of a baseline taken the same day |
+| S1 | 6 | The lockstep smoke test (Mr Stabs Mk2, MotionProfile, 450 ticks, `config/simulation/mr_stabs_mk2_kinematic_sim_sensing.toml`) gives the same result as before: the same tick count to first command and the same final distance. Its wall-clock tick rate is within 5% of a baseline taken the same day |
 
 ## Tests
 

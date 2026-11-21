@@ -31,68 +31,6 @@ struct NoopNavigationConfiguration : public NavigationConfiguration {
     PARSE_CONFIG_FIELDS()
 };
 
-struct PursuitNavigationConfiguration : public NavigationConfiguration {
-    double stop_distance_m = 0.0;
-    double velocity_ramp_far_distance = 2.5;
-    double velocity_ramp_near_distance = 1.0;
-    double velocity_ramp_min_scale = 0.5;
-    double brake_distance = 0.0;
-    std::optional<double> wall_reverse_distance_m;
-    double wall_reverse_min_speed = 1.0;
-    double wall_heading_threshold_rad = M_PI / 3.0;
-    double angular_kp = 3.0;
-    double angular_kd = 0.0;
-    double angle_threshold = 0.5;
-    double lookahead_time = 0.1;
-    double boundary_margin = 0.1;
-    bool enable_hysteresis = true;
-    std::optional<double> max_linear_command;
-    std::optional<double> max_angular_command;
-    bool hazard_tangent_enable = true;
-    int hazard_tangent_max_iterations = 3;
-    double hazard_waypoint_clearance_m = 0.06;
-    double hazard_side_release_m = 0.05;
-    double hazard_prediction_horizon_s = 0.25;
-
-    double hazard_reverse_distance = 0.12;
-    double hazard_heading_threshold = 1.047;
-    double hazard_reverse_min_speed = 0.35;
-
-    PursuitNavigationConfiguration() { type = "PursuitNavigation"; }
-
-    // clang-format off
-    PARSE_CONFIG_FIELDS(
-        PARSE_RENAMED(stop_distance, stop_distance_m)
-        PARSE_FIELD_DOUBLE(stop_distance_m)
-        PARSE_FIELD_DOUBLE(velocity_ramp_far_distance)
-        PARSE_FIELD_DOUBLE(velocity_ramp_near_distance)
-        PARSE_FIELD_DOUBLE(velocity_ramp_min_scale)
-        PARSE_FIELD_DOUBLE(brake_distance)
-        PARSE_RENAMED(wall_reverse_distance, wall_reverse_distance_m)
-        PARSE_FIELD_NULLABLE_DOUBLE(wall_reverse_distance_m)
-        PARSE_FIELD_DOUBLE(wall_reverse_min_speed)
-        PARSE_RENAMED(wall_heading_threshold, wall_heading_threshold_rad)
-        PARSE_FIELD_DOUBLE(wall_heading_threshold_rad)
-        PARSE_FIELD_DOUBLE(angular_kp)
-        PARSE_FIELD_DOUBLE(angular_kd)
-        PARSE_FIELD_DOUBLE(angle_threshold)
-        PARSE_FIELD_DOUBLE(lookahead_time)
-        PARSE_FIELD_DOUBLE(boundary_margin)
-        PARSE_FIELD_BOOL(enable_hysteresis)
-        PARSE_FIELD_NULLABLE_DOUBLE(max_linear_command)
-        PARSE_FIELD_NULLABLE_DOUBLE(max_angular_command)
-        PARSE_FIELD_BOOL(hazard_tangent_enable)
-        PARSE_FIELD(hazard_tangent_max_iterations)
-        PARSE_FIELD_DOUBLE(hazard_waypoint_clearance_m)
-        PARSE_FIELD_DOUBLE(hazard_side_release_m)
-        PARSE_FIELD_DOUBLE(hazard_prediction_horizon_s)
-        PARSE_FIELD_DOUBLE(hazard_reverse_distance)
-        PARSE_FIELD_DOUBLE(hazard_heading_threshold)
-        PARSE_FIELD_DOUBLE(hazard_reverse_min_speed)
-    )
-    // clang-format on
-};
-
 struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
     JigPlantParams plant;
     double deadzone = 0.0;

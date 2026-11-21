@@ -6,13 +6,11 @@
 #include "config/config_parser.hpp"
 #include "navigation/motion_profile_navigation.hpp"
 #include "navigation/noop_navigation.hpp"
-#include "navigation/pursuit_navigation.hpp"
 #include "navigation/rl_policy_navigation.hpp"
 #include "robot_filter/config.hpp"
 
 namespace auto_battlebot {
 REGISTER_CONFIG(NavigationConfiguration, NoopNavigationConfiguration, "NoopNavigation")
-REGISTER_CONFIG(NavigationConfiguration, PursuitNavigationConfiguration, "PursuitNavigation")
 REGISTER_CONFIG(NavigationConfiguration, MotionProfileNavigationConfiguration,
                 "MotionProfileNavigation")
 REGISTER_CONFIG(NavigationConfiguration, RlPolicyNavigationConfiguration, "RlPolicyNavigation")
@@ -54,10 +52,6 @@ std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfigurati
     spdlog::info("Selected {} for Navigation", config.type);
     if (config.type == "NoopNavigation") {
         return std::make_shared<NoopNavigation>();
-    }
-    if (config.type == "PursuitNavigation") {
-        const auto &pursuit_config = dynamic_cast<const PursuitNavigationConfiguration &>(config);
-        return std::make_shared<PursuitNavigation>(pursuit_config, std::move(clock));
     }
     if (config.type == "MotionProfileNavigation") {
         const auto &mp_config = dynamic_cast<const MotionProfileNavigationConfiguration &>(config);

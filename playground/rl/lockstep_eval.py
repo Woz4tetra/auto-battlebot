@@ -107,7 +107,7 @@ OPPONENT = [{size[0]:.4f}, {size[1]:.4f}, {size[2]:.4f}]
             + ("hazard_barrier_enable = true\n" if barrier else "")
             + f'\n[navigation.policy]\nbundle = "{bundle.resolve()}"\n'
         )
-    elif nav != "pursuit":
+    else:
         raise ValueError(nav)
     path = workdir / "overlay.toml"
     path.write_text(text)
@@ -248,7 +248,7 @@ def main() -> None:
     e.add_argument("--robot", default="mr_stabs_mk2", choices=list(BASE_CONFIG))
     r = sub.add_parser("run")
     r.add_argument("scenarios", type=Path)
-    r.add_argument("--nav", choices=["motion_profile", "rl", "pursuit"], required=True)
+    r.add_argument("--nav", choices=["motion_profile", "rl"], required=True)
     r.add_argument("--bundle", type=Path, default=None)
     r.add_argument("--out", type=Path, default=None)
     r.add_argument("--workers", type=int, default=6)

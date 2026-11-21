@@ -22,7 +22,7 @@ Half the diagonal of a footprint is the radius of the smallest disc containing i
 
 A `FieldHazard` is a disc in the field frame regardless of the real shape. Every consumer reduces to a distance-to-centre test, and `EmptyCircleSolver` is already built on point sites plus a radius. Cover an awkward shape with two or three overlapping discs rather than teaching the consumers a second geometry.
 
-## Layers shared by PursuitNavigation and MotionProfileNavigation
+## Layers in MotionProfileNavigation
 
 Two aim layers and one speed rule.
 
@@ -40,10 +40,6 @@ Two aim layers and one speed rule.
 - Pass a `radius` a little larger than the keep-out so the waypoint leaves real clearance. Aiming at the keep-out rim itself means arriving with zero clearance and grinding along the edge.
 - It picks the side that costs less heading change from `heading`, so the robot does not cut back across the hazard it committed to rounding. `committed_side` latches that choice: pass the previous return's side back in (+1 or -1) to keep it, or 0 to choose freshly.
 - Inside the circle there is no tangent, so the waypoint points straight out along the radius. That is the only useful direction there, and the reverse backstop covers the rest.
-
-## Pursuit wiring
-
-Only the last-ditch reverse is wired into `PursuitNavigation`. The velocity barrier is stated in m/s against the plant fit, and pursuit closes its loops in normalized command against an unfitted plant, so there is no honest envelope to enforce there. The barrier lives in `MotionProfileNavigation`. The tangent fields ride along in the shared settings struct but pursuit does not call `steer_around`.
 
 ## Reverse backstop
 

@@ -176,8 +176,6 @@ Nothing in C++ defaults to a fit, so a test that default-constructs a config get
 
 ## Next steps
 
-- Field-test `MotionProfileNavigation` against `PursuitNavigation` on hardware; the deltas
-  so far are from sim (`docs/experiments/control/stage4_sim_report.md`).
 - Pass the plant fit's acceptance criteria so production configs can move our robot off
   dead reckoning onto the EKF arm.
 
@@ -242,7 +240,7 @@ A mission reset clears the trajectory and integrator state that only makes sense
 
 - The measured drivetrain is stamped in by `apply_plant` from the shared top-level `[plant]` table rather than parsed from `[navigation]`. The controller inverts the same fit the our-robot EKF propagates, so both read one table. `k_fwd` / `k_rev` are the divisors mapping a reference speed back to a normalized command, `tau_lin_a` feedforwards dv/dt against spin-up lag, `tau_lin_d` and `delay_s` set the brake horizon, `c_sb` is the steer-brake loss the controller divides back out, and `dz_ang_l` / `dz_ang_r` turn a commanded turn into the effective turn the coupling terms are defined against.
 - `steer_brake_floor`: floor on the steer-brake authority multiplier. 1/c_sb = 0.370 is where the fitted linear loss reaches zero and where the fit's own residuals say the shape stops describing the plant, so the compensation saturates there instead of extrapolating into a singularity.
-- Angular control is closed in rad/s, the same shape as the linear channel. `PursuitNavigation`'s angular gains are NOT interchangeable: there they are normalized command per radian, here they are rad/s per radian, a factor of `k_ang` apart.
+- Angular control is closed in rad/s, the same shape as the linear channel. Gains are rad/s per radian, not normalized command per radian.
 - Droop compensation (fit c_ad = 0.463): the plant multiplies yaw authority by (1 - c_ad * |u_lin_eff|), so the heading loop is weaker at speed than in place. It defaults OFF even though the coefficient is measured, because compensating it makes the controller worse. On the 90-degree turning approach, enabling it takes terminal error from 0.008 m to 0.067 m and time-to-goal from 1.10 s to 2.83 s. Compensating buys faster heading convergence by commanding a harder turn, and a harder turn is exactly what the steer-brake term charges forward speed for. The heading loop is closed-loop already and gets there without the help; the forward speed it spends is not refunded.
 - Floor on the droop multiplier: c_ad = 0.463 never reaches zero, so the floor is a guard against a refit pushing the coefficient past 1, not a shape limit like `steer_brake_floor`.
 

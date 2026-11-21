@@ -1,4 +1,4 @@
-"""`pursuit`: `PursuitNavigation`'s control law as a policy."""
+"""`pursuit`: a scripted PD heading-pursuit policy."""
 
 from __future__ import annotations
 

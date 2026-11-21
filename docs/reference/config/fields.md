@@ -45,34 +45,7 @@ carries no arm authority (`firmware/mr_stabs_mk2/README.md`).
 
 ## `[navigation]`
 
-`type` selects the implementation. `PursuitNavigation`, `MotionProfileNavigation` and `RlPolicyNavigation` share the hazard fields, listed once under the first type that has them.
-
-### `PursuitNavigation`
-
-| Field | Meaning |
-| --- | --- |
-| `velocity_ramp_far_distance` | Distance (m) at and beyond which speed is `velocity_ramp_min_scale` times max |
-| `velocity_ramp_near_distance` | Distance (m) at and below which speed is max |
-| `velocity_ramp_min_scale` | Speed scale at distances >= far distance, 0..1 as a fraction of max |
-| `brake_distance` | Coast-aware brake. Within this distance (m) of the target the commanded speed ramps linearly to zero, so the robot decelerates into the goal instead of coasting past it. Should cover the stopping lead (latency travel + coast distance). 0 disables (ram behavior: full speed into contact) |
-| `wall_reverse_distance_m` | Distance from any field wall at which `linear_x` is reversed to back away. Unset turns the reverse off |
-| `wall_reverse_min_speed` | Minimum speed (m/s) when wall reverse engages and no forward drive was commanded. Gives a real reversal when the robot was stationary or turning in place |
-| `wall_heading_threshold_rad` | Heading must be within this angle of the nearest wall normal to trigger reversal |
-| `angular_kp` | Proportional gain for angular control |
-| `angular_kd` | Derivative gain for angular control. 0 is P-only |
-| `angle_threshold` | Angle (rad) below which the robot drives forward |
-| `lookahead_time` | Lookahead for target position prediction, seconds |
-| `boundary_margin` | Minimum distance to keep from field boundaries, meters |
-| `enable_hysteresis` | Turn-direction hysteresis, prevents dithering when the target is behind |
-| `max_linear_command` | Cap on the magnitude of the normalized forward (`linear_x`) command, 0..1 as a fraction of full drive. The plant or transmitter scales it by max linear speed. Unset is no limit |
-| `max_angular_command` | Cap on the magnitude of the normalized turn (`angular_z`) command, 0..1 as a fraction of full turn. Unset is no limit |
-| `hazard_tangent_enable` | Steer at a tangent point on a blocking hazard's rim instead of at the true goal. Both controllers only chase a `Pose2D`, so this costs nothing in navigation |
-| `hazard_tangent_max_iterations` | Times to re-test the substituted waypoint against the remaining hazards. A greedy one-hazard-at-a-time step, not a planner. When it does not converge, the speed cap and the reverse backstop cover it |
-| `hazard_waypoint_clearance_m` | Clearance the tangent waypoint leaves beyond the keep-out radius. Aiming exactly at the rim arrives with zero clearance and grinds along the edge; the extra makes the run from the waypoint to the goal unblocked, so the true goal returns instead of the robot orbiting |
-| `hazard_side_release_m` | Release the latched pass side once the direct run to the goal clears the hazard by this much. Without the latch the robot re-picks a side every tick and cuts back across the hazard |
-| `hazard_prediction_horizon_s` | Advance a tracked hazard along its filtered velocity by this long before testing it. For a house bot moving across our path: reacting to where it is aims at where it was |
-| `hazard_heading_threshold` | Heading must point within this angle (rad) of the hazard for the reverse to trigger |
-| `hazard_reverse_min_speed` | Reverse speed floor while the hazard backstop is active, normalized command |
+`type` selects the implementation. `MotionProfileNavigation` and `RlPolicyNavigation` share the hazard fields, listed once under `MotionProfileNavigation`.
 
 ### `MotionProfileNavigation`
 
@@ -97,7 +70,11 @@ Requires the top-level `[plant]` table. See `docs/reference/control/plant_backed
 | `max_linear_command` | Cap on the magnitude of the normalized forward command, 0..1. Unset is no limit |
 | `wall_reverse_distance_m` | Distance to any wall at which `linear_x` is reversed to back away. Unset turns it off |
 | `wall_reverse_min_speed` | Minimum reverse speed (normalized) when wall reverse engages |
-| `hazard_tangent_enable`, `hazard_tangent_max_iterations`, `hazard_waypoint_clearance_m`, `hazard_side_release_m`, `hazard_prediction_horizon_s` | Same as `PursuitNavigation` |
+| `hazard_tangent_enable` | Steer at a tangent point on a blocking hazard's rim instead of at the true goal. The controller only chases a `Pose2D`, so this costs nothing in navigation |
+| `hazard_tangent_max_iterations` | Times to re-test the substituted waypoint against the remaining hazards. A greedy one-hazard-at-a-time step, not a planner. When it does not converge, the speed cap and the reverse backstop cover it |
+| `hazard_waypoint_clearance_m` | Clearance the tangent waypoint leaves beyond the keep-out radius. Aiming exactly at the rim arrives with zero clearance and grinds along the edge; the extra makes the run from the waypoint to the goal unblocked, so the true goal returns instead of the robot orbiting |
+| `hazard_side_release_m` | Release the latched pass side once the direct run to the goal clears the hazard by this much. Without the latch the robot re-picks a side every tick and cuts back across the hazard |
+| `hazard_prediction_horizon_s` | Advance a tracked hazard along its filtered velocity by this long before testing it. For a house bot moving across our path: reacting to where it is aims at where it was |
 | `hazard_barrier_enable` | Velocity barrier. On unless a baseline sweep is measuring the failure mode. The bound is derived entirely from the plant fit (gap to the hard radius over `tau_lin_d + delay_s`), so nothing else is tunable |
 
 ### `RlPolicyNavigation`

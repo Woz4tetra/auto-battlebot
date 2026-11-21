@@ -229,8 +229,8 @@ Run a session with `rl_nav_p4` and the fixes above. Score it with the existing
 `rl_nav_p4` field baseline that phase 5 must beat.
 
 The same session also runs two **calibration controllers**, interleaved with `rl_nav_p4`:
-`rl_nav_d_v2_8k` and one classical navigation (MotionProfile, or pursuit if that is the one with
-a working Mk2 field profile), each on the command chain it was built for. They are not
+`rl_nav_d_v2_8k` and one classical navigation (MotionProfile), each on the command chain it was
+built for. They are not
 candidates. Phase 4 needs at least three controllers with both a sim score and a field score to
 check that the sim ranks them the way the field does; two points cannot show that.
 

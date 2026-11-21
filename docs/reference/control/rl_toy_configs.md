@@ -7,5 +7,5 @@
 | `ppo_static.toml` | Questions 1 and 2: PPO on true state, 4096 worlds, 1200 s budget. |
 | `ppo_static_sensing.toml` | Question 3: PPO with `sensing = true`, which turns on `MeasurementModel`, `OurEkfErrorModel` and the opponent filter mirror, parameterized by `simulation/sensing_models/provisional_rl.toml`. 2400 s budget. |
 | `fasttd3_static.toml` | Question 4: FastTD3 on true state, same scenarios and budget as `ppo_static.toml`. |
-| `pursuit_static.toml` | Scripted baseline: `PursuitNavigation`'s law with the Mr Stabs Mk2 profile gains (max linear command 0.25). |
+| `pursuit_static.toml` | Scripted baseline: the `pursuit` policy with the Mr Stabs Mk2 bench gains (max linear command 0.25). |
 | `pursuit_fast_static.toml` | Scripted baseline at full speed: the same law with `max_linear_command = 1.0`. |

@@ -33,7 +33,7 @@ def test_nav_hw_ids_cover_every_registered_navigation_logger() -> None:
             continue
         logged.update(re.findall(r'get_logger\("([a-z_]+)"\)', text))
     assert logged, "no navigation logger found"
-    assert logged == set(diag_io.NAV_HW_IDS)
+    assert logged == set(diag_io.NAV_HW_IDS - diag_io.RECORDING_ONLY_NAV_HW_IDS)
 
 
 def test_frame_ids_match_frame_id_enum_header() -> None:
