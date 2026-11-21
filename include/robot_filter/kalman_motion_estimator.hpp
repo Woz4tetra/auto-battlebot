@@ -65,7 +65,6 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
         double state_stamp = 0.0;
         double last_measured_stamp = 0.0;
         int consecutive_rejects = 0;
-        bool output_stale = false;
         RobotDescription output_template;
         std::array<Snapshot, kSnapshotCapacity> snapshots{};
         size_t snapshot_start = 0;
@@ -78,7 +77,6 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
         double stamp = 0.0;
         double last_measured_stamp = 0.0;
         int consecutive_rejects = 0;
-        bool output_stale = false;
         RobotDescription output_template;
         double speed_ref_x = 0.0;
         double speed_ref_y = 0.0;
@@ -92,7 +90,7 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     void init_our_ekf(OurEkfTrack &track, const RobotDescription &measurement, double stamp,
                       double position_variance);
     RobotDescription render_our_ekf(const OurEkfTrack &track, const PlantState &state,
-                                    bool stale) const;
+                                    bool moving) const;
     void push_snapshot(OpponentTrack &track);
     bool rewind_opponent(OpponentTrack &track, double target_stamp);
     void init_opponent(OpponentTrack &track, const RobotDescription &measurement, double stamp,
@@ -101,7 +99,9 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     ekf::Mat<2, 2> measurement_noise_for(const RobotDescription &measurement,
                                          const MotionEstimatorContext &context) const;
     RobotDescription render_opponent(const OpponentTrack &track, const FieldDescription &field,
-                                     bool stale) const;
+                                     bool moving) const;
+    bool is_moving(double render_stamp, double last_measured_stamp) const;
+    int expire_tracks(FrameIdAssigner &frame_id_assigner);
 
     KalmanMotionEstimatorConfiguration config_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;

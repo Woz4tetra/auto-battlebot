@@ -11,7 +11,6 @@
 #include "enums/behavior_mode.hpp"
 #include "hazards/hazard_assembler.hpp"
 #include "navigation/navigation_interface.hpp"
-#include "robot_descriptions_cache.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "target_selector/target_selector_interface.hpp"
 #include "time/clock_interface.hpp"
@@ -28,8 +27,6 @@ struct ControlMeasurement {
 struct ControlOutput {
     bool valid = false;
     RobotDescriptionsStamped robots;
-    RobotDescriptionsStamped cached_robots;
-    bool using_previous = false;
     TargetSelection target;
     VelocityCommand command;
     CommandFeedback command_feedback;
@@ -45,7 +42,7 @@ class ControlLoop {
                 std::shared_ptr<NavigationInterface> navigation,
                 std::shared_ptr<TransmitterInterface> transmitter,
                 std::shared_ptr<ClockInterface> clock,
-                std::shared_ptr<HazardAssembler> hazard_assembler, double robot_cache_max_age_s);
+                std::shared_ptr<HazardAssembler> hazard_assembler);
 
     bool initialize();
 
@@ -79,7 +76,6 @@ class ControlLoop {
     std::shared_ptr<HazardAssembler> hazard_assembler_;
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
-    RobotDescriptionsCache robot_descriptions_cache_;
     TargetSelection previous_selected_target_{};
     CommandFeedback command_feedback_{};
     std::optional<FieldDescription> field_description_;

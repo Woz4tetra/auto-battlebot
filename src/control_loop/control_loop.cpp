@@ -16,16 +16,14 @@ ControlLoop::ControlLoop(std::shared_ptr<RobotFilterInterface> robot_filter,
                          std::shared_ptr<NavigationInterface> navigation,
                          std::shared_ptr<TransmitterInterface> transmitter,
                          std::shared_ptr<ClockInterface> clock,
-                         std::shared_ptr<HazardAssembler> hazard_assembler,
-                         double robot_cache_max_age_s)
+                         std::shared_ptr<HazardAssembler> hazard_assembler)
     : robot_filter_(std::move(robot_filter)),
       target_selector_(std::move(target_selector)),
       navigation_(std::move(navigation)),
       transmitter_(std::move(transmitter)),
       clock_(std::move(clock)),
       hazard_assembler_(std::move(hazard_assembler)),
-      diagnostics_logger_(DiagnosticsLogger::get_logger("runner")),
-      robot_descriptions_cache_(robot_cache_max_age_s) {}
+      diagnostics_logger_(DiagnosticsLogger::get_logger("runner")) {}
 
 bool ControlLoop::initialize() {
     if (!transmitter_->initialize()) {
@@ -98,7 +96,6 @@ void ControlLoop::apply_requests_from_other_threads() {
     if (reinit > 0) {
         robot_filter_->initialize(reinit);
         navigation_->initialize();
-        robot_descriptions_cache_.reset();
         previous_selected_target_ = TargetSelection{};
     }
     const int autonomy = autonomy_enabled_.load() ? 1 : 0;
@@ -146,46 +143,34 @@ void ControlLoop::run_cycle() {
     }
 
     const auto log_raw_detection_counts = [&]() {
-        int their_total = 0;
         int their_live = 0;
         int our_live = 0;
         for (const auto &robot : robots.descriptions) {
-            if (robot.group == Group::THEIRS) {
-                ++their_total;
-                if (!robot.is_stale) ++their_live;
-            }
-            if (robot.frame_id == FrameId::OUR_ROBOT_1 && !robot.is_stale) {
-                our_live = 1;
-            }
+            if (robot.group == Group::THEIRS) ++their_live;
+            if (robot.frame_id == FrameId::OUR_ROBOT_1) our_live = 1;
         }
-        diagnostics_logger_->debug("perception", {{"their_count_total", their_total},
-                                                  {"their_count_live", their_live},
-                                                  {"our_present_live", our_live}});
+        diagnostics_logger_->debug(
+            "perception", {{"their_count_live", their_live}, {"our_present_live", our_live}});
     };
     if (measurement) log_raw_detection_counts();
 
-    auto cached_robots = robot_descriptions_cache_.resolve(robots);
     const BehaviorMode behavior_mode = behavior_mode_.load();
     diagnostics_logger_->debug(
-        "navigation", {{"using_previous_robots", static_cast<int>(cached_robots.using_previous)},
-                       {"behavior_mode", std::string(magic_enum::enum_name(behavior_mode))}});
+        "navigation", {{"behavior_mode", std::string(magic_enum::enum_name(behavior_mode))}});
 
     if (hazard_assembler_) {
-        hazard_assembler_->assemble(cached_robots.robots, *field_description_);
+        hazard_assembler_->assemble(robots, *field_description_);
     }
 
     TargetSelection resolved_target =
-        resolve_target(cached_robots.robots, *field_description_, behavior_mode, target_override);
-    VelocityCommand command =
-        navigation_->update(cached_robots.robots, *field_description_, resolved_target);
+        resolve_target(robots, *field_description_, behavior_mode, target_override);
+    VelocityCommand command = navigation_->update(robots, *field_description_, resolved_target);
     transmitter_->send(command);
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
         output_.valid = true;
         output_.robots = robots;
-        output_.cached_robots = cached_robots.robots;
-        output_.using_previous = cached_robots.using_previous;
         output_.target = resolved_target;
         output_.command = command;
         output_.command_feedback = command_feedback_;

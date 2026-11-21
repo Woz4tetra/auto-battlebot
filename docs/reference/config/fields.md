@@ -83,7 +83,6 @@ Requires a `[navigation.policy]` table naming the model bundle. Refuses to start
 
 | Field | Meaning |
 | --- | --- |
-| `max_our_unmeasured_s` | Seconds without a measurement of our robot before the policy commands zero. Above the filter's 0.1 s stale age, so one or two dropped frames do not interrupt the policy |
 | `hazard_prediction_horizon_s` | Seconds ahead to advance a tracked hazard along its velocity, as in `MotionProfileNavigation` |
 
 #### `[navigation.policy]`
@@ -150,7 +149,6 @@ Board geometry defaults match the manufactured board.
 | `max_jump_distance` | Measurements that land further than this (m) from the track's last known position are rejected |
 | `max_consecutive_jump_rejects` | After this many consecutive rejected frames the measurement is accepted anyway, which resets the track |
 | `field_bounds_margin_meters` | Margin (m) added to the field half extents before a measurement is rejected as out of bounds |
-| `our_robot_hold_window_s` | How long an unmeasured our-robot track is held before it is dropped from the output. Without it a stale "ours" detection is predicted forward indefinitely. 0 or below disables the decay and holds forever |
 | `[robot_filter.motion_estimator]` | Propagation strategy behind the association front-end. Absent selects dead reckoning |
 | `robot_size_meters_per_label` | Known footprint per label as `[x, y, z]` in metres, replacing the detector's box. The box measures pixels, not the robot, and a loose one on the house bot inflates every keep-out built from it. Labels absent here keep the measured box, which is logged to the `detected_size` channel so a detector regression stays visible |
 | `footprint_center_offset_per_label` | `RobotDescription::footprint_center_offset` per label as `[x, y]` in metres in the body frame. Labels absent here have their footprint centred on the pose |
@@ -177,9 +175,8 @@ Board geometry defaults match the manufactured board.
 | `reinit_after_rejects` | Consecutive gated-out measurements on one track before the track resets to the next accepted measurement |
 | `initial_velocity_sigma` | Sigma (m/s) on each velocity axis when a track initializes from its first measurement |
 | `covariance_floor` | Floor on the diagonal of P so the covariance cannot collapse and lock out measurements |
-| `max_coast_s` | Our-robot EKF pose integration stops once the unmeasured age crosses this. Covariance keeps growing over the whole step either way |
-| `opponent_max_coast_s` | Same cutoff for opponent tracks |
-| `coast_stale_age_s` | `coast()` flags a track `is_stale` once it has gone unmeasured this long, even though `correct()` never ran to say so. 0.1 is three 30 Hz frame periods, so between-frame coasting stays fresh and a real perception dropout reads stale |
+| `max_coast_s` | A track's mean stops moving once its unmeasured age crosses this, ours and opponents alike, and the track then reports zero velocity and yaw rate. Covariance keeps growing either way |
+| `max_position_sigma_m` | A track whose position sigma (major axis) passes this is erased, ours or an opponent's, and its association position is cleared. This is the only rule that drops a track. 1.0 m holds opponents about 0.47 s into a dropout, past the p90 gap, and a driving robot of ours about 1.2 s |
 | `clock_gap_warn_period_s` | Throttle on the clock-gap warning, which would otherwise fire every tick once tripped |
 | `speed_measurement_max_dt_s` | Baseline age past which the held reference pose is dropped rather than differenced. A gap this long means dropped detections, and the robot's path between the two poses is no longer a straight line worth differentiating |
 | `speed_gate_nis` | Chi-square gate for the forward-speed update alone, deliberately looser than `gate_nis`. That gate protects a pose the track cannot recover without. This one guards a state whose fallback is the plant model's own guess, which the innovations say is worse than a noisy measurement. Sized to pass the innovations the current process noise makes look impossible |
@@ -261,7 +258,6 @@ An absent `[control_loop]` section selects `SteppedControlLoop` with `rate_hz = 
 | `rate_hz` | Cycles per second. 0 on `SteppedControlLoop` (its default) means one cycle per perception frame |
 | `max_catchup_cycles` | `SteppedControlLoop` only: most cycles one `advance_to` runs after a stall. Every cycle in the backlog sees the same measurement, so replaying more only burns time |
 | `watchdog_timeout_ms` | `ThreadedControlLoop` only: a cycle older than this marks the loop unhealthy |
-| `robot_cache_max_age_s` | Longest gap `RobotDescriptionsCache` fills with the last robot set that had both our robot and an opponent. Past it navigation sees the robots as they are and runs its no-robot path |
 
 ## `[plant]`
 

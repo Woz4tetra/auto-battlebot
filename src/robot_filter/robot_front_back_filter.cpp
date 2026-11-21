@@ -64,7 +64,6 @@ RobotFrontBackFilter::RobotFrontBackFilter(const RobotFrontBackFilterConfigurati
       size_overrides_(config.robot_size_meters_per_label),
       footprint_center_offsets_(config.footprint_center_offset_per_label),
       field_bounds_margin_meters_(config.field_bounds_margin_meters),
-      our_robot_hold_window_s_(config.our_robot_hold_window_s),
       frame_id_assigner_(config.max_jump_distance, config.max_consecutive_jump_rejects),
       motion_estimator_(make_motion_estimator(*config.motion_estimator)) {
     FrontBackKeypointConverterConfig converter_config;
@@ -125,7 +124,6 @@ void RobotFrontBackFilter::correct(ModelResultStamped keypoints, FieldDescriptio
     estimator_context.tf_fieldcenter_from_camera = tf_fieldcenter_from_camera;
     estimator_context.camera_info = camera_info;
     estimator_context.field_bounds_margin_meters = field_bounds_margin_meters_;
-    estimator_context.our_robot_hold_window_s = our_robot_hold_window_s_;
     result.descriptions =
         motion_estimator_->update(std::move(all_measurements), result.header.stamp,
                                   frame_id_assigner_, field, estimator_context);
@@ -258,7 +256,6 @@ std::vector<MeasurementWithConfidence> RobotFrontBackFilter::build_valid_measure
                               {vector_to_position(front_keypoint_in_field),
                                vector_to_position(back_keypoint_in_field)},
                               Velocity2D{},
-                              false,
                               PoseUncertainty{}};
         valid_measurements.push_back({confidence, std::move(desc)});
     }

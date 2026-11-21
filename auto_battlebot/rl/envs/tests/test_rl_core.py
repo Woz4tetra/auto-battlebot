@@ -786,28 +786,6 @@ def test_policy_opponent_input_is_perspective_swapped() -> None:
     assert torch.equal(inp.opp_yaw, tr["yaw"])
 
 
-def test_toy_sensing_output_stays_stale_without_a_frame() -> None:
-    import dataclasses
-
-    from auto_battlebot.rl.envs.toy import ToyConfig, ToyEnv
-
-    env = ToyEnv(ToyConfig(worlds=64, sensing=True), "cpu", seed=4)
-    env.reset(4)
-    for _ in range(40):
-        env.step(torch.tensor([[0.3, 0.2]]).expand(64, 2))
-    step = env.measure.step
-
-    def never_delivered(*args: object, **kwargs: object) -> object:
-        out = step(*args, **kwargs)
-        return dataclasses.replace(out, delivered=torch.zeros_like(out.delivered))
-
-    env.measure.step = never_delivered  # type: ignore[method-assign]
-    for stale in (True, False):
-        env.opp_filter.output_stale = torch.full_like(env.opp_filter.output_stale, stale)
-        env._measure()
-        assert bool((env.opp_filter.output_stale == stale).all())
-
-
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
 def test_warp_command_chain_signs_match_the_app() -> None:
     from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv

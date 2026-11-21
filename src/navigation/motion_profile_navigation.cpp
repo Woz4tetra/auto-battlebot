@@ -272,9 +272,8 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     return cmd;
 }
 
-std::optional<double> MotionProfileNavigation::measure_forward_speed(const RobotDescription &robot,
-                                                                     const Pose2D &our_pose) const {
-    if (robot.is_stale) return std::nullopt;
+double MotionProfileNavigation::measure_forward_speed(const RobotDescription &robot,
+                                                      const Pose2D &our_pose) const {
     return robot.velocity.vx_mps * std::cos(our_pose.yaw) +
            robot.velocity.vy_mps * std::sin(our_pose.yaw);
 }

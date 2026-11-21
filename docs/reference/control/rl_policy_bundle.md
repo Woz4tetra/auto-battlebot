@@ -43,6 +43,7 @@ One observation spec version maps robots, field, target and history to named ten
 | nearest hazards | 36 | 4 discs by edge distance |
 
 - `obs_spec.py` holds the scales and caps.
+- The C++ builder writes the age and stale inputs of both blocks as 0, with a target present. The deployed policy was trained on those constants, and the estimator no longer tracks either quantity.
 - A hazard's radius is the raw object radius, never inflated. Hazard sorting is stable, so ties keep input order in both implementations.
 - Scales and caps: forward speed /2.5 m/s, yaw rate /15 rad/s, measurement age /0.5 s (capped at 1), position /2 m, velocity /2.5 m/s, position sigma /0.1 m, heading sigma /(pi/2), yaw-rate sigma /15, footprint half-diagonal /0.2 m, hazard radius /0.3 m. The three sigmas are capped at 1, so an infinite (unknown) sigma reads 1.
 - Our robot block: mode one-hot is ATTACK, RUN_AWAY. History holds 8 steps newest first: (linear, angular) actions x 8, then measured (forward speed, yaw rate) x 8.
@@ -85,4 +86,4 @@ Little-endian: the bytes `RLST`, uint32 version (1), uint32 pair count N, uint32
 - By default nothing edits the action on its way to the transmitter, and hazards reach the policy only as observations.
 - With `hazard_barrier_enable` the motion profile's velocity barrier clips `linear_x` every tick against the measured speed. The action history keeps the policy's own output, which is what training saw.
 - `initialize()` loads and checks the bundle the first time it runs and throws naming what failed: the motion estimator must be `KalmanMotionEstimator`, the manifest must parse with known values, a builder must exist for its `obs_spec_version` and make the tensors the network reads, and the self-test must pass. Every call resets the policy, the history, and the schedule.
-- Once our robot has gone unmeasured for longer than `max_our_unmeasured_s` it commands zero, the same as when our robot is missing. The coasted track keeps reporting the last yaw rate, so the policy otherwise holds whatever it was doing when the keypoints dropped, usually a full-rate spin. Motion blur from that spin keeps the keypoint model from reacquiring the robot. Stopping lets it reacquire, and the next policy step runs on the first measured tick.
+- With our robot missing it commands zero, and the next policy step runs on the tick our robot returns. Past `max_coast_s` the coasted track reports zero velocity and yaw rate, so the policy never sees a frozen mean still spinning at the last yaw rate.

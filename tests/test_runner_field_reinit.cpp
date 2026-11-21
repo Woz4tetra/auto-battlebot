@@ -97,7 +97,7 @@ TEST(RunnerFieldReinit, FieldReinitClearsTheStaticGateClusters) {
     auto loop = std::make_shared<ControlLoop>(
         std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
         std::make_shared<NoopNavigation>(), std::make_shared<NoopTransmitter>(),
-        std::make_shared<ManualClock>(), nullptr, ControlLoopConfiguration{}.robot_cache_max_age_s);
+        std::make_shared<ManualClock>(), nullptr);
     RunnerRemote remote;
     auto commands = remote.commands;
     Runner runner(

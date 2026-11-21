@@ -52,7 +52,6 @@ RENDER_FIELDS = (
     "position_sigma_m",
     "heading_sigma_rad",
     "yaw_rate_sigma_rad_s",
-    "is_stale",
 )
 UPPER = [(i, j) for i in range(6) for j in range(i, 6)]
 
@@ -66,7 +65,7 @@ def plant_delay_s() -> float:
 
 
 def config() -> OpponentFilterConfig:
-    return OpponentFilterConfig(opponent_max_coast_s=MAX_COAST_S, render_lead_s=plant_delay_s())
+    return OpponentFilterConfig(max_coast_s=MAX_COAST_S, render_lead_s=plant_delay_s())
 
 
 def truth_at_frames() -> np.ndarray:

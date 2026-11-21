@@ -122,7 +122,7 @@ def lockstep_errors(mcap: Path) -> pd.DataFrame:
                 "stamp_s": k * TICK_S,
                 "speed": float(np.hypot(vx[k], vy[k])),
                 "yaw_rate": float(abs(w[k])),
-                "age": float(e["our_measurement_age_s"]),
+                "age": float(e.get("our_measurement_age_s", 0.0)),
                 "along": c * dx + s_ * dy,
                 "cross": -s_ * dx + c * dy,
                 "theta": (e["our_yaw"] - yaw[k] + np.pi) % (2 * np.pi) - np.pi,

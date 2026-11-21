@@ -21,10 +21,10 @@
           : "DISCONNECTED";
 
     let range = NONE;
-    const ours = tracks?.robots.find((r) => r.ours && !r.stale);
+    const ours = tracks?.robots.find((r) => r.ours);
     if (ours && tracks) {
       const d = tracks.robots
-        .filter((r) => !r.ours && !r.stale)
+        .filter((r) => !r.ours)
         .map((r) => Math.hypot(r.x - ours.x, r.y - ours.y));
       if (d.length) range = `${Math.min(...d).toFixed(2)} m`;
     }

@@ -16,7 +16,6 @@ struct MotionEstimatorContext {
     Eigen::Matrix4d tf_fieldcenter_from_camera = Eigen::Matrix4d::Identity();
     CameraInfo camera_info;
     double field_bounds_margin_meters = 0.0;
-    double our_robot_hold_window_s = 0.0;
 };
 
 class MotionEstimatorInterface {

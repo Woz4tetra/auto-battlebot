@@ -100,8 +100,7 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
 
     auto hazard_assembler = make_hazard_assembler(*class_config.field_filter, clock);
     auto control_loop_body = std::make_shared<ControlLoop>(
-        robot_filter, target_selector, navigation, transmitter, clock, hazard_assembler,
-        class_config.control_loop->robot_cache_max_age_s);
+        robot_filter, target_selector, navigation, transmitter, clock, hazard_assembler);
     auto control_loop = make_control_loop(*class_config.control_loop, control_loop_body);
 
     RunnerRemote remote;

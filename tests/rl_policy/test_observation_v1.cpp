@@ -147,15 +147,13 @@ TEST(ObservationV1AdapterTest, OurSpeedIsTheFieldVelocityAlongOurHeading) {
     world.our = robot_at(FrameId::OUR_ROBOT_1, 0.1, -0.2, M_PI / 2.0);
     const Velocity2D kAlongHeadingVelocity{0.3, 1.5, 4.0};
     world.our.velocity = kAlongHeadingVelocity;
-    world.our.measurement_age_s = 0.1;
-    world.our.is_stale = true;
     world.target.mode = BehaviorMode::RUN_AWAY;
 
     const Observation out = world.observe();
     EXPECT_NEAR(out[kOur + 0], 1.5 / 2.5, 1e-12);
     EXPECT_NEAR(out[kOur + 1], 4.0 / 15.0, 1e-12);
-    EXPECT_NEAR(out[kOur + 2], 0.1 / 0.5, 1e-12);
-    EXPECT_EQ(out[kOur + 3], 1.0);
+    EXPECT_EQ(out[kOur + 2], 0.0);
+    EXPECT_EQ(out[kOur + 3], 0.0);
     EXPECT_EQ(out[kOurModeAttack], 0.0);
     EXPECT_EQ(out[kOurModeRunAway], 1.0);
 }
@@ -176,11 +174,9 @@ TEST(ObservationV1AdapterTest, HistoryIsNewestFirst) {
     EXPECT_DOUBLE_EQ(out[kHistoryNeverWrittenSlot], 0.0);
 }
 
-TEST(ObservationV1AdapterTest, AStaleTargetWithUnknownHeadingReadsTheCaps) {
+TEST(ObservationV1AdapterTest, ATargetWithUnknownHeadingReadsTheCaps) {
     World world;
     RobotDescription opponent = robot_at(FrameId::THEIR_ROBOT_1, 1.0, 0.0, M_PI);
-    opponent.is_stale = true;
-    opponent.measurement_age_s = 0.9;
     opponent.size = Size{0.3, 0.4, 0.1};
     opponent.velocity = Velocity2D{-0.5, 0.25, 0.0};
     opponent.uncertainty.position_sigma_major_axis_m = 0.03;
@@ -197,8 +193,8 @@ TEST(ObservationV1AdapterTest, AStaleTargetWithUnknownHeadingReadsTheCaps) {
     EXPECT_EQ(out[kOpponentHeadingSigma], 1.0);
     EXPECT_EQ(out[kOpponentYawRateSigma], 1.0);
     EXPECT_NEAR(out[kOpponent + 13], 0.5 * std::hypot(0.3, 0.4) / 0.2, 1e-12);
-    EXPECT_EQ(out[kOpponentAge], 1.0);
-    EXPECT_EQ(out[kOpponentStale], 1.0);
+    EXPECT_EQ(out[kOpponentAge], 0.0);
+    EXPECT_EQ(out[kOpponentStale], 0.0);
 }
 
 TEST(ObservationV1AdapterTest, NoTargetReadsZerosAndUnknowns) {

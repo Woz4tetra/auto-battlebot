@@ -31,15 +31,9 @@ The transmitter reports its health each cycle. The control loop samples it once 
 
 `last_cycle_wall_time` is the wall-clock stamp of the last cycle's start. `ThreadedControlLoop::is_healthy` compares it against `watchdog_timeout_ms`.
 
-## Robot descriptions cache
+## Robot set each cycle
 
-`RobotDescriptionsCache` keeps the most recent navigation-critical robot set (our robot and an opposing robot) and substitutes it when the current frame lacks either side. `Runner` owns it so target selection and navigation read the same resolved set within a tick. Without it, target selection would flap to the previous selection while navigation operated on a stale cache.
-
-- The substitute expires `robot_cache_max_age_s` after its own stamp (`[control_loop]`). Past that the current set goes through as is, so a navigator sees our robot is gone and runs its no-robot path.
-- Replaying the frozen snapshot forever kept `RlPolicyNavigation` feeding the policy one unchanging observation, and it held a full-rate spin that kept the robot invisible to the camera.
-- `resolve()` returns a `Resolved` whose `robots` reference points at either the `current` argument or the cache's snapshot. It is valid until the next `resolve()` or `reset()`, and for the `current` branch only as long as the caller's argument.
-
-- `RlPolicyNavigation` computes our-robot unmeasured time as `cached_snapshot_age_s` (control clock now minus the robots header stamp) plus `measurement_age_s`. A snapshot that `RobotDescriptionsCache` substitutes carries the age frozen when it was cached, so `measurement_age_s` alone understates how long our robot has gone unmeasured.
+Target selection, hazards and navigation all read the filter's state from the same cycle. A robot is present exactly while the estimator keeps its track, and absent once the track expires (`max_position_sigma_m`). Nothing substitutes an earlier set when a robot is missing; each navigator runs its own no-robot path.
 
 ## Control loop surface
 

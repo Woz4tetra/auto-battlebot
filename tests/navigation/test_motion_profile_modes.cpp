@@ -12,8 +12,7 @@
 namespace auto_battlebot {
 namespace {
 
-RobotDescriptionsStamped make_our_robot(double x, double y, double yaw, double vx = 0.0,
-                                        bool is_stale = false) {
+RobotDescriptionsStamped make_our_robot(double x, double y, double yaw, double vx = 0.0) {
     RobotDescription robot;
     robot.label = Label::MRS_BUFF_MK3;
     robot.frame_id = FrameId::OUR_ROBOT_1;
@@ -22,7 +21,6 @@ RobotDescriptionsStamped make_our_robot(double x, double y, double yaw, double v
     robot.pose.position.y = y;
     robot.pose.rotation = euler_to_quaternion(0.0, 0.0, yaw);
     robot.velocity = Velocity2D{vx, 0.0, 0.0};
-    robot.is_stale = is_stale;
 
     RobotDescriptionsStamped robots;
     robots.descriptions.push_back(robot);
@@ -252,11 +250,13 @@ class MotionProfileGateTest : public MotionProfileModeTest {
    protected:
     static constexpr double kCoastingTowardHazardMps = 3.0;
     VelocityCommand step(MotionProfileNavigation &nav, double time_s, double target_x,
-                         double target_y, BehaviorMode mode, double vx = 0.0, bool stale = false,
+                         double target_y, BehaviorMode mode, double vx = 0.0,
+                         bool our_robot_missing = false,
                          const FieldDescription &field = make_field()) {
         clock_->set(time_s);
-        return nav.update(make_our_robot(0.0, 0.0, 0.0, vx, stale), field,
-                          make_target(target_x, target_y, mode));
+        return nav.update(
+            our_robot_missing ? RobotDescriptionsStamped{} : make_our_robot(0.0, 0.0, 0.0, vx),
+            field, make_target(target_x, target_y, mode));
     }
 };
 
@@ -328,12 +328,14 @@ TEST_F(MotionProfileGateTest, BarrierBrakesEvenWhenTheAngleGateZeroesTheSpeedCha
            "into the hazard";
 }
 
-TEST_F(MotionProfileGateTest, StaleTrackGivesNoMeasuredSpeed) {
+TEST_F(MotionProfileGateTest, MissingTrackGivesNoMeasuredSpeed) {
     MotionProfileNavigationConfiguration open_loop = config_;
     open_loop.speed_kp = 0.0;
     open_loop.speed_ki = 0.0;
     auto stale_nav = make_nav(config_);
     auto open_nav = make_nav(open_loop);
+    step(*stale_nav, 1.0, 0.3, 0.0, BehaviorMode::RUN_AWAY);
+    step(*open_nav, 1.0, 0.3, 0.0, BehaviorMode::RUN_AWAY);
 
     EXPECT_DOUBLE_EQ(step(*stale_nav, 1.0, 0.3, 0.0, BehaviorMode::RUN_AWAY, 3.0, true).forward_mps,
                      step(*open_nav, 1.0, 0.3, 0.0, BehaviorMode::RUN_AWAY, 3.0, true).forward_mps);
@@ -346,13 +348,15 @@ TEST_F(MotionProfileGateTest, FallingReferenceIsNotRateLimited) {
     EXPECT_LT(step(*nav, 1.15, 0.3, 0.0, BehaviorMode::RUN_AWAY).forward_mps, 0.0);
 }
 
-TEST_F(MotionProfileGateTest, StaleSpeedFreezesTheIntegrator) {
+TEST_F(MotionProfileGateTest, MissingSpeedFreezesTheIntegrator) {
     config_.speed_ki = 2.0;
     MotionProfileNavigationConfiguration open_loop = config_;
     open_loop.speed_kp = 0.0;
     open_loop.speed_ki = 0.0;
     auto stale_nav = make_nav(config_);
     auto open_nav = make_nav(open_loop);
+    step(*stale_nav, 1.0, 0.3, 0.0, BehaviorMode::RUN_AWAY);
+    step(*open_nav, 1.0, 0.3, 0.0, BehaviorMode::RUN_AWAY);
 
     double stale_cmd = 0.0;
     double open_cmd = 0.0;

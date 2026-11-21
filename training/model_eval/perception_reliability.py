@@ -52,7 +52,7 @@ def read_reliability(path: Path) -> Reliability:
         frames.append(
             Frame(
                 t_s=log_ns * 1e-9,
-                their_total=int(perc.get("their_count_total", 0)),
+                their_total=int(perc.get("their_count_total", perc.get("their_count_live", 0))),
                 their_live=int(perc.get("their_count_live", 0)),
                 our_live_flag=int(perc.get("our_present_live", 0)),
                 our_blob_without_keypoint_flag=int(perc.get("our_blob_present_no_keypoint", 0)),

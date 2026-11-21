@@ -830,7 +830,7 @@ type = "RobotFrontBackFilter"
 
 [robot_filter.motion_estimator]
 type = "KalmanMotionEstimator"
-opponent_max_coast_s = 0.1
+gate_nis = 9.0
 )");
     auto child = write_named_config("child.toml", R"(
 extends = "base"
@@ -843,7 +843,7 @@ from = "robots/robot"
 
     EXPECT_EQ(merged["robot_filter"]["type"].value<std::string>(), "RobotFrontBackFilter");
     EXPECT_EQ(merged["robot_filter"]["motion_estimator"]["max_coast_s"].value<double>(), 0.2);
-    EXPECT_FALSE(merged["robot_filter"]["motion_estimator"]["opponent_max_coast_s"]);
+    EXPECT_FALSE(merged["robot_filter"]["motion_estimator"]["gate_nis"]);
 }
 
 TEST_F(ConfigFromTest, InlineOverlayMergesOntoLoadedSection) {

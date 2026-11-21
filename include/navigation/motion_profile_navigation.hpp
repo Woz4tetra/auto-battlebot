@@ -35,8 +35,7 @@ class MotionProfileNavigation : public NavigationInterface {
 
     double terminal_velocity_for(BehaviorMode mode) const;
 
-    std::optional<double> measure_forward_speed(const RobotDescription &robot,
-                                                const Pose2D &our_pose) const;
+    double measure_forward_speed(const RobotDescription &robot, const Pose2D &our_pose) const;
 
     double compute_reference_speed(double distance, double dt, double terminal_velocity) const;
 

@@ -69,9 +69,10 @@ the whole state.
 
 `coast(now)` renders every track forward to the control clock on a copy, so the emitted
 state moves between perception frames instead of freezing at the last `correct()`. Our
-EKF coasts up to `max_coast_s` of unmeasured age and then holds position while covariance
-keeps growing. A track reads `is_stale` once it has gone 0.1 s unmeasured, which is three
-frame periods at 30 Hz: normal between-frame coasting stays fresh, a real dropout does not.
+EKF and the opponent filter coast up to `max_coast_s` of unmeasured age, then hold position
+and report zero velocity and yaw rate while covariance keeps growing. Once a track's position
+sigma passes `max_position_sigma_m` the estimator erases it, and that is the only signal that
+a robot is gone.
 
 ## Navigation: the same plant inverted
 
@@ -104,10 +105,10 @@ reference across would feed the feedforward a `dv/dt` step the plant never asked
    selected by the sign of `dv/dt` so a falling reference actually commands the brake.
    A negative command is rescaled by `k_fwd / k_rev` because reverse is the weaker
    direction. Then the steer-brake loss is divided out and the deadzone inverted exactly.
-3. **Speed PI feedback** on `v_ref - v_actual`, with a clamped integrator. This is dropped
-   while our track is `is_stale`: a dead-reckoned speed is a function of this controller's
-   own command, so closing a loop on it is not feedback. The last measured speed is held
-   through the stale stretch so the latency lead keeps working.
+3. **Speed PI feedback** on `v_ref - v_actual`, with a clamped integrator. `v_actual` is the
+   EKF's forward speed whenever our track exists. While the track is missing the loop runs on
+   the cached pose, the feedback is dropped and the last measured speed is held, so the
+   latency lead keeps working.
 4. **Angular channel, same shape.** Turn-lock hysteresis (commit at 135 degrees, release
    at 90) stops the shortest-turn sign from dithering near 180. A PD on heading produces a
    yaw-rate reference, which goes through the same inverse-plant feedforward with the

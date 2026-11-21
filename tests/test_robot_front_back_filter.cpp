@@ -13,7 +13,6 @@ namespace {
 constexpr double kOurFrontX = 300.0;
 constexpr double kOurBackX = 340.0;
 constexpr double kOurRowY = 220.0;
-constexpr double kLongAfterLastKeypointS = 1.0;
 
 RobotDescriptionsStamped run_filter(RobotFrontBackFilter &filter, ModelResultStamped keypoints,
                                     const FieldDescription &field, const CameraInfo &camera_info,
@@ -145,18 +144,15 @@ TEST(RobotFrontBackFilterTest, RejectsLargeJumpThenAcceptsAfterThreshold) {
                                   camera_info, command_feedback);
     ASSERT_EQ(first.descriptions.size(), 1u);
     const double first_x = first.descriptions[0].pose.position.x;
-    EXPECT_FALSE(first.descriptions[0].is_stale);
 
     const auto second = run_filter(filter, make_opponent_keypoints(1.1, 460.0, 500.0), field,
                                    camera_info, command_feedback);
     ASSERT_EQ(second.descriptions.size(), 1u);
-    EXPECT_TRUE(second.descriptions[0].is_stale);
     EXPECT_NEAR(second.descriptions[0].pose.position.x, first_x, 1e-6);
 
     const auto third = run_filter(filter, make_opponent_keypoints(1.2, 460.0, 500.0), field,
                                   camera_info, command_feedback);
     ASSERT_EQ(third.descriptions.size(), 1u);
-    EXPECT_FALSE(third.descriptions[0].is_stale);
     EXPECT_GT(std::abs(third.descriptions[0].pose.position.x - first_x), 0.5);
 }
 
@@ -177,55 +173,6 @@ TEST(RobotFrontBackFilterTest, DropoutFrameOutputCarriesTheKeypointStamp) {
     EXPECT_DOUBLE_EQ(dropout.header.stamp, 1.1);
 }
 
-TEST(RobotFrontBackFilterTest, DecaysStaleOurRobotAfterHoldWindow) {
-    RobotFrontBackFilterConfiguration config = make_our_robot_config();
-    config.our_robot_hold_window_s = 0.15;
-    RobotFrontBackFilter filter(config);
-    ASSERT_TRUE(filter.initialize(1));
-
-    const CameraInfo camera_info = make_camera_info();
-    const FieldDescription field = make_field();
-    const CommandFeedback command_feedback;
-
-    const auto first = run_filter(filter, make_our_keypoints(1.0, kOurFrontX, kOurBackX, kOurRowY),
-                                  field, camera_info, command_feedback);
-    ASSERT_EQ(first.descriptions.size(), 1u);
-    ASSERT_EQ(first.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
-    EXPECT_FALSE(first.descriptions[0].is_stale);
-
-    const auto within =
-        run_filter(filter, make_empty_keypoints(1.0 + 0.5 * config.our_robot_hold_window_s), field,
-                   camera_info, command_feedback);
-    ASSERT_EQ(within.descriptions.size(), 1u);
-    EXPECT_EQ(within.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
-    EXPECT_TRUE(within.descriptions[0].is_stale);
-
-    const auto expired =
-        run_filter(filter, make_empty_keypoints(1.0 + config.our_robot_hold_window_s + 0.05), field,
-                   camera_info, command_feedback);
-    EXPECT_TRUE(expired.descriptions.empty());
-}
-
-TEST(RobotFrontBackFilterTest, HoldsStaleOurRobotWhenDecayDisabled) {
-    RobotFrontBackFilterConfiguration config = make_our_robot_config();
-    config.our_robot_hold_window_s = 0.0;
-    RobotFrontBackFilter filter(config);
-    ASSERT_TRUE(filter.initialize(1));
-
-    const CameraInfo camera_info = make_camera_info();
-    const FieldDescription field = make_field();
-    const CommandFeedback command_feedback;
-
-    run_filter(filter, make_our_keypoints(1.0, kOurFrontX, kOurBackX, kOurRowY), field, camera_info,
-               command_feedback);
-
-    const auto held = run_filter(filter, make_empty_keypoints(1.0 + kLongAfterLastKeypointS), field,
-                                 camera_info, command_feedback);
-    ASSERT_EQ(held.descriptions.size(), 1u);
-    EXPECT_EQ(held.descriptions[0].frame_id, FrameId::OUR_ROBOT_1);
-    EXPECT_TRUE(held.descriptions[0].is_stale);
-}
-
 namespace {
 const RobotDescription *find_frame_id(const RobotDescriptionsStamped &result, FrameId frame_id) {
     for (const auto &description : result.descriptions) {
@@ -243,7 +190,7 @@ RobotFrontBackFilterConfiguration make_kalman_opponent_config() {
     config.default_frame_id = FrameId::THEIR_ROBOT_1;
     config.max_jump_distance = 1.0;
     auto kalman = std::make_shared<KalmanMotionEstimatorConfiguration>();
-    kalman->opponent_max_coast_s = 1.0;
+    kalman->max_coast_s = 1.0;
     kalman->plant = mrs_buff_mk3_plant();
     config.motion_estimator = kalman;
     return config;

@@ -94,13 +94,12 @@ struct TrackedRobot {
     std::string id;
     std::string label;
     bool ours = false;
-    bool stale = false;
     double x = 0.0;
     double y = 0.0;
     double yaw = 0.0;
     std::optional<ImagePoint> image;
-    AB_JSON_MESSAGE(TrackedRobot, "auto_battlebot.status.TrackedRobot", id, label, ours, stale, x,
-                    y, yaw, image)
+    AB_JSON_MESSAGE(TrackedRobot, "auto_battlebot.status.TrackedRobot", id, label, ours, x, y, yaw,
+                    image)
 };
 
 struct TargetMessage {

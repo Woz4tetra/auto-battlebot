@@ -94,11 +94,9 @@ survives.
 
 ### Robot filter
 
-- `our_robot_hold_window_s`: drop an unmeasured our-robot track after this long without a keypoint
-  confirmation instead of predicting it forward.
 - `[robot_filter.motion_estimator]`: `KalmanMotionEstimator`, opponents on the 6-state filter. The
-  heading block (`opponent_yaw_accel_psd`, `opponent_heading_sigma_rad`), `opponent_max_coast_s` and
-  `opponent_position_sigma_m` are grid-searched on the 2026-10-15 Mr Stabs Mk2 sysid sessions
+  heading block (`opponent_yaw_accel_psd`, `opponent_heading_sigma_rad`) and `opponent_position_sigma_m` are
+  grid-searched on the 2026-10-15 Mr Stabs Mk2 sysid sessions
   against AprilTag truth: `docs/experiments/control/kalman_filter/opponent_filter_evaluation.md`.
 - `[robot_filter.robot_size_meters_per_label]`: footprints off the CAD models in
   `training/synthetic/render_sprites.py`'s upright pose; x/y match

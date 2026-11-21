@@ -56,7 +56,7 @@ def test_replaces_nested_section_only(tmp_path: Path) -> None:
         tmp_path,
         "base.toml",
         '[robot_filter]\ntype = "F"\n\n[robot_filter.motion_estimator]\ntype = "K"\n'
-        "opponent_max_coast_s = 0.1\n",
+        "gate_nis = 9.0\n",
     )
     child = _write(
         tmp_path,

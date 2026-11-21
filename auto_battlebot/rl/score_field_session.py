@@ -106,7 +106,7 @@ def load_tracks(path: Path) -> np.ndarray:
     rows = []
     for _, log_time_ns, data in iter_messages(path, [TRACKS_TOPIC]):
         tracks = json.loads(bytes(data))
-        live = [r for r in tracks["robots"] if not r["stale"]]
+        live = [r for r in tracks["robots"] if not r.get("stale", False)]
         ours = [r for r in live if r["ours"]]
         theirs = [r for r in live if not r["ours"] and r["label"] in OPPONENT_LABELS]
         pose: tuple[float, ...] = (math.nan,) * 6

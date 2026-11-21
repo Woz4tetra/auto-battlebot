@@ -67,7 +67,7 @@ TEST_F(GroundTruthRobotFilterTest, VelocityFromConsecutivePoses) {
     EXPECT_NEAR(opponent->velocity.vx_mps, 1.0, 1e-9);
 }
 
-TEST_F(GroundTruthRobotFilterTest, NaNSlotCoastsAndIsStale) {
+TEST_F(GroundTruthRobotFilterTest, NaNSlotCoasts) {
     GroundTruthRobotFilter filter(clock_);
     ASSERT_TRUE(filter.initialize(1));
     feed(1.0, {Pose2D{0.0, 0.0, 0.0}, Pose2D{0.0, 0.0, 0.0}}, filter);
@@ -76,7 +76,6 @@ TEST_F(GroundTruthRobotFilterTest, NaNSlotCoastsAndIsStale) {
 
     const auto opponent = find(filter, FrameId::THEIR_ROBOT_1);
     ASSERT_TRUE(opponent);
-    EXPECT_TRUE(opponent->is_stale);
     EXPECT_NEAR(opponent->pose.position.x, 0.2, 1e-9);
 }
 

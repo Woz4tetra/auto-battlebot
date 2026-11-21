@@ -25,9 +25,7 @@ struct RobotDescription {
     Size size;
     std::vector<Position> keypoints = std::vector<Position>();
     Velocity2D velocity;
-    bool is_stale = false;
     PoseUncertainty uncertainty;
-    double measurement_age_s = 0.0;
     Position2D footprint_center_offset{};
 };
 

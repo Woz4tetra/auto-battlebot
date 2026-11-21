@@ -72,14 +72,14 @@ digraph PlantBackedControl {
 
             coast [
                 fillcolor="#E0E7FF" color="#818CF8"
-                label=<<b>coast(now)</b>  <i>control rate</i><br align="left"/>renders every track forward to the control clock<br align="left"/>our EKF coasts up to max_coast_s of unmeasured age,<br align="left"/>then holds position while covariance keeps growing<br align="left"/>is_stale once unmeasured for 0.1 s<br align="left"/>>
+                label=<<b>coast(now)</b>  <i>control rate</i><br align="left"/>renders every track forward to the control clock<br align="left"/>every track coasts up to max_coast_s of unmeasured age,<br align="left"/>then holds position at zero velocity while covariance grows<br align="left"/>a track whose position sigma passes max_position_sigma_m is erased<br align="left"/>>
             ];
         }
     }
 
     robots [
         fillcolor="#F1F5F9" color="#94A3B8"
-        label=<<b>RobotDescriptions</b> @ control rate<br align="left"/>pose, velocity, is_stale, per FrameId<br align="left"/>>
+        label=<<b>RobotDescriptions</b> @ control rate<br align="left"/>pose, velocity, sigma, per FrameId; a missing robot has no entry<br align="left"/>>
     ];
 
     target [label=<<b>TargetSelector</b><br align="left"/>picks the goal pose for the active mode<br align="left"/>>];
@@ -100,7 +100,7 @@ digraph PlantBackedControl {
 
         fb [
             fillcolor="#FEF2F2" color="#FCA5A5"
-            label=<<b>3. Speed PI feedback</b><br align="left"/>err = v_ref &#8722; v_actual, clamped integrator<br align="left"/><b>dropped while our track is_stale</b><br align="left"/><i>a dead-reckoned speed is our own command</i><br align="left"/>>
+            label=<<b>3. Speed PI feedback</b><br align="left"/>err = v_ref &#8722; v_actual, clamped integrator<br align="left"/><b>dropped while our track is missing</b><br align="left"/><i>the last measured speed is held</i><br align="left"/>>
         ];
 
         wref [
@@ -136,7 +136,7 @@ digraph PlantBackedControl {
     robots -> target;
     target -> vref [label="  goal pose  "];
     robots -> vref [label="  distance, v_actual  "];
-    robots -> fb   [label="  is_stale  " style=dashed color="#EF4444" fontcolor="#B91C1C"];
+    robots -> fb   [label="  our track present  " style=dashed color="#EF4444" fontcolor="#B91C1C"];
     robots -> wref [label="  heading error  "];
 
     vref -> ulin;

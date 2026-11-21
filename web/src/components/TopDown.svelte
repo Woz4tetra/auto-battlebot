@@ -73,7 +73,6 @@
       {#if robot.ours}
         <g
           class="ours"
-          class:stale={robot.stale}
           style="--c: {robot.color}"
           transform="translate({toX(robot.x)} {toY(robot.y)}) rotate({deg(robot.yaw)})"
         >
@@ -81,7 +80,7 @@
           <line x1="10" y1="-9" x2="10" y2="9" />
         </g>
       {:else}
-        <g class="opp" class:stale={robot.stale} style="--c: {robot.color}">
+        <g class="opp" style="--c: {robot.color}">
           <circle cx={toX(robot.x)} cy={toY(robot.y)} r="11" />
           <circle class="core" cx={toX(robot.x)} cy={toY(robot.y)} r="2.5" />
         </g>
@@ -184,9 +183,6 @@
   svg.aiming {
     cursor: crosshair;
     touch-action: none;
-  }
-  .stale {
-    opacity: 0.35;
   }
   .cam {
     fill: var(--ink);

@@ -37,11 +37,10 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
     double initial_velocity_sigma = 3.0;
     double covariance_floor = 1e-6;
 
-    double coast_stale_age_s = 0.1;
     double clock_gap_warn_period_s = 5.0;
 
     double max_coast_s = 0.4;
-    double opponent_max_coast_s = 0.1;
+    double max_position_sigma_m = 1.0;
 
     double speed_measurement_min_dt_s = 0.08;
     double speed_measurement_max_dt_s = 0.25;
@@ -70,10 +69,9 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
             static_cast<int>(parser.get_optional_int("reinit_after_rejects", reinit_after_rejects));
         PARSE_FIELD_DOUBLE(initial_velocity_sigma)
         PARSE_FIELD_DOUBLE(covariance_floor)
-        PARSE_FIELD_DOUBLE(coast_stale_age_s)
         PARSE_FIELD_DOUBLE(clock_gap_warn_period_s)
         PARSE_FIELD_DOUBLE(max_coast_s)
-        PARSE_FIELD_DOUBLE(opponent_max_coast_s)
+        PARSE_FIELD_DOUBLE(max_position_sigma_m)
         PARSE_FIELD_DOUBLE(speed_measurement_min_dt_s)
         PARSE_FIELD_DOUBLE(speed_measurement_max_dt_s)
         PARSE_FIELD_DOUBLE(speed_position_sigma_m)

@@ -100,53 +100,16 @@ TEST(RlPolicyNavigationTest, NoRobotCommandsZeroAndLogsIt) {
     EXPECT_FALSE(nav->get_last_visualization().path.has_value());
 }
 
-TEST(RlPolicyNavigationTest, AnUnmeasuredRobotCommandsZero) {
-    auto nav = make_nav(config_for(rl_test::constant_bundle()));
-    ASSERT_TRUE(nav->initialize());
-    auto logger = DiagnosticsLogger::get_logger("rl_policy_nav");
-    logger->clear();
-
-    RobotDescription ours = robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0);
-    ours.velocity.omega_radps = 15.0;
-    ours.measurement_age_s = RlPolicyNavigationConfiguration{}.max_our_unmeasured_s + 0.05;
-    const VelocityCommand command = nav->update(robots_of({ours}), field(), TargetSelection{});
-    EXPECT_EQ(command.forward_mps, 0.0);
-    EXPECT_EQ(command.yaw_rate_radps, 0.0);
-    bool logged = false;
-    for (const auto &snapshot : logger->get_snapshots()) {
-        logged = logged || (snapshot.subsection == "our_robot_unmeasured" &&
-                            !snapshot.is_repeat_of_earlier_message);
-    }
-    EXPECT_TRUE(logged);
-}
-
-TEST(RlPolicyNavigationTest, ARemeasuredRobotStepsThePolicyOnTheSameTick) {
+TEST(RlPolicyNavigationTest, AReturningRobotStepsThePolicyOnTheSameTick) {
     auto nav = make_nav(config_for(rl_test::constant_bundle()));
     ASSERT_TRUE(nav->initialize());
 
-    RobotDescription ours = robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0);
-    ours.measurement_age_s = RlPolicyNavigationConfiguration{}.max_our_unmeasured_s + 0.05;
-    EXPECT_EQ(nav->update(robots_of({ours}), field(), TargetSelection{}).forward_mps, 0.0);
+    const RobotDescription ours = robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0);
+    EXPECT_EQ(nav->update(robots_of({}), field(), TargetSelection{}).forward_mps, 0.0);
 
-    ours.measurement_age_s = 0.0;
     const VelocityCommand resumed = nav->update(robots_of({ours}), field(), TargetSelection{});
     EXPECT_DOUBLE_EQ(resumed.forward_mps, 0.3);
     EXPECT_DOUBLE_EQ(resumed.yaw_rate_radps, -0.1);
-}
-
-TEST(RlPolicyNavigationTest, AFrozenSnapshotAgesOnTheControlClock) {
-    auto clock = std::make_shared<ManualClock>();
-    RlPolicyNavigation nav(config_for(rl_test::constant_bundle()), clock);
-    ASSERT_TRUE(nav.initialize());
-
-    RobotDescriptionsStamped robots = robots_of({robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0)});
-    robots.header.stamp = 10.0;
-    robots.descriptions[0].measurement_age_s = 0.05;
-    clock->set(10.05);
-    EXPECT_DOUBLE_EQ(nav.update(robots, field(), TargetSelection{}).forward_mps, 0.3);
-
-    clock->set(10.0 + RlPolicyNavigationConfiguration{}.max_our_unmeasured_s);
-    EXPECT_EQ(nav.update(robots, field(), TargetSelection{}).forward_mps, 0.0);
 }
 
 TEST(RlPolicyNavigationTest, PolicyDiagnosticsCarryOurStateForTheLockstepEkfFit) {
@@ -158,7 +121,6 @@ TEST(RlPolicyNavigationTest, PolicyDiagnosticsCarryOurStateForTheLockstepEkfFit)
     RobotDescription ours = robot_at(FrameId::OUR_ROBOT_1, 0.5, -0.25, 0.0);
     ours.velocity.vx_mps = 0.4;
     ours.velocity.omega_radps = 1.5;
-    ours.measurement_age_s = 0.02;
     nav->update(robots_of({ours}), field(), TargetSelection{});
 
     const DiagnosticStatusSnapshot *policy = nullptr;
@@ -177,7 +139,6 @@ TEST(RlPolicyNavigationTest, PolicyDiagnosticsCarryOurStateForTheLockstepEkfFit)
     EXPECT_DOUBLE_EQ(value("our_yaw"), 0.0);
     EXPECT_DOUBLE_EQ(value("our_speed"), 0.4);
     EXPECT_DOUBLE_EQ(value("our_yaw_rate"), 1.5);
-    EXPECT_DOUBLE_EQ(value("our_measurement_age_s"), 0.02);
 }
 
 TEST(RlPolicyNavigationTest, RefusesAFilterWithNoOpponentFilter) {

@@ -118,7 +118,6 @@ struct RlPolicyNavigationConfiguration : public NavigationConfiguration {
     rl_policy::RlPolicyConfiguration policy;
     bool has_opponent_filter = false;
     std::string opponent_filter_source = "no [robot_filter] config was applied";
-    double max_our_unmeasured_s = 0.15;
 
     bool hazard_barrier_enable = false;
     double hazard_prediction_horizon_s = 0.25;
@@ -144,7 +143,6 @@ struct RlPolicyNavigationConfiguration : public NavigationConfiguration {
         }
         ConfigParser policy_parser(*table, "navigation.policy");
         policy.parse(policy_parser);
-        PARSE_FIELD_DOUBLE(max_our_unmeasured_s)
         PARSE_FIELD_BOOL(hazard_barrier_enable)
         PARSE_FIELD_DOUBLE(hazard_prediction_horizon_s)
     }

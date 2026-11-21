@@ -200,8 +200,6 @@ ObservationInputsV1 observation_inputs_v1(const ObservationContext &context,
     in.our_forward_speed_mps =
         our.velocity.vx_mps * std::cos(our_pose.yaw) + our.velocity.vy_mps * std::sin(our_pose.yaw);
     in.our_yaw_rate = our.velocity.omega_radps;
-    in.our_age_s = our.measurement_age_s;
-    in.our_stale = our.is_stale;
     in.run_away = context.target.mode == BehaviorMode::RUN_AWAY;
 
     const size_t steps = std::min<size_t>(kHistory, context.history.capacity());
@@ -227,8 +225,6 @@ ObservationInputsV1 observation_inputs_v1(const ObservationContext &context,
         in.opp_heading_sigma = opponent.uncertainty.heading_sigma_rad.value_or(kInf);
         in.opp_yaw_rate_sigma = opponent.uncertainty.yaw_rate_sigma_rad_s.value_or(kInf);
         in.opp_half_diagonal = 0.5 * std::hypot(opponent.size.x, opponent.size.y);
-        in.opp_age_s = opponent.measurement_age_s;
-        in.opp_stale = opponent.is_stale;
     }
 
     in.field_half_x = 0.5 * context.field.size.size.x;

@@ -41,7 +41,6 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
     double max_jump_distance = 0.3;
     int max_consecutive_jump_rejects = 5;
     double field_bounds_margin_meters = 0.2;
-    double our_robot_hold_window_s = 0.15;
     KeypointHeights keypoint_heights;
     std::shared_ptr<MotionEstimatorConfiguration> motion_estimator =
         std::make_shared<KalmanMotionEstimatorConfiguration>();
@@ -58,8 +57,6 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
             parser.get_optional_int("max_consecutive_jump_rejects", max_consecutive_jump_rejects));
         field_bounds_margin_meters =
             parser.get_optional_double("field_bounds_margin_meters", field_bounds_margin_meters);
-        our_robot_hold_window_s =
-            parser.get_optional_double("our_robot_hold_window_s", our_robot_hold_window_s);
         keypoint_heights.default_meters =
             parser.get_optional_double("keypoint_height_meters", keypoint_heights.default_meters);
         parse_keypoint_heights_per_label(parser, "keypoint_height_meters_per_label");

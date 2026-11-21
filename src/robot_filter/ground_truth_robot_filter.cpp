@@ -97,7 +97,6 @@ std::optional<RobotDescription> GroundTruthRobotFilter::describe(FrameId frame_i
         const auto held = prev_poses_.find(frame_id);
         if (held == prev_poses_.end()) return std::nullopt;
 
-        desc.is_stale = true;
         const auto velocity = prev_velocities_.find(frame_id);
         Pose2D coasted = held->second;
         if (velocity != prev_velocities_.end() && interval_usable(dt)) {
@@ -114,7 +113,6 @@ std::optional<RobotDescription> GroundTruthRobotFilter::describe(FrameId frame_i
     }
 
     desc.pose = pose2d_to_pose(gt_pose);
-    desc.is_stale = false;
     desc.velocity = velocity_from_delta(frame_id, gt_pose, now);
     prev_velocities_[frame_id] = desc.velocity;
     return desc;

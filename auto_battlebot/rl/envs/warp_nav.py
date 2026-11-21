@@ -590,7 +590,7 @@ class WarpNavEnv:
             OpponentFilterConfig(
                 opponent_yaw_accel_psd=30.0,
                 opponent_heading_sigma_rad=0.15,
-                opponent_max_coast_s=0.1,
+                max_coast_s=0.2,
                 render_lead_s=0.016,
             ),
             field_half_extent=self.arena_half,
@@ -985,7 +985,6 @@ class WarpNavEnv:
         f = self.opp_filter
         f.active = f.active & ~mask
         f.heading_initialized = f.heading_initialized & ~mask
-        f.output_stale = f.output_stale & ~mask
         zero = torch.zeros_like(f.consecutive_flips)
         f.consecutive_flips = torch.where(mask, zero, f.consecutive_flips)
         f.consecutive_rejects = torch.where(mask, zero, f.consecutive_rejects)
@@ -1181,10 +1180,8 @@ class WarpNavEnv:
         ctx = Context.from_rect_arena(xy, 0.1, self.arena_half)
         out = self.measure.step(self.t, TruePoses(xy=xy, yaw=yaw, velocity=vel, yaw_rate=rate), ctx)
         f = self.opp_filter
-        before = f.output_stale.clone()
         var = torch.full((n,), 0.012**2, device=self.device, dtype=self.dtype)
         f.update(out.stamp, out.measured[:, 1], out.xy[:, 1], out.yaw[:, 1], var)
-        f.output_stale = torch.where(out.delivered, f.output_stale, before)
 
     def step(self, action: torch.Tensor) -> Step:
         cfg, rw = self.cfg, self.cfg.reward
@@ -1457,7 +1454,7 @@ class WarpNavEnv:
             opp_yaw, opp_vel, opp_w = est.yaw, torch.stack([est.vx, est.vy], 1), est.omega
             sig = (est.position_sigma_m, est.heading_sigma_rad, est.yaw_rate_sigma_rad_s)
             opp_age = (self.t - self.opp_filter.last_measured).clamp(0.0, 10.0)
-            opp_stale = est.is_stale
+            opp_stale = torch.zeros_like(present)
         else:
             our_xy, our_yaw, our_v, our_w, our_stale = (
                 tr["xy"],

@@ -47,9 +47,10 @@ Regenerate the SVG after editing `diagrams/robot_filter.dot`:
 
 2. **`KalmanMotionEstimator::update`** corrects each measured track, propagates each unmeasured one
    to the frame stamp, and writes the predicted position back to `FrameIdAssigner` so association
-   follows the prediction. It emits one `RobotDescription` per track.
-   An our-robot (`Group::OURS`) track unmeasured for longer than `our_robot_hold_window_s` is dropped
-   from the output and forgotten instead of held. A window of 0 or below disables the decay.
+   follows the prediction. Any track, ours or an opponent's, whose position sigma passes
+   `max_position_sigma_m` is erased and its association position cleared. It emits one
+   `RobotDescription` per remaining track. A robot is missing from the output exactly when its
+   track has expired.
 
 ## Persistent state
 
@@ -73,7 +74,7 @@ This helps the common short dropouts and drifts on rare long ones.
 - Requests (target override, recording and mode toggles) are applied at the top of the next cycle, so the components stay single-threaded.
 - `SteppedControlLoop` and `ThreadedControlLoop` decide when `run_cycle()` fires; the cycle body is identical either way. A stepped driver reads the transmitter inline, so a single-threaded run reads the transmitter before the camera grab.
 - Once the threaded driver runs, the Runner reaches the transmitter only through the control loop, since the driver owns it on another thread.
-- The keep-out discs published each cycle are assembled by the control loop, already inflated. The Runner cannot rebuild them because the hazard assembler holds the stale-track state.
+- The keep-out discs published each cycle are assembled by the control loop, already inflated. The Runner cannot rebuild them because the hazard assembler holds the missing-track state.
 
 ## Python opponent filter mirror
 
@@ -147,14 +148,14 @@ Keypoint heights correct the radial bias of flat-plane projection. Heights are p
 - Non-OURS tracks run a 6-state linear Kalman filter [px, py, vx, vy, theta, omega]: a constant-velocity translation block and an independent constant-yaw-rate heading block, each driven by its own continuous white-noise acceleration.
 - Every measurement corrects position and heading. Position is chi-square gated, with reinitialization after repeated rejects.
 - A heading more than pi/2 off the track is a front/back flip and corrects nothing; a run of flips re-initializes the heading block.
-- Unmeasured tracks predict forward with growing covariance up to `max_coast_s` of track age, then hold position and heading. The opponent horizon is `opponent_max_coast_s` (`docs/experiments/control/2026-10-15_opponent_max_coast.md`).
+- Unmeasured tracks predict forward with growing covariance up to `max_coast_s` of track age, then hold position and heading and report zero velocity and yaw rate. One horizon covers ours and opponents. The opponent cost of the shared 0.2 s against 0.1 s is in `docs/experiments/control/2026-10-15_opponent_max_coast.md`.
 - Measurements older than the track state (perception latency) rewind to a stored snapshot, correct at the measurement's own stamp, and re-propagate.
 - The Python mirror in `auto_battlebot/perception/opponent_filter.py` must change with this arm. `tests/test_kalman_motion_estimator.cpp` holds the two to a golden fixture.
 - Our-robot track runs a 5-state EKF [x, y, theta, v, w] propagated through `JigPlantModel` with the issued-command history (normalized stick space, from `CommandFeedback::stick_commands`) read at t - delay, corrected by keypoint poses (position and heading). A heading innovation past pi/2 falls back to the position rows, because the front/back keypoint converter can flip and folding a flipped heading in would spin the whole state.
 - `coast()` renders every track advanced to the control-loop clock plus `render_lead_s()`, so the emitted state moves between perception frames instead of freezing at the last `correct()`.
 - Rewind history: 64 snapshots. At the 250 Hz control rate that is roughly 240 ms, because `coast()` commits an opponent snapshot every tick and a 30 Hz frame burns about nine slots. It covers the measured 63 ms perception latency with room to spare; `num_rewind_missed` reports when it does not.
 - Clock gaps: a single propagation step longer than `kMaxIntegrationStepS` (1.0 s) freezes position, because a clock gap that large is not motion to integrate. Covariance still grows, capped at that step.
-- Estimator config: `opponent_max_coast_s` and `max_coast_s` defaults. `max_coast_s` sits at the measured p90 to p95 of perception dropout gaps; predicting multi-second gaps with a short-horizon model is fiction.
+- Estimator config: `max_coast_s` default. `max_coast_s` sits at the measured p90 to p95 of perception dropout gaps; predicting multi-second gaps with a short-horizon model is fiction.
 - Plant table required: the estimator needs the top-level `[plant]` table, because the our-robot EKF propagates through it. A missing table is a config error, not a zero plant that freezes every prediction without saying so.
 - Every plant field is required. Dropping `delay_s` makes the parse refuse instead of defaulting a fitted physical parameter to zero.
 
@@ -206,7 +207,7 @@ The sensing file's `dropout.enabled` is true by default. False delivers every ca
 
 ## Ground-truth filter slots
 
-- A non-finite pose in a ground-truth slot means the sim did not observe the robot on this frame. The filter emits a held pose flagged stale. A slot never observed emits nothing, because inventing a pose would hand consumers a fabricated position.
+- A non-finite pose in a ground-truth slot means the sim did not observe the robot on this frame. The filter emits the held pose, coasted along the last velocity. A slot never observed emits nothing, because inventing a pose would hand consumers a fabricated position.
 - Velocity is the pose delta since the last measurement, divided by the measured-to-measured interval. Dividing a dropout-spanning delta by one frame interval would scale the velocity by the number of frames missed. The first measurement and an unusable interval give zero.
 - The last measurement and its stamp are never written by the coast branch, so a returning frame differences against real data and not against the pose the coast just propagated.
 

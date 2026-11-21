@@ -104,7 +104,7 @@ def test_batched_rows_match_single_row_runs(row: int) -> None:
         OpponentFilterConfig(
             opponent_accel_psd=torch.tensor(psd),
             opponent_yaw_accel_psd=torch.tensor(yaw_psd),
-            opponent_max_coast_s=0.2,
+            max_coast_s=0.2,
         ),
         field_half_extent=half,
         margin=0.2,
@@ -114,7 +114,7 @@ def test_batched_rows_match_single_row_runs(row: int) -> None:
         OpponentFilterConfig(
             opponent_accel_psd=psd[row],
             opponent_yaw_accel_psd=yaw_psd[row],
-            opponent_max_coast_s=0.2,
+            max_coast_s=0.2,
         ),
         field_half_extent=half[:1],
         margin=0.2,

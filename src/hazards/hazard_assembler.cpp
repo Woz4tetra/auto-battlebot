@@ -53,7 +53,6 @@ void HazardAssembler::assemble(const RobotDescriptionsStamped &robots, FieldDesc
     std::vector<LastNeutralSighting> refreshed;
     for (const auto &robot : robots.descriptions) {
         if (robot.group != Group::NEUTRAL) continue;
-        if (robot.is_stale) continue;
         LastNeutralSighting track;
         track.hazard.center = footprint_center(robot);
         track.hazard.object_radius = half_diagonal(robot.size);

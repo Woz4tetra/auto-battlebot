@@ -2,7 +2,10 @@
 #include <spdlog/sinks/ostream_sink.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
+#include <magic_enum.hpp>
 #include <sstream>
 
 #include "diagnostics_logger/test_diagnostics_logger.hpp"
@@ -77,7 +80,7 @@ ConstantVelocityTrack run_constant_velocity(KalmanMotionEstimator &estimator,
 KalmanMotionEstimatorConfiguration kalman_opponents_config() {
     KalmanMotionEstimatorConfiguration config;
     config.plant = mrs_buff_mk3_plant();
-    config.opponent_max_coast_s = kCoastLongerThanAnyTestDropoutS;
+    config.max_coast_s = kCoastLongerThanAnyTestDropoutS;
     return config;
 }
 
@@ -102,7 +105,6 @@ TEST(KalmanMotionEstimatorTest, ConvergesToConstantVelocityAndPredictsAhead) {
     auto coasted = estimator.coast(last_t);
     ASSERT_TRUE(coasted.has_value());
     ASSERT_EQ(coasted->size(), 1u);
-    EXPECT_FALSE((*coasted)[0].is_stale);
     EXPECT_NEAR((*coasted)[0].velocity.vx_mps, vx, 0.2);
     EXPECT_NEAR((*coasted)[0].velocity.vy_mps, vy, 0.2);
     EXPECT_NEAR((*coasted)[0].pose.position.x, x + vx * kCoastLeadS, 0.05);
@@ -142,7 +144,7 @@ TEST(KalmanMotionEstimatorTest, CoastLeadsTheMeasurementByTheTransportDelay) {
 
 TEST(KalmanMotionEstimatorTest, CoastHoldsPositionPastMaxCoast) {
     KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
-    config.opponent_max_coast_s = kCoastLongerThanAnyTestDropoutS;
+    config.max_coast_s = kCoastLongerThanAnyTestDropoutS;
     KalmanMotionEstimator estimator{config};
     FrameIdAssigner assigner(10.0, 5);
     const FieldDescription field = make_field();
@@ -152,21 +154,21 @@ TEST(KalmanMotionEstimatorTest, CoastHoldsPositionPastMaxCoast) {
     const auto [last_t, x, y] =
         run_constant_velocity(estimator, assigner, field, context, 60, 1.0, 2.0, vx, 0.0);
 
-    constexpr double kStaleAfterS = 0.15;
     double position_at_half_second = 0.0;
     double final_position = 0.0;
-    for (double offset = 0.05; offset <= 3.0 * config.opponent_max_coast_s + 1e-9; offset += 0.05) {
+    for (double offset = 0.05; offset <= 3.0 * config.max_coast_s + 1e-9; offset += 0.05) {
         auto coasted = estimator.coast(last_t + offset);
         ASSERT_TRUE(coasted.has_value());
         ASSERT_EQ(coasted->size(), 1u);
         const double position = (*coasted)[0].pose.position.x;
         if (std::abs(offset - 0.5) < 1e-9) position_at_half_second = position;
         final_position = position;
-        if (offset < 0.1) {
-            EXPECT_FALSE((*coasted)[0].is_stale) << "offset " << offset;
-        } else if (offset > kStaleAfterS) {
-            EXPECT_TRUE((*coasted)[0].is_stale)
-                << "offset " << offset << ": stale without correct() running";
+        const double rendered_age = offset + kCoastLeadS;
+        const double velocity = (*coasted)[0].velocity.vx_mps;
+        if (rendered_age < config.max_coast_s - 1e-9) {
+            EXPECT_GT(velocity, 0.5 * vx) << "offset " << offset;
+        } else if (rendered_age > config.max_coast_s + 1e-9) {
+            EXPECT_EQ(velocity, 0.0) << "offset " << offset << ": a frozen mean reports motion";
         }
     }
 
@@ -192,7 +194,6 @@ TEST(KalmanMotionEstimatorTest, GateRejectsJumpThenReinitializes) {
         auto outputs =
             estimator.update({make_opponent_measurement(jump_x, y)}, t, assigner, field, context);
         ASSERT_EQ(outputs.size(), 1u);
-        EXPECT_TRUE(outputs[0].is_stale) << "gated frame " << reject;
         EXPECT_LT(std::abs(outputs[0].pose.position.x - x), 0.5) << "gated frame " << reject;
     }
 
@@ -201,7 +202,6 @@ TEST(KalmanMotionEstimatorTest, GateRejectsJumpThenReinitializes) {
     auto outputs =
         estimator.update({make_opponent_measurement(jump_x, y)}, t, assigner, field, context);
     ASSERT_EQ(outputs.size(), 1u);
-    EXPECT_FALSE(outputs[0].is_stale);
     EXPECT_NEAR(outputs[0].pose.position.x, jump_x, 1e-6);
 }
 
@@ -222,7 +222,6 @@ TEST(KalmanMotionEstimatorTest, LateMeasurementRetrodictsInsteadOfCorruptingTrac
     auto outputs = estimator.update({make_opponent_measurement(measurement_x, y)}, measurement_t,
                                     assigner, field, context);
     ASSERT_EQ(outputs.size(), 1u);
-    EXPECT_FALSE(outputs[0].is_stale);
     EXPECT_TRUE(std::isfinite(outputs[0].pose.position.x));
     EXPECT_NEAR(outputs[0].pose.position.x, measurement_x, 0.05);
     EXPECT_NEAR(outputs[0].pose.position.y, y, 0.05);
@@ -232,24 +231,64 @@ TEST(KalmanMotionEstimatorTest, LateMeasurementRetrodictsInsteadOfCorruptingTrac
     EXPECT_NEAR((*coasted)[0].pose.position.x, x + vx * (0.1 + kCoastLeadS), 0.06);
 }
 
-TEST(KalmanMotionEstimatorTest, OurRobotDropsAfterHoldWindow) {
-    KalmanMotionEstimator estimator{default_config()};
+double sigma_of(const RobotDescription &description) {
+    return description.uncertainty.position_sigma_major_axis_m.value_or(0.0);
+}
+
+double first_unmeasured_stamp_without(KalmanMotionEstimator &estimator, FrameIdAssigner &assigner,
+                                      const RobotDescription &measurement, FrameId frame_id,
+                                      double &last_sigma) {
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+    double t = kStartTime;
+    estimator.predict(t, CommandFeedback{});
+    estimator.update({measurement}, t, assigner, field, context);
+    for (int frame = 1; frame < 300; ++frame) {
+        t = kStartTime + frame * kDt;
+        estimator.predict(t, CommandFeedback{});
+        const auto outputs = estimator.update({}, t, assigner, field, context);
+        const auto found =
+            std::find_if(outputs.begin(), outputs.end(),
+                         [&](const RobotDescription &d) { return d.frame_id == frame_id; });
+        if (found == outputs.end()) return t;
+        last_sigma = sigma_of(*found);
+    }
+    return std::numeric_limits<double>::infinity();
+}
+
+TEST(KalmanMotionEstimatorTest, AnUnmeasuredTrackExpiresOnceItsPositionSigmaPassesTheLimit) {
+    constexpr double kLimitM = 0.3;
+    for (const RobotDescription &measurement :
+         {make_our_measurement(0.0, 0.0), make_opponent_measurement(1.0, 1.0)}) {
+        KalmanMotionEstimatorConfiguration config = default_config();
+        config.max_position_sigma_m = kLimitM;
+        KalmanMotionEstimator estimator{config};
+        FrameIdAssigner assigner(10.0, 5);
+        double last_sigma = 0.0;
+        const double expired_at = first_unmeasured_stamp_without(estimator, assigner, measurement,
+                                                                 measurement.frame_id, last_sigma);
+
+        ASSERT_TRUE(std::isfinite(expired_at)) << magic_enum::enum_name(measurement.frame_id);
+        EXPECT_GT(expired_at, kStartTime + kDt);
+        EXPECT_LE(last_sigma, kLimitM);
+        EXPECT_GT(last_sigma, 0.5 * kLimitM);
+        EXPECT_EQ(assigner.last_positions().count(measurement.frame_id), 0u)
+            << "an expired track must not keep gating association";
+    }
+}
+
+TEST(KalmanMotionEstimatorTest, AMeasuredTrackNeverExpires) {
+    KalmanMotionEstimatorConfiguration config = default_config();
+    config.max_position_sigma_m = 0.05;
+    KalmanMotionEstimator estimator{config};
     FrameIdAssigner assigner(10.0, 5);
     const FieldDescription field = make_field();
-    MotionEstimatorContext context;
-    context.our_robot_hold_window_s = 0.15;
-
-    const double t0 = kStartTime;
-    estimator.predict(t0, CommandFeedback{});
-    auto outputs = estimator.update({make_our_measurement(0.0, 0.0)}, t0, assigner, field, context);
-    ASSERT_EQ(outputs.size(), 1u);
-
-    outputs = estimator.update({}, t0 + 0.1, assigner, field, context);
-    ASSERT_EQ(outputs.size(), 1u);
-    EXPECT_TRUE(outputs[0].is_stale);
-
-    outputs = estimator.update({}, t0 + 0.2, assigner, field, context);
-    EXPECT_TRUE(outputs.empty());
+    const MotionEstimatorContext context;
+    const auto [t, x, y] =
+        run_constant_velocity(estimator, assigner, field, context, 60, 0.0, 0.0, 0.5, 0.0);
+    const auto outputs =
+        estimator.update({make_opponent_measurement(x, y)}, t + kDt, assigner, field, context);
+    EXPECT_EQ(outputs.size(), 1u);
 }
 
 JigPlantParams stage_a_params() {
@@ -333,7 +372,6 @@ TEST(KalmanMotionEstimatorTest, OurRobotEkfTracksPlantTruthThroughDropout) {
         truth = truth_model.propagate_unwrapped(truth, truth_history, prev_t, t);
         auto outputs = estimator.update({}, t, assigner, field, context);
         ASSERT_EQ(outputs.size(), 1u);
-        EXPECT_TRUE(outputs[0].is_stale);
         EXPECT_NEAR(outputs[0].pose.position.x, truth.x, 0.03) << "dropout frame " << i;
         EXPECT_NEAR(outputs[0].pose.position.y, truth.y, 0.03) << "dropout frame " << i;
         const double yaw = pose_to_pose2d(outputs[0].pose).yaw;
@@ -355,6 +393,15 @@ TEST(KalmanMotionEstimatorTest, OurRobotEkfTracksPlantTruthThroughDropout) {
     frozen = estimator.update({}, t, assigner, field, context);
     ASSERT_EQ(frozen.size(), 1u);
     EXPECT_NEAR(frozen[0].pose.position.x, frozen_x, 1e-9);
+    EXPECT_EQ(frozen[0].velocity.vx_mps, 0.0) << "a frozen mean reports motion";
+    EXPECT_EQ(frozen[0].velocity.vy_mps, 0.0);
+    EXPECT_EQ(frozen[0].velocity.omega_radps, 0.0);
+
+    auto coasted = estimator.coast(t);
+    ASSERT_TRUE(coasted.has_value());
+    ASSERT_EQ(coasted->size(), 1u);
+    EXPECT_EQ((*coasted)[0].velocity.vx_mps, 0.0);
+    EXPECT_EQ((*coasted)[0].velocity.omega_radps, 0.0);
 }
 
 TEST(KalmanMotionEstimatorTest, OurRobotEkfHeadingFlipCorrectsPositionOnly) {
@@ -381,7 +428,6 @@ TEST(KalmanMotionEstimatorTest, OurRobotEkfHeadingFlipCorrectsPositionOnly) {
     auto outputs =
         estimator.update({make_our_pose_measurement(flipped)}, t, assigner, field, context);
     ASSERT_EQ(outputs.size(), 1u);
-    EXPECT_FALSE(outputs[0].is_stale);
     EXPECT_NEAR(outputs[0].pose.position.x, truth.x, 0.03);
     const double yaw = pose_to_pose2d(outputs[0].pose).yaw;
     EXPECT_NEAR(std::remainder(yaw - truth.theta, 2.0 * M_PI), 0.0, 0.1);
@@ -474,7 +520,6 @@ TEST(KalmanMotionEstimatorTest, OpponentSingleHeadingFlipCorrectsPositionOnly) {
         {make_opponent_pose_measurement(truth.x + kSwapPositionErrorM, truth.y, truth.yaw + M_PI)},
         t, assigner, field, context);
     ASSERT_EQ(outputs.size(), 1u);
-    EXPECT_FALSE(outputs[0].is_stale);
     EXPECT_NEAR(angle_error(yaw_of(outputs[0]), truth.yaw), 0.0, 0.02)
         << "the flipped heading must not move the estimate";
     EXPECT_GT(outputs[0].pose.position.x, truth.x + 0.01) << "position still corrected";
@@ -570,7 +615,7 @@ TEST(KalmanMotionEstimatorTest, OpponentLateMeasurementRewindRestoresHeading) {
 
 TEST(KalmanMotionEstimatorTest, OpponentPastMaxCoastHoldsPositionHeadingAndYawRate) {
     KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
-    config.opponent_max_coast_s = 0.2;
+    config.max_coast_s = 0.2;
     KalmanMotionEstimator estimator{config};
     FrameIdAssigner assigner(10.0, 5);
     const FieldDescription field = make_field();
@@ -590,9 +635,8 @@ TEST(KalmanMotionEstimatorTest, OpponentPastMaxCoastHoldsPositionHeadingAndYawRa
     EXPECT_NEAR(at_two_seconds.pose.position.x, at_one_second.pose.position.x, 1e-9);
     EXPECT_NEAR(at_two_seconds.pose.position.y, at_one_second.pose.position.y, 1e-9);
     EXPECT_NEAR(angle_error(yaw_of(at_two_seconds), yaw_of(at_one_second)), 0.0, 1e-9);
-    EXPECT_NEAR(
-        angle_error(yaw_of(at_two_seconds), truth.yaw + truth.omega * config.opponent_max_coast_s),
-        0.0, 0.1);
+    EXPECT_NEAR(angle_error(yaw_of(at_two_seconds), truth.yaw + truth.omega * config.max_coast_s),
+                0.0, 0.1);
 }
 
 TEST(KalmanMotionEstimatorTest, OpponentSigmasShrinkWhenMeasuredAndGrowWhileCoasting) {
@@ -645,7 +689,7 @@ TEST(KalmanMotionEstimatorTest, OpponentArmMatchesPythonMirrorGoldenFixture) {
     namespace golden = opponent_filter_golden;
     constexpr double kTol = 1e-6;
     KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
-    config.opponent_max_coast_s = golden::kMaxCoastS;
+    config.max_coast_s = golden::kMaxCoastS;
     KalmanMotionEstimator estimator{config};
     ASSERT_NEAR(estimator.render_lead_s(), golden::kRenderLeadS, 1e-12);
     FrameIdAssigner assigner(10.0, 5);
@@ -700,7 +744,6 @@ TEST(KalmanMotionEstimatorTest, OpponentArmMatchesPythonMirrorGoldenFixture) {
         expect_value(
             out.uncertainty.yaw_rate_sigma_rad_s.value_or(std::numeric_limits<double>::infinity()),
             row[8], at + "yaw_rate_sigma_rad_s");
-        EXPECT_EQ(out.is_stale ? 1.0 : 0.0, row[9]) << at << "is_stale";
         ++record;
 
         if (kind == golden::kKindCoast) continue;
@@ -742,25 +785,6 @@ TEST(KalmanMotionEstimatorTest, ResetClearsTracks) {
     EXPECT_TRUE(outputs.empty());
 }
 
-TEST(KalmanMotionEstimatorTest, RendersSecondsSinceTheLastMeasurement) {
-    KalmanMotionEstimator estimator{kalman_opponents_config()};
-    FrameIdAssigner assigner(10.0, 5);
-    const FieldDescription field = make_field();
-    const MotionEstimatorContext context;
-
-    estimator.predict(kStartTime, CommandFeedback{});
-    const auto measured =
-        estimator.update({make_our_measurement(-1.0, 0.0), make_opponent_measurement(1.0, 0.0)},
-                         kStartTime, assigner, field, context);
-    ASSERT_EQ(measured.size(), 2u);
-    for (const auto &robot : measured) EXPECT_DOUBLE_EQ(robot.measurement_age_s, 0.0);
-
-    const auto coasted = estimator.coast(kStartTime + 0.25);
-    ASSERT_TRUE(coasted.has_value());
-    ASSERT_EQ(coasted->size(), 2u);
-    for (const auto &robot : *coasted) EXPECT_NEAR(robot.measurement_age_s, 0.25, 1e-12);
-}
-
 double position_sigma_after_coasting(KalmanMotionEstimator &estimator, double now) {
     const auto coasted = estimator.coast(now);
     EXPECT_TRUE(coasted.has_value());
@@ -780,7 +804,8 @@ TEST(KalmanMotionEstimatorTest, OpponentPositionSigmaKeepsGrowingPastTheCoastHor
 }
 
 TEST(KalmanMotionEstimatorTest, OpponentPositionSigmaOfALongUnseenTrackGrowsNoFasterThanLinearly) {
-    const KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
+    KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
+    config.max_position_sigma_m = std::numeric_limits<double>::infinity();
     KalmanMotionEstimator estimator{config};
     FrameIdAssigner assigner(10.0, 5);
     const FieldDescription field = make_field();
@@ -813,8 +838,6 @@ TEST(KalmanMotionEstimatorTest, OpponentPositionFixSurvivesAKeypointHeadingOff60
         {make_opponent_pose_measurement(truth.x + 0.05, truth.y, truth.yaw + M_PI / 3.0)}, t,
         assigner, field, context);
     ASSERT_EQ(outputs.size(), 1u);
-    EXPECT_FALSE(outputs[0].is_stale);
-    EXPECT_DOUBLE_EQ(outputs[0].measurement_age_s, 0.0);
     EXPECT_GT(outputs[0].pose.position.x, truth.x + 0.01);
 }
 
@@ -887,7 +910,7 @@ TEST(KalmanMotionEstimatorTest, ConstructionWithoutPlantThrows) {
 
 TEST(KalmanMotionEstimatorTest, LargeClockGapFreezesPosition) {
     KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
-    config.opponent_max_coast_s = 100.0;
+    config.max_coast_s = 100.0;
     KalmanMotionEstimator estimator{config};
     FrameIdAssigner assigner(10.0, 5);
     const FieldDescription field = make_field();
@@ -923,25 +946,6 @@ TEST(KalmanMotionEstimatorTest, TooOldMeasurementFoldsInAtCurrentState) {
     const double after = estimator.opponent_filter_state(FrameId::THEIR_ROBOT_1)->state(0);
     EXPECT_GT(after, before + 0.005) << "the measurement was dropped instead of folded in";
     EXPECT_LT(after, x + 0.05);
-}
-
-TEST(KalmanMotionEstimatorTest, CoastStaleAgeComesFromConfig) {
-    KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
-    config.coast_stale_age_s = 0.5;
-    KalmanMotionEstimator estimator{config};
-    FrameIdAssigner assigner(10.0, 5);
-    const FieldDescription field = make_field();
-    const MotionEstimatorContext context;
-
-    const auto [last_t, x, y] =
-        run_constant_velocity(estimator, assigner, field, context, 30, 1.0, 2.0, 0.0, 0.0);
-
-    auto fresh = estimator.coast(last_t + 0.3);
-    ASSERT_TRUE(fresh.has_value());
-    EXPECT_FALSE((*fresh)[0].is_stale);
-    auto stale = estimator.coast(last_t + 0.6);
-    ASSERT_TRUE(stale.has_value());
-    EXPECT_TRUE((*stale)[0].is_stale);
 }
 
 size_t count_clock_gap_warnings(KalmanMotionEstimator &estimator, const std::vector<double> &nows) {

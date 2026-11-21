@@ -84,7 +84,7 @@ channel's jsonschema is generated from the struct, so this doc does not repeat t
 | `/status/app` | every 5 s, latched | Profiles, current profile, loop rate target and fail thresholds |
 | `/status/config` | every 20 s, latched | Every config field the app parsed: `section`, `key`, `value` (TOML text), `source` (`file.toml:line` relative to `config/`, or `default`) |
 | `/status/sticks` | 20 Hz | Our robot's sticks read back from the transmitter, normalized [-1, 1] |
-| `/status/tracks` | 20 Hz | Field size, the field border projected into the camera image (fractions of width and height), each robot's track id, label, group, stale flag, field-frame `x`, `y`, `yaw`, and image point, and navigation's target segment |
+| `/status/tracks` | 20 Hz | Field size, the field border projected into the camera image (fractions of width and height), each robot's track id, label, group, field-frame `x`, `y`, `yaw`, and image point, and navigation's target segment |
 | `/status/command_ack` | per command | `seq`, `topic`, `accepted`, `message` |
 | `/status/network` | every 5 s and on change, latched | Hostname, cable and Wi-Fi addresses, Wi-Fi access |
 
@@ -188,7 +188,7 @@ One channel per `DiagnosticsModuleLogger` name (`runner`, `motion_profile_nav`,
 ```json
 {"runner":     {"level": 0, "message": "", "age_ms": 3.1, "held": false, "values": {"rate": 59.7}},
  "navigation": {"level": 0, "message": "", "age_ms": 2.8, "held": false,
-                "values": {"using_previous_robots": 1}},
+                "values": {"behavior_mode": "ATTACK"}},
  "tick":       {"level": 0, "message": "", "age_ms": 41.0, "held": true,
                 "values": {"elapsed_ms": 12.3}}}
 ```
@@ -686,7 +686,7 @@ venv/bin/python training/video_mcap_extract.py recording.mcap --frames out_dir/ 
 
 - Navigation implementations log the same tick schema (`our_x`, `target_x`, `distance`, `angle_error_deg`, `facing_target`, `linear_x`, `angular_z`, ...) under their own `hardware_id`. Only one navigation runs per fight, so any id in `NAV_HW_IDS` is the navigation stage for that recording. A navigation implementation with a different schema (`rl_policy_nav`) stays out of the set.
 - `FRAME_IDS` follows the `FrameId` enum order in `include/enums/frame_id.hpp`. Robot markers set `marker.id` to the enum index of the frame, so the index maps back to the name there.
-- `load_robot_tracks` reads the CUBE body markers (`ns == "robot_bounds"`). It does not carry `is_stale`, because markers do not encode it.
+- `load_robot_tracks` reads the CUBE body markers (`ns == "robot_bounds"`).
 - Transmitter channels are logged only on change. They are latched physical state, so the loader forward-fills them. Defaulting the gaps would invent auto<->manual transitions and zero-command ticks.
 - `_merge_status` indexes its `defaultdict` only where a status contributes a column. Touching it unconditionally would mint an all-NaN row for every message that carries nothing the loader wants.
 

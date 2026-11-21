@@ -41,7 +41,6 @@ class RobotFrontBackFilter : public RobotFilterInterface {
     std::map<Label, Size> size_overrides_;
     std::map<Label, Position2D> footprint_center_offsets_;
     double field_bounds_margin_meters_;
-    double our_robot_hold_window_s_;
     FrameIdAssigner frame_id_assigner_;
     std::unique_ptr<MotionEstimatorInterface> motion_estimator_;
 

@@ -16,7 +16,6 @@ namespace {
 constexpr double kOurHalfX = 0.15;
 constexpr double kOurHalfY = 0.10;
 const double kOurHalfDiagonal = std::hypot(kOurHalfX, kOurHalfY);
-constexpr bool kStale = true;
 
 RobotDescription our_robot(double half_x = kOurHalfX, double half_y = kOurHalfY) {
     RobotDescription robot;
@@ -26,7 +25,7 @@ RobotDescription our_robot(double half_x = kOurHalfX, double half_y = kOurHalfY)
     return robot;
 }
 
-RobotDescription house_bot(double x, double y, bool stale = false) {
+RobotDescription house_bot(double x, double y) {
     RobotDescription robot;
     robot.frame_id = FrameId::NEUTRAL_ROBOT_1;
     robot.group = Group::NEUTRAL;
@@ -36,7 +35,6 @@ RobotDescription house_bot(double x, double y, bool stale = false) {
     robot.pose.rotation.w = 1.0;
     robot.size = Size{0.3, 0.3, 0.1};
     robot.velocity.vx_mps = 0.5;
-    robot.is_stale = stale;
     return robot;
 }
 
@@ -144,7 +142,7 @@ TEST(HazardAssemblerTest, OpponentsAreNotHazards) {
     EXPECT_TRUE(field.hazards.empty());
 }
 
-TEST(HazardAssemblerTest, StaleNeutralTrackIsHeldThenDropped) {
+TEST(HazardAssemblerTest, MissingNeutralTrackIsHeldThenDropped) {
     Fixture fixture;
     fixture.config.tracked_hold_s = 0.5;
     HazardAssembler assembler(fixture.config, {}, fixture.clock);
@@ -156,13 +154,13 @@ TEST(HazardAssemblerTest, StaleNeutralTrackIsHeldThenDropped) {
 
     fixture.clock->set(10.3);
     FieldDescription held;
-    assembler.assemble(robots_with({our_robot(), house_bot(0.4, 0.1, kStale)}), held);
+    assembler.assemble(robots_with({our_robot()}), held);
     ASSERT_EQ(held.hazards.size(), 1u) << "still inside the hold window";
     EXPECT_NEAR(held.hazards[0].center.x, 0.4, 1e-9);
 
     fixture.clock->set(10.8);
     FieldDescription expired;
-    assembler.assemble(robots_with({our_robot(), house_bot(0.4, 0.1, kStale)}), expired);
+    assembler.assemble(robots_with({our_robot()}), expired);
     EXPECT_TRUE(expired.hazards.empty());
 }
 

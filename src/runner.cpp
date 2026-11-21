@@ -134,16 +134,13 @@ void Runner::publish_tracks(const RobotDescriptionsStamped &robots, const FieldD
     message.field_outline = remote::project_field_outline(field, camera_info);
     message.camera_marker = remote::project_camera_marker(field, camera_info);
     for (const auto &robot : robots.descriptions) {
-        if (!robot.is_stale) {
-            if (robot.group == Group::OURS) message.our_robot_seen = true;
-            if (robot.group == Group::THEIRS) ++message.opponents_seen;
-        }
+        if (robot.group == Group::OURS) message.our_robot_seen = true;
+        if (robot.group == Group::THEIRS) ++message.opponents_seen;
         const Rotation &q = robot.pose.rotation;
         remote::TrackedRobot tracked;
         tracked.id = remote::detail::lowercase(magic_enum::enum_name(robot.frame_id));
         tracked.label = remote::detail::lowercase(magic_enum::enum_name(robot.label));
         tracked.ours = robot.group == Group::OURS;
-        tracked.stale = robot.is_stale;
         tracked.x = robot.pose.position.x;
         tracked.y = robot.pose.position.y;
         tracked.yaw =

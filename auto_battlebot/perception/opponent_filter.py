@@ -9,7 +9,6 @@ import torch
 
 SNAPSHOT_CAPACITY = 64
 MAX_INTEGRATION_STEP_S = 1.0
-COAST_STALE_AGE_S = 0.1
 MAX_HEADING_VARIANCE = math.pi * math.pi
 FLIP_TEST_MAX_VARIANCE = (math.pi / 4.0) ** 2
 PX, PY, VX, VY, THETA, OMEGA = range(6)
@@ -29,7 +28,8 @@ class OpponentFilterConfig:
     reinit_after_rejects: int = 5
     heading_flip_reinit_count: int = 3
     covariance_floor: float = 1e-6
-    opponent_max_coast_s: float | torch.Tensor = 0.1
+    max_coast_s: float | torch.Tensor = 0.4
+    max_position_sigma_m: float | torch.Tensor = 1.0
     render_lead_s: float = 0.0
 
 
@@ -46,7 +46,6 @@ class RenderedEstimate:
     position_sigma_m: torch.Tensor
     heading_sigma_rad: torch.Tensor
     yaw_rate_sigma_rad_s: torch.Tensor
-    is_stale: torch.Tensor
     active: torch.Tensor
 
 
@@ -98,7 +97,8 @@ class OpponentFilter:
         self.initial_velocity_sigma = per_row(config.initial_velocity_sigma)
         self.initial_yaw_rate_sigma = per_row(config.initial_yaw_rate_sigma)
         self.gate_nis = per_row(config.gate_nis)
-        self.opponent_max_coast_s = per_row(config.opponent_max_coast_s)
+        self.max_coast_s = per_row(config.max_coast_s)
+        self.max_position_sigma_m = per_row(config.max_position_sigma_m)
         self.reinit_after_rejects = int(config.reinit_after_rejects)
         self.heading_flip_reinit_count = int(config.heading_flip_reinit_count)
         self.covariance_floor = float(config.covariance_floor)
@@ -124,7 +124,6 @@ class OpponentFilter:
         self.heading_initialized = torch.zeros(b, dtype=torch.bool, device=self.device)
         self.consecutive_flips = torch.zeros(b, dtype=torch.long, device=self.device)
         self.consecutive_rejects = torch.zeros(b, dtype=torch.long, device=self.device)
-        self.output_stale = torch.zeros(b, dtype=torch.bool, device=self.device)
         self.measured_yaw = torch.zeros(b, device=self.device, dtype=dtype)
 
         c = SNAPSHOT_CAPACITY
@@ -187,7 +186,7 @@ class OpponentFilter:
         move_dt = torch.where(
             dt_total > MAX_INTEGRATION_STEP_S,
             torch.zeros_like(dt),
-            torch.minimum(dt, torch.clamp(self.opponent_max_coast_s - age, min=0.0)),
+            torch.minimum(dt, torch.clamp(self.max_coast_s - age, min=0.0)),
         )
 
         f = torch.eye(N, device=self.device, dtype=self.dtype).repeat(self.batch, 1, 1)
@@ -314,7 +313,6 @@ class OpponentFilter:
         self.stamp[rows] = stamp[rows]
         self.last_measured[rows] = stamp[rows]
         self.consecutive_rejects[rows] = 0
-        self.output_stale[rows] = False
         self.measured_yaw[rows] = yaw[rows]
         self.active[rows] = True
         self.snap_start[rows] = 0
@@ -335,7 +333,6 @@ class OpponentFilter:
         yaw = yaw.to(device=self.device, dtype=self.dtype)
         measurement_position_variance = self._rows(measurement_position_variance)
         has_measurement = has_measurement.to(self.device)
-        false = torch.zeros(self.batch, dtype=torch.bool, device=self.device)
 
         new = has_measurement & ~self.active
         self._init_track(new, xy, yaw, measurement_position_variance, t)
@@ -382,20 +379,18 @@ class OpponentFilter:
         self.consecutive_rejects = torch.where(
             accepted, torch.zeros_like(self.consecutive_rejects), self.consecutive_rejects
         )
-        self.output_stale = torch.where(accepted, false, self.output_stale)
         self.measured_yaw = torch.where(accepted, yaw, self.measured_yaw)
         self._push_snapshot(accepted)
 
         rejected = existing & ~accepted
-        self.output_stale = self.output_stale | rejected
         self.consecutive_rejects = torch.where(
             rejected, self.consecutive_rejects + 1, self.consecutive_rejects
         )
         reinit = rejected & (self.consecutive_rejects >= self.reinit_after_rejects)
         self._init_track(reinit, xy, yaw, measurement_position_variance, t)
 
-        self.output_stale = self.output_stale | (self.active & ~has_measurement)
-        self._advance(t, self.active & self.output_stale)
+        self._advance(t, self.active & (~has_measurement | rejected))
+        self.active = self.active & (self._position_sigma() <= self.max_position_sigma_m)
 
         stats = UpdateStats(
             accepted=accepted,
@@ -407,20 +402,28 @@ class OpponentFilter:
             reinit=reinit,
             rewind_missed=rewind_missed,
         )
-        return self.render(self.output_stale), stats
+        return self.render(), stats
 
     def coast(self, now: float | torch.Tensor) -> RenderedEstimate:
         """KalmanMotionEstimator::coast for the opponent rows: advance to now + lead, render."""
         t = self._rows(now)
         self._advance(t + self.render_lead_s, self.active)
-        stale = self.output_stale | ((t - self.last_measured) > COAST_STALE_AGE_S)
-        return self.render(stale)
+        return self.render()
 
-    def render(self, stale: torch.Tensor) -> RenderedEstimate:
+    def _position_sigma(self) -> torch.Tensor:
+        a = self.p[:, PX, PX]
+        c = self.p[:, PY, PY]
+        b = self.p[:, PX, PY]
+        largest = 0.5 * (a + c) + torch.sqrt(0.25 * (a - c) ** 2 + b * b)
+        return torch.sqrt(torch.clamp(largest, min=0.0))
+
+    def render(self) -> RenderedEstimate:
+        moving = (self.stamp - self.last_measured) < self.max_coast_s
+        zero = torch.zeros_like(self.stamp)
         x = self.x[:, PX].clone()
         y = self.x[:, PY].clone()
-        vx = self.x[:, VX].clone()
-        vy = self.x[:, VY].clone()
+        vx = torch.where(moving, self.x[:, VX], zero)
+        vy = torch.where(moving, self.x[:, VY], zero)
         if self.bounds is not None:
             hx = self.bounds[:, 0]
             hy = self.bounds[:, 1]
@@ -429,11 +432,7 @@ class OpponentFilter:
             x = torch.minimum(torch.maximum(x, -hx), hx)
             y = torch.minimum(torch.maximum(y, -hy), hy)
 
-        a = self.p[:, PX, PX]
-        c = self.p[:, PY, PY]
-        b = self.p[:, PX, PY]
-        largest = 0.5 * (a + c) + torch.sqrt(0.25 * (a - c) ** 2 + b * b)
-        position_sigma = torch.sqrt(torch.clamp(largest, min=0.0))
+        position_sigma = self._position_sigma()
 
         known = self.heading_initialized
         inf = torch.full_like(x, math.inf)
@@ -443,7 +442,7 @@ class OpponentFilter:
             yaw=torch.where(known, self.x[:, THETA], self.measured_yaw),
             vx=vx,
             vy=vy,
-            omega=torch.where(known, self.x[:, OMEGA], torch.zeros_like(x)),
+            omega=torch.where(known & moving, self.x[:, OMEGA], torch.zeros_like(x)),
             position_sigma_m=position_sigma,
             heading_sigma_rad=torch.where(
                 known, torch.sqrt(torch.clamp(self.p[:, THETA, THETA], min=0.0)), inf
@@ -451,6 +450,5 @@ class OpponentFilter:
             yaw_rate_sigma_rad_s=torch.where(
                 known, torch.sqrt(torch.clamp(self.p[:, OMEGA, OMEGA], min=0.0)), inf
             ),
-            is_stale=stale.clone(),
             active=self.active.clone(),
         )

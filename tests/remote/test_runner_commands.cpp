@@ -35,7 +35,6 @@
 namespace auto_battlebot {
 namespace {
 
-const double kCacheMaxAgeS = ControlLoopConfiguration{}.robot_cache_max_age_s;
 constexpr auto kRecordingToggleTimeout = std::chrono::seconds(2);
 constexpr auto kReopenBlockLimit = std::chrono::seconds(10);
 constexpr int kOutOfRangeOpponentCount = 7;
@@ -124,7 +123,7 @@ class RunnerCommandsTest : public ::testing::Test {
         auto loop = std::make_shared<ControlLoop>(
             std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
             std::make_shared<NoopNavigation>(), std::make_shared<NoopTransmitter>(),
-            std::make_shared<ManualClock>(), nullptr, kCacheMaxAgeS);
+            std::make_shared<ManualClock>(), nullptr);
         loop_ = loop;
         RunnerRemote remote;
         commands_ = remote.commands;
@@ -407,7 +406,7 @@ class CameraSettingsCommandsTest : public ::testing::Test {
         auto loop = std::make_shared<ControlLoop>(
             std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
             std::make_shared<NoopNavigation>(), std::make_shared<NoopTransmitter>(), nullptr,
-            nullptr, kCacheMaxAgeS);
+            nullptr);
         RunnerRemote remote;
         commands_ = remote.commands;
         store_ = std::make_shared<CameraProfileStore>(dir_ / "camera_profiles.toml");
@@ -546,7 +545,7 @@ class RunnerRecordingOrderTest : public ::testing::Test {
         auto loop = std::make_shared<ControlLoop>(
             std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
             std::make_shared<NoopNavigation>(), std::make_shared<NoopTransmitter>(), nullptr,
-            nullptr, kCacheMaxAgeS);
+            nullptr);
         RunnerRemote remote;
         commands_ = remote.commands;
         runner_ = std::make_unique<Runner>(
@@ -681,8 +680,7 @@ TEST_F(RunnerCommandsTest, StalledControlLoopCutsAutonomyAndLogsOnce) {
     auto keypoint_model = std::make_shared<NoopKeypointModel>();
     auto loop = std::make_shared<ControlLoop>(
         std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
-        std::make_shared<NoopNavigation>(), std::make_shared<NoopTransmitter>(), nullptr, nullptr,
-        kCacheMaxAgeS);
+        std::make_shared<NoopNavigation>(), std::make_shared<NoopTransmitter>(), nullptr, nullptr);
     Runner stalled(
         RunnerConfiguration{}, camera_, std::make_shared<HealthLogger>(HealthConfiguration{}),
         std::make_shared<NoopMaskModel>(), std::make_shared<NoopFieldFilter>(), keypoint_model,

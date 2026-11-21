@@ -174,17 +174,12 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
     for (const auto &robot : robots.descriptions) {
         if (robot.frame_id == FrameId::OUR_ROBOT_1) our_robot = &robot;
     }
-    const double cached_snapshot_age_s = std::max(0.0, clock_->now() - robots.header.stamp);
-    const double our_unmeasured_s =
-        our_robot == nullptr ? 0.0 : cached_snapshot_age_s + our_robot->measurement_age_s;
-    const bool our_robot_lost = our_unmeasured_s > config_.max_our_unmeasured_s;
-    if (!loaded_ || our_robot == nullptr || our_robot_lost) {
+    const double snapshot_age_s = std::max(0.0, clock_->now() - robots.header.stamp);
+    if (!loaded_ || our_robot == nullptr) {
         if (!loaded_) {
             logger_->debug("not_initialized", "No bundle loaded; command zero");
-        } else if (our_robot == nullptr) {
-            logger_->debug("no_robot", "Our robot not found; command zero");
         } else {
-            logger_->debug("our_robot_unmeasured", {{"unmeasured_s", our_unmeasured_s}});
+            logger_->debug("no_robot", "Our robot not found; command zero");
         }
         ticks_until_policy_step_ = 0;
         last_visualization_.robots = std::move(robots);
@@ -214,7 +209,7 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
         const auto [speed, yaw_rate] = measured_speed_and_yaw_rate(*our_robot);
         history_->push(rl_policy::HistoryEntry{action_.linear, action_.angular, speed, yaw_rate});
         ticks_until_policy_step_ = policy_period_ticks_;
-        log_step(cached_snapshot_age_s, *our_robot, opponent, field, inference_us);
+        log_step(snapshot_age_s, *our_robot, opponent, field, inference_us);
     }
     --ticks_until_policy_step_;
 
@@ -250,7 +245,6 @@ void RlPolicyNavigation::log_step(double observation_age_s, const RobotDescripti
         {"angular", action_.angular},
         {"inference_us", inference_us},
         {"observation_age_s", observation_age_s},
-        {"our_measurement_age_s", our_robot.measurement_age_s},
         {"our_x", our_pose.x},
         {"our_y", our_pose.y},
         {"our_yaw", our_pose.yaw},
@@ -258,7 +252,6 @@ void RlPolicyNavigation::log_step(double observation_age_s, const RobotDescripti
                           our_robot.velocity.vy_mps * std::sin(our_pose.yaw)},
         {"our_yaw_rate", our_robot.velocity.omega_radps},
         {"target_present", opponent != nullptr ? 1 : 0},
-        {"target_stale", opponent == nullptr || opponent->is_stale ? 1 : 0},
         {"run_id", run_id_},
         {"selftest", selftest_summary_},
     };

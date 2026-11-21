@@ -34,7 +34,6 @@
 #include "remote/command_queue.hpp"
 #include "remote/status_bus.hpp"
 #include "rgbd_camera/rgbd_camera_interface.hpp"
-#include "robot_descriptions_cache.hpp"
 #include "robot_filter/robot_filter_interface.hpp"
 #include "runner_config.hpp"
 #include "serial_worker.hpp"

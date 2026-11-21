@@ -41,13 +41,13 @@ digraph RobotFilterPipeline {
   // ----- Pipeline stages (one box each; sub-steps inline) -----
   s1 [label=<<b>1. convert_keypoints_to_measurements</b><br align="left"/><br align="left"/>FrontBackKeypointConverter: pair front/back, project to field plane<br align="left"/>erase_out_of_field<br align="left"/>FrameIdAssigner::assign: greedy nearest-neighbor + jump gate<br align="left"/>>];
 
-  s3 [label=<<b>2. KalmanMotionEstimator::update</b><br align="left"/><br align="left"/>correct measured tracks: EKF ours, Kalman opponents<br align="left"/>propagate unmeasured tracks to the frame stamp, flag is_stale<br align="left"/>emit one RobotDescription per track<br align="left"/>>];
+  s3 [label=<<b>2. KalmanMotionEstimator::update</b><br align="left"/><br align="left"/>correct measured tracks: EKF ours, Kalman opponents<br align="left"/>propagate unmeasured tracks to the frame stamp<br align="left"/>erase any track whose position sigma passes max_position_sigma_m<br align="left"/>emit one RobotDescription per track<br align="left"/>>];
 
   // ----- Persistent state (single node on the right) -----
   state [label=<<b>Persistent track state</b> (per frame_id)<br align="left"/><br align="left"/>FrameIdAssigner: last_position + jump_reject_count<br align="left"/>estimator tracks: state, covariance, last measured stamp<br align="left"/>>, shape=folder, fillcolor="#F1F5F9", color="#94A3B8"];
 
   // ----- Output -----
-  out        [label="RobotDescriptionsStamped\n(pose, frame_id, is_stale per robot)", fillcolor="#E0F2FE", color="#7DD3FC"];
+  out        [label="RobotDescriptionsStamped\n(pose, velocity, sigma per tracked robot)", fillcolor="#E0F2FE", color="#7DD3FC"];
   downstream [label="target selection → navigation", shape=ellipse, fillcolor="#ECFDF5", color="#6EE7B7"];
 
   // ----- Main vertical spine (weighted so 1 -> 2 stays straight) -----
