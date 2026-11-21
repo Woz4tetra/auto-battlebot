@@ -16,7 +16,6 @@ PlaybackTransmitter::PlaybackTransmitter(const PlaybackTransmitterConfiguration 
       logger_(DiagnosticsLogger::get_logger("playback_transmitter")),
       processor_(
           {
-              .velocity_saturation_limit = config.velocity_saturation_limit,
               .zero_deadzone_percent = config.zero_deadzone_percent,
               .lifted_deadzone_percent = config.lifted_deadzone_percent,
               .reverse_linear = config.reverse_linear_channel,
@@ -54,7 +53,7 @@ CommandFeedback PlaybackTransmitter::update() {
     return feedback;
 }
 
-void PlaybackTransmitter::send(VelocityCommand command) {
+void PlaybackTransmitter::send(StickCommand command) {
     last_processed_ = processor_.to_body_velocity(processor_.process(command));
 }
 

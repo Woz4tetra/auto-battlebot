@@ -130,15 +130,15 @@ void SimConnection::disconnect() {
 
 bool SimConnection::is_connected() const { return sock_fd_ >= 0; }
 
-void SimConnection::set_command(VelocityCommand cmd) { pending_command_ = cmd; }
+void SimConnection::set_command(StickCommand cmd) { pending_command_ = cmd; }
 
 bool SimConnection::step_and_receive(CameraData& data) {
     if (!is_connected()) return false;
 
     SimRequest req{};
-    req.linear_x = pending_command_.forward_mps;
-    req.linear_y = pending_command_.lateral_mps;
-    req.angular_z = pending_command_.yaw_rate_radps;
+    req.linear_x = pending_command_.forward;
+    req.linear_y = pending_command_.lateral;
+    req.angular_z = pending_command_.yaw;
     if (!send_all(&req, sizeof(req))) {
         spdlog::error("SimConnection: failed to send command");
         disconnect();

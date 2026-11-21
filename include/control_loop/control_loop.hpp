@@ -5,6 +5,7 @@
 #include <mutex>
 #include <optional>
 
+#include "command_shaper/command_shaper_interface.hpp"
 #include "data_structures.hpp"
 #include "data_structures/target_selection.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
@@ -40,6 +41,7 @@ class ControlLoop {
     ControlLoop(std::shared_ptr<RobotFilterInterface> robot_filter,
                 std::shared_ptr<TargetSelectorInterface> target_selector,
                 std::shared_ptr<NavigationInterface> navigation,
+                std::shared_ptr<CommandShaperInterface> command_shaper,
                 std::shared_ptr<TransmitterInterface> transmitter,
                 std::shared_ptr<ClockInterface> clock,
                 std::shared_ptr<HazardAssembler> hazard_assembler);
@@ -71,6 +73,7 @@ class ControlLoop {
     std::shared_ptr<RobotFilterInterface> robot_filter_;
     std::shared_ptr<TargetSelectorInterface> target_selector_;
     std::shared_ptr<NavigationInterface> navigation_;
+    std::shared_ptr<CommandShaperInterface> command_shaper_;
     std::shared_ptr<TransmitterInterface> transmitter_;
     std::shared_ptr<ClockInterface> clock_;
     std::shared_ptr<HazardAssembler> hazard_assembler_;

@@ -3,17 +3,27 @@
 What each config field means, per section. Values and their source per profile come from
 `--print-config` (`docs/reference/config/profiles.md`); this page holds what a value cannot say.
 
+## `[command_shaper]`
+
+Optional. The control loop passes every navigation command through the shaper before
+`transmitter.send`, so all transmitters, the sim included, see the same saturated sticks.
+
+| Field | Meaning |
+| --- | --- |
+| `type` | `IdentityCommandShaper` (the default when the section is absent) |
+| `velocity_saturation_limit` | Combined budget `\|linear\| + \|angular\| <= limit`. Angular takes priority and linear fills the headroom. 0 clamps each channel to [-1, 1] on its own. Default 1.0 |
+
 ## `[transmitter]`
 
 ### Drive processor fields
 
-`OpenTxTransmitter`, `EspNowTransmitter` and `PlaybackTransmitter` run the command through a drive
-processor; `SimTransmitter` applies the same saturation itself.
+`OpenTxTransmitter`, `EspNowTransmitter` and `PlaybackTransmitter` run the stick command through a
+drive processor. `SimTransmitter` sends it unmixed. Saturation happens before either, in
+`[command_shaper]`.
 
 | Field | Meaning |
 | --- | --- |
 | `drive_processor` | `TankDriveProcessor` sends left and right motor commands; `DifferentialDriveProcessor` sends linear and angular for a radio-side mixer. On ESP-NOW the firmware puts the two values where ch0/ch1 land, so it must match how the handset model mixes |
-| `velocity_saturation_limit` | Combined budget `\|linear\| + \|angular\| <= limit`. Angular takes priority and linear fills the headroom. 0 clamps each channel to [-1, 1] on its own. The sim has no drive processor, so without it the simulated robot keeps forward authority in a turn the real one has lost in the mixer |
 | `zero_deadzone_percent` | Input magnitude below which the output is forced to zero |
 | `lifted_deadzone_percent` | Smallest non-zero output magnitude once the zero deadzone is exceeded |
 | `max_motor_rpm`, `max_motor_rpm_per_s` | Linear slew limit: the normalized linear command changes by at most `max_motor_rpm_per_s / max_motor_rpm` per second. The limit applies only while the autonomy switch (SA) is on; with SA off the command passes through, so the robot never lags the sticks. The ramp baseline is the last tick SA was off; on ESP-NOW, enabling autonomy while SA is already on also starts the ramp from standstill. Unset means no limit |

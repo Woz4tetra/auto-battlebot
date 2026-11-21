@@ -12,8 +12,6 @@ struct WheelPair {
     double right;
 };
 
-BodyVelocity saturate_velocity(double linear, double angular, double saturation_limit);
-
 WheelPair mix_to_wheels(BodyVelocity body);
 
 BodyVelocity inverse_mix_from_wheels(WheelPair wheels);

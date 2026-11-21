@@ -28,7 +28,6 @@ struct NoopTransmitterConfiguration : public TransmitterConfiguration {
 
 struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
     double init_delay_seconds = 0.0;
-    double velocity_saturation_limit = 1.0;
     double zero_deadzone_percent = 0.0;
     double lifted_deadzone_percent = 0.0;
     bool reverse_linear_channel = false;
@@ -39,7 +38,6 @@ struct PlaybackTransmitterConfiguration : public TransmitterConfiguration {
     // clang-format off
     PARSE_CONFIG_FIELDS(
         PARSE_FIELD_DOUBLE(init_delay_seconds)
-        PARSE_FIELD_DOUBLE(velocity_saturation_limit)
         PARSE_FIELD_DOUBLE(zero_deadzone_percent)
         PARSE_FIELD_DOUBLE(lifted_deadzone_percent)
         PARSE_FIELD_BOOL(reverse_linear_channel)
@@ -63,7 +61,6 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     double max_motor_rpm = 1500.0;
     std::optional<double> max_motor_rpm_per_s;
 
-    double velocity_saturation_limit = 1.0;
     double channel_stream_stall_timeout_s = 0.5;
 
     OpenTxTransmitterConfiguration() { type = "OpenTxTransmitter"; }
@@ -93,8 +90,8 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
         parser.reject_renamed("max_motor_rpm_per_sec", "max_motor_rpm_per_s");
         max_motor_rpm_per_s =
             parser.get_nullable_double("max_motor_rpm_per_s", max_motor_rpm_per_s);
-        velocity_saturation_limit =
-            parser.get_optional_double("velocity_saturation_limit", velocity_saturation_limit);
+        parser.reject_renamed("velocity_saturation_limit",
+                              "command_shaper.velocity_saturation_limit");
         channel_stream_stall_timeout_s = parser.get_optional_double(
             "channel_stream_stall_timeout_s", channel_stream_stall_timeout_s);
     }
@@ -105,7 +102,6 @@ struct EspNowTransmitterConfiguration : public TransmitterConfiguration {
 
     std::string drive_processor = "DifferentialDriveProcessor";
 
-    double velocity_saturation_limit = 1.0;
     double zero_deadzone_percent = 0.0;
     double lifted_deadzone_percent = 0.0;
     bool reverse_linear_channel = false;
@@ -123,8 +119,8 @@ struct EspNowTransmitterConfiguration : public TransmitterConfiguration {
         reconnect_interval_s =
             parser.get_optional_double("reconnect_interval_s", reconnect_interval_s);
         drive_processor = parser.get_optional_string("drive_processor", drive_processor);
-        velocity_saturation_limit =
-            parser.get_optional_double("velocity_saturation_limit", velocity_saturation_limit);
+        parser.reject_renamed("velocity_saturation_limit",
+                              "command_shaper.velocity_saturation_limit");
         zero_deadzone_percent =
             parser.get_optional_double("zero_deadzone_percent", zero_deadzone_percent);
         lifted_deadzone_percent =
@@ -143,7 +139,6 @@ struct EspNowTransmitterConfiguration : public TransmitterConfiguration {
 struct SimTransmitterConfiguration : public TransmitterConfiguration {
     double init_delay_seconds = 0.5;
     double command_delay_ms = 0.0;
-    double velocity_saturation_limit = 1.0;
 
     SimTransmitterConfiguration() { type = "SimTransmitter"; }
 
@@ -151,7 +146,6 @@ struct SimTransmitterConfiguration : public TransmitterConfiguration {
     PARSE_CONFIG_FIELDS(
         PARSE_FIELD_DOUBLE(init_delay_seconds)
         PARSE_FIELD_DOUBLE(command_delay_ms)
-        PARSE_FIELD_DOUBLE(velocity_saturation_limit)
     )
     // clang-format on
 };

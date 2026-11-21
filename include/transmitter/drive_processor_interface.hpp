@@ -12,7 +12,6 @@ namespace auto_battlebot {
 class DriveProcessorInterface {
    public:
     struct Config {
-        double velocity_saturation_limit = 1.0;
         double zero_deadzone_percent = 0.0;
         double lifted_deadzone_percent = 0.0;
         bool reverse_linear = false;
@@ -26,7 +25,7 @@ class DriveProcessorInterface {
 
     virtual ~DriveProcessorInterface() = default;
 
-    virtual Channels process(VelocityCommand command) const = 0;
+    virtual Channels process(StickCommand command) const = 0;
 
     virtual BodyVelocity to_body_velocity(Channels channels) const = 0;
 };

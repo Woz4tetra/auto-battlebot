@@ -27,7 +27,7 @@ class EspNowTransmitter : public TransmitterInterface {
     bool initialize() override;
     CommandFeedback update() override;
     TransmitterStatus get_status() const override;
-    void send(VelocityCommand command) override;
+    void send(StickCommand command) override;
     bool did_init_button_press() override { return false; }
     void enable() override { enabled_ = true; }
     void disable() override;

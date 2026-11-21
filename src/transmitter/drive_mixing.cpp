@@ -5,16 +5,6 @@
 
 namespace auto_battlebot {
 
-BodyVelocity saturate_velocity(double linear, double angular, double saturation_limit) {
-    const double angular_clamped = std::clamp(angular, -1.0, 1.0);
-    if (saturation_limit > 0.0) {
-        const double limit = std::clamp(saturation_limit, 0.0, 1.0);
-        const double headroom = std::max(0.0, limit - std::abs(angular_clamped));
-        return {std::clamp(linear, -headroom, headroom), angular_clamped};
-    }
-    return {std::clamp(linear, -1.0, 1.0), angular_clamped};
-}
-
 WheelPair mix_to_wheels(BodyVelocity body) {
     return {body.linear + body.angular, body.linear - body.angular};
 }

@@ -20,7 +20,7 @@ class SimTransmitter : public TransmitterInterface {
 
     bool initialize() override;
     CommandFeedback update() override;
-    void send(VelocityCommand command) override;
+    void send(StickCommand command) override;
     bool did_init_button_press() override;
     TransmitterStatus get_status() const override;
     void enable() override;
@@ -29,7 +29,6 @@ class SimTransmitter : public TransmitterInterface {
    private:
     double init_delay_seconds_;
     double command_delay_ms_;
-    double velocity_saturation_limit_;
     double start_time_s_ = 0.0;
     bool init_button_pressed_ = false;
     bool init_button_done_ = false;
@@ -37,8 +36,8 @@ class SimTransmitter : public TransmitterInterface {
     bool enabled_ = false;
     std::shared_ptr<ClockInterface> clock_;
     std::shared_ptr<SimConnection> connection_;
-    std::deque<std::pair<double, VelocityCommand>> command_queue_;
-    std::optional<VelocityCommand> last_sent_normalized_command_;
+    std::deque<std::pair<double, StickCommand>> command_queue_;
+    std::optional<StickCommand> last_sent_command_;
 };
 
 }  // namespace auto_battlebot

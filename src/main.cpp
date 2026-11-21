@@ -91,13 +91,15 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     auto robot_filter = make_robot_filter(*class_config.robot_filter, clock);
     auto target_selector = make_target_selector(*class_config.target_selector);
     auto navigation = make_navigation(*class_config.navigation, clock);
+    auto command_shaper = make_command_shaper(*class_config.command_shaper);
     auto transmitter = make_transmitter(*class_config.transmitter, clock, viz_sink, mcap_recorder);
     auto health_logger = std::make_shared<HealthLogger>(class_config.health);
     auto height_gate = std::make_shared<KeypointHeightGate>(class_config.keypoint_filter.height);
 
     auto hazard_assembler = make_hazard_assembler(*class_config.field_filter, clock);
-    auto control_loop_body = std::make_shared<ControlLoop>(
-        robot_filter, target_selector, navigation, transmitter, clock, hazard_assembler);
+    auto control_loop_body =
+        std::make_shared<ControlLoop>(robot_filter, target_selector, navigation, command_shaper,
+                                      transmitter, clock, hazard_assembler);
     auto control_loop = make_control_loop(*class_config.control_loop, control_loop_body);
 
     RunnerRemote remote;

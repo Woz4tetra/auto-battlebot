@@ -14,12 +14,14 @@ namespace auto_battlebot {
 ControlLoop::ControlLoop(std::shared_ptr<RobotFilterInterface> robot_filter,
                          std::shared_ptr<TargetSelectorInterface> target_selector,
                          std::shared_ptr<NavigationInterface> navigation,
+                         std::shared_ptr<CommandShaperInterface> command_shaper,
                          std::shared_ptr<TransmitterInterface> transmitter,
                          std::shared_ptr<ClockInterface> clock,
                          std::shared_ptr<HazardAssembler> hazard_assembler)
     : robot_filter_(std::move(robot_filter)),
       target_selector_(std::move(target_selector)),
       navigation_(std::move(navigation)),
+      command_shaper_(std::move(command_shaper)),
       transmitter_(std::move(transmitter)),
       clock_(std::move(clock)),
       hazard_assembler_(std::move(hazard_assembler)),
@@ -165,7 +167,7 @@ void ControlLoop::run_cycle() {
     TargetSelection resolved_target =
         resolve_target(robots, *field_description_, behavior_mode, target_override);
     VelocityCommand command = navigation_->update(robots, *field_description_, resolved_target);
-    transmitter_->send(command);
+    transmitter_->send(command_shaper_->shape(command));
 
     {
         std::lock_guard<std::mutex> lock(mutex_);

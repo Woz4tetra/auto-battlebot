@@ -9,6 +9,7 @@
 #include <thread>
 #include <vector>
 
+#include "command_shaper/identity_command_shaper.hpp"
 #include "control_loop/config.hpp"
 #include "control_loop/control_loop.hpp"
 #include "control_loop/stepped_control_loop.hpp"
@@ -82,7 +83,7 @@ class RecordingTransmitter : public TransmitterInterface {
         return feedback;
     }
 
-    void send(VelocityCommand command) override { sent.push_back(command); }
+    void send(StickCommand command) override { sent.push_back(command); }
     bool did_init_button_press() override { return init_button_pressed; }
     void enable() override { enable_calls++; }
     void disable() override { disable_calls++; }
@@ -90,7 +91,7 @@ class RecordingTransmitter : public TransmitterInterface {
         return {.connected = true, .receiving_channels = true};
     }
 
-    std::vector<VelocityCommand> sent;
+    std::vector<StickCommand> sent;
     int update_calls = 0;
     int enable_calls = 0;
     int disable_calls = 0;
@@ -104,7 +105,7 @@ class SlowInitTransmitter : public RecordingTransmitter {
         initialized = true;
         return true;
     }
-    void send(VelocityCommand command) override {
+    void send(StickCommand command) override {
         if (!initialized) sent_before_initialize = true;
         RecordingTransmitter::send(command);
     }
@@ -238,7 +239,7 @@ void expect_robots_equal(const RobotDescriptionsStamped &a, const RobotDescripti
 TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
     const auto measurements = make_measurements(200);
 
-    std::vector<VelocityCommand> reference_commands;
+    std::vector<StickCommand> reference_commands;
     std::vector<RobotDescriptionsStamped> reference_robots;
     {
         auto config = make_filter_config();
@@ -246,6 +247,7 @@ TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
         ASSERT_TRUE(filter.initialize(1));
         RecordingNavigation navigation;
         RecordingTransmitter transmitter;
+        const IdentityCommandShaper shaper(1.0);
         auto clock = std::make_shared<ManualClock>();
 
         for (const auto &m : measurements) {
@@ -254,13 +256,13 @@ TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
             filter.correct(m.keypoints, m.field_description, m.camera_info);
             filter.predict(clock->now(), feedback);
             const RobotDescriptionsStamped robots = filter.state();
-            transmitter.send(navigation.update(robots, m.field_description, {}));
+            transmitter.send(shaper.shape(navigation.update(robots, m.field_description, {})));
             reference_robots.push_back(robots);
         }
         reference_commands = transmitter.sent;
     }
 
-    std::vector<VelocityCommand> loop_commands;
+    std::vector<StickCommand> loop_commands;
     std::vector<RobotDescriptionsStamped> loop_robots;
     {
         auto config = make_filter_config();
@@ -269,8 +271,9 @@ TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
         auto navigation = std::make_shared<RecordingNavigation>();
         auto transmitter = std::make_shared<RecordingTransmitter>();
         auto clock = std::make_shared<ManualClock>();
-        auto loop =
-            std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock, nullptr);
+        auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation,
+                                                  std::make_shared<IdentityCommandShaper>(1.0),
+                                                  transmitter, clock, nullptr);
         SteppedControlLoop driver(loop, 0.0);
         driver.start();
 
@@ -291,15 +294,12 @@ TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
     for (size_t i = 0; i < reference_commands.size(); ++i) {
         const int index = static_cast<int>(i);
         ASSERT_NO_FATAL_FAILURE(expect_robots_equal(reference_robots[i], loop_robots[i], index));
-        EXPECT_EQ(reference_commands[i].forward_mps, loop_commands[i].forward_mps)
-            << "frame " << index;
-        EXPECT_EQ(reference_commands[i].yaw_rate_radps, loop_commands[i].yaw_rate_radps)
-            << "frame " << index;
+        EXPECT_EQ(reference_commands[i].forward, loop_commands[i].forward) << "frame " << index;
+        EXPECT_EQ(reference_commands[i].yaw, loop_commands[i].yaw) << "frame " << index;
     }
 
-    const bool any_motion =
-        std::any_of(loop_commands.begin(), loop_commands.end(),
-                    [](const VelocityCommand &c) { return c.forward_mps != 0.0; });
+    const bool any_motion = std::any_of(loop_commands.begin(), loop_commands.end(),
+                                        [](const StickCommand &c) { return c.forward != 0.0; });
     ASSERT_TRUE(any_motion) << "scenario produced no motion; equality above would prove nothing";
 }
 
@@ -310,8 +310,9 @@ TEST(ControlLoopTest, ZeroRateRunsExactlyOneCyclePerAdvance) {
     auto navigation = std::make_shared<RecordingNavigation>();
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop =
-        std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation,
+                                              std::make_shared<IdentityCommandShaper>(1.0),
+                                              transmitter, clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
 
     const auto measurements = make_measurements(10);
@@ -339,8 +340,9 @@ TEST(ControlLoopTest, NoCycleReadsClockBeforeFirstFrame) {
     auto navigation = std::make_shared<RecordingNavigation>();
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto clock = std::make_shared<CountingClock>();
-    auto loop =
-        std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation,
+                                              std::make_shared<IdentityCommandShaper>(1.0),
+                                              transmitter, clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
 
     for (int i = 0; i < 5; ++i) driver.advance_to(1.0 + i);
@@ -356,8 +358,9 @@ TEST(ControlLoopTest, NonZeroRateRunsMultipleCyclesPerFrame) {
     auto navigation = std::make_shared<RecordingNavigation>();
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop =
-        std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation,
+                                              std::make_shared<IdentityCommandShaper>(1.0),
+                                              transmitter, clock, nullptr);
     SteppedControlLoop driver(loop, kLoopHz);
 
     const auto measurements = make_measurements(10);
@@ -379,8 +382,9 @@ TEST(ControlLoopTest, MeasurementIsCorrectedExactlyOnce) {
     auto navigation = std::make_shared<RecordingNavigation>();
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop =
-        std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation,
+                                              std::make_shared<IdentityCommandShaper>(1.0),
+                                              transmitter, clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
 
     const auto measurements = make_measurements(2);
@@ -408,8 +412,9 @@ TEST(ControlLoopTest, BehaviorModeReachesSelectorAndOutput) {
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto selector = std::make_shared<RecordingTargetSelector>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop =
-        std::make_shared<ControlLoop>(filter, selector, navigation, transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(filter, selector, navigation,
+                                              std::make_shared<IdentityCommandShaper>(1.0),
+                                              transmitter, clock, nullptr);
     loop->set_behavior_mode(BehaviorMode::RUN_AWAY);
     SteppedControlLoop driver(loop, 0.0);
     driver.start();
@@ -440,8 +445,9 @@ TEST(ControlLoopTest, BehaviorModeIsLoggedEveryCycle) {
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto selector = std::make_shared<RecordingTargetSelector>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop =
-        std::make_shared<ControlLoop>(filter, selector, navigation, transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(filter, selector, navigation,
+                                              std::make_shared<IdentityCommandShaper>(1.0),
+                                              transmitter, clock, nullptr);
 
     loop->set_behavior_mode(BehaviorMode::RUN_AWAY);
     SteppedControlLoop driver(loop, 0.0);
@@ -475,8 +481,9 @@ TEST(ControlLoopTest, TargetOverrideBypassesSelectorUntilCleared) {
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto selector = std::make_shared<RecordingTargetSelector>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop =
-        std::make_shared<ControlLoop>(filter, selector, navigation, transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(filter, selector, navigation,
+                                              std::make_shared<IdentityCommandShaper>(1.0),
+                                              transmitter, clock, nullptr);
     loop->set_behavior_mode(BehaviorMode::RUN_AWAY);
     loop->set_target_override(Pose2D{.x = 0.4, .y = -0.3, .yaw = 0.0});
     SteppedControlLoop driver(loop, 0.0);
@@ -513,7 +520,8 @@ TEST(ControlLoopTest, HeldTargetResumesAfterAnOverrideClears) {
     auto selector = std::make_shared<RecordingTargetSelector>();
     auto clock = std::make_shared<ManualClock>();
     auto loop = std::make_shared<ControlLoop>(
-        filter, selector, navigation, std::make_shared<RecordingTransmitter>(), clock, nullptr);
+        filter, selector, navigation, std::make_shared<IdentityCommandShaper>(1.0),
+        std::make_shared<RecordingTransmitter>(), clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
     driver.start();
     const auto measurements = make_measurements(3);
@@ -544,7 +552,8 @@ TEST(ControlLoopTest, ReusedTargetCarriesTheCurrentBehaviorMode) {
     auto selector = std::make_shared<RecordingTargetSelector>();
     auto clock = std::make_shared<ManualClock>();
     auto loop = std::make_shared<ControlLoop>(
-        filter, selector, navigation, std::make_shared<RecordingTransmitter>(), clock, nullptr);
+        filter, selector, navigation, std::make_shared<IdentityCommandShaper>(1.0),
+        std::make_shared<RecordingTransmitter>(), clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
     driver.start();
     const auto measurements = make_measurements(2);
@@ -573,6 +582,7 @@ TEST(ControlLoopTest, WatchdogStampAdvancesWhileWaitingForTheField) {
     auto clock = std::make_shared<ManualClock>();
     auto loop =
         std::make_shared<ControlLoop>(filter, nullptr, std::make_shared<RecordingNavigation>(),
+                                      std::make_shared<IdentityCommandShaper>(1.0),
                                       std::make_shared<RecordingTransmitter>(), clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
     driver.start();
@@ -587,6 +597,7 @@ TEST(ControlLoopTest, SubmitMeasurementReplacesUnconsumed) {
     auto clock = std::make_shared<ManualClock>();
     auto loop =
         std::make_shared<ControlLoop>(filter, nullptr, std::make_shared<RecordingNavigation>(),
+                                      std::make_shared<IdentityCommandShaper>(1.0),
                                       std::make_shared<RecordingTransmitter>(), clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
     driver.start();
@@ -601,10 +612,10 @@ TEST(ControlLoopTest, SubmitMeasurementReplacesUnconsumed) {
 
 TEST(ControlLoopTest, InitialAutonomyStateReachesTransmitter) {
     auto make_loop = [](std::shared_ptr<RecordingTransmitter> transmitter) {
-        return std::make_shared<ControlLoop>(std::make_shared<OrderRecordingFilter>(), nullptr,
-                                             std::make_shared<RecordingNavigation>(),
-                                             std::move(transmitter),
-                                             std::make_shared<ManualClock>(), nullptr);
+        return std::make_shared<ControlLoop>(
+            std::make_shared<OrderRecordingFilter>(), nullptr,
+            std::make_shared<RecordingNavigation>(), std::make_shared<IdentityCommandShaper>(1.0),
+            std::move(transmitter), std::make_shared<ManualClock>(), nullptr);
     };
 
     auto enabled_transmitter = std::make_shared<RecordingTransmitter>();
@@ -625,9 +636,10 @@ TEST(ControlLoopTest, InitialAutonomyStateReachesTransmitter) {
 
 TEST(ControlLoopTest, SteppedPumpInputLatchesInitButtonWithoutCycling) {
     auto transmitter = std::make_shared<RecordingTransmitter>();
-    auto loop = std::make_shared<ControlLoop>(std::make_shared<OrderRecordingFilter>(), nullptr,
-                                              std::make_shared<RecordingNavigation>(), transmitter,
-                                              std::make_shared<ManualClock>(), nullptr);
+    auto loop = std::make_shared<ControlLoop>(
+        std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
+        std::make_shared<IdentityCommandShaper>(1.0), transmitter, std::make_shared<ManualClock>(),
+        nullptr);
     SteppedControlLoop driver(loop, 0.0);
     transmitter->init_button_pressed = true;
     driver.pump_input();
@@ -639,7 +651,7 @@ TEST(ControlLoopTest, SteppedPumpInputLatchesInitButtonWithoutCycling) {
 
 class TimestampingTransmitter : public RecordingTransmitter {
    public:
-    void send(VelocityCommand command) override {
+    void send(StickCommand command) override {
         std::lock_guard<std::mutex> lock(mutex);
         send_times.push_back(std::chrono::steady_clock::now());
         if (send_times.size() == 1) std::this_thread::sleep_for(std::chrono::milliseconds(40));
@@ -652,9 +664,10 @@ class TimestampingTransmitter : public RecordingTransmitter {
 
 TEST(ControlLoopTest, SteppedCatchUpCappedAfterStall) {
     auto transmitter = std::make_shared<RecordingTransmitter>();
-    auto loop = std::make_shared<ControlLoop>(std::make_shared<OrderRecordingFilter>(), nullptr,
-                                              std::make_shared<RecordingNavigation>(), transmitter,
-                                              std::make_shared<ManualClock>(), nullptr);
+    auto loop = std::make_shared<ControlLoop>(
+        std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
+        std::make_shared<IdentityCommandShaper>(1.0), transmitter, std::make_shared<ManualClock>(),
+        nullptr);
     constexpr int kCap = 5;
     SteppedControlLoop driver(loop, 240.0, kCap);
 
@@ -667,9 +680,10 @@ TEST(ControlLoopTest, SteppedCatchUpCappedAfterStall) {
 
 TEST(ControlLoopTest, ThreadedResyncsAfterOverrun) {
     auto transmitter = std::make_shared<TimestampingTransmitter>();
-    auto loop = std::make_shared<ControlLoop>(std::make_shared<OrderRecordingFilter>(), nullptr,
-                                              std::make_shared<RecordingNavigation>(), transmitter,
-                                              std::make_shared<ManualClock>(), nullptr);
+    auto loop = std::make_shared<ControlLoop>(
+        std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
+        std::make_shared<IdentityCommandShaper>(1.0), transmitter, std::make_shared<ManualClock>(),
+        nullptr);
     ThreadedControlLoop driver(loop, 250.0, 20.0);
     loop->submit_measurement(make_measurements(1)[0]);
     ASSERT_TRUE(driver.start());
@@ -686,9 +700,10 @@ TEST(ControlLoopTest, ThreadedResyncsAfterOverrun) {
 
 TEST(ControlLoopTest, ThreadedPumpInputLeavesTheTransmitterToTheControlThread) {
     auto transmitter = std::make_shared<RecordingTransmitter>();
-    auto loop = std::make_shared<ControlLoop>(std::make_shared<OrderRecordingFilter>(), nullptr,
-                                              std::make_shared<RecordingNavigation>(), transmitter,
-                                              std::make_shared<ManualClock>(), nullptr);
+    auto loop = std::make_shared<ControlLoop>(
+        std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
+        std::make_shared<IdentityCommandShaper>(1.0), transmitter, std::make_shared<ManualClock>(),
+        nullptr);
     ThreadedControlLoop driver(loop, 250.0, 20.0);
     driver.pump_input();
     EXPECT_EQ(transmitter->update_calls, 0);
@@ -696,9 +711,10 @@ TEST(ControlLoopTest, ThreadedPumpInputLeavesTheTransmitterToTheControlThread) {
 
 TEST(ControlLoopTest, ThreadedStartInitializesTransmitterBeforeFirstCycle) {
     auto transmitter = std::make_shared<SlowInitTransmitter>();
-    auto loop = std::make_shared<ControlLoop>(std::make_shared<OrderRecordingFilter>(), nullptr,
-                                              std::make_shared<RecordingNavigation>(), transmitter,
-                                              std::make_shared<ManualClock>(), nullptr);
+    auto loop = std::make_shared<ControlLoop>(
+        std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
+        std::make_shared<IdentityCommandShaper>(1.0), transmitter, std::make_shared<ManualClock>(),
+        nullptr);
     ThreadedControlLoop driver(loop, 250.0, 20.0);
     loop->submit_measurement(make_measurements(1)[0]);
     EXPECT_TRUE(driver.start());
@@ -711,9 +727,10 @@ TEST(ControlLoopTest, ThreadedStartInitializesTransmitterBeforeFirstCycle) {
 
 TEST(ControlLoopTest, ThreadedForwardersSurviveConcurrentCallers) {
     auto transmitter = std::make_shared<RecordingTransmitter>();
-    auto loop = std::make_shared<ControlLoop>(std::make_shared<OrderRecordingFilter>(), nullptr,
-                                              std::make_shared<RecordingNavigation>(), transmitter,
-                                              std::make_shared<ManualClock>(), nullptr);
+    auto loop = std::make_shared<ControlLoop>(
+        std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
+        std::make_shared<IdentityCommandShaper>(1.0), transmitter, std::make_shared<ManualClock>(),
+        nullptr);
     ThreadedControlLoop driver(loop, 250.0, 20.0);
     loop->submit_measurement(make_measurements(1)[0]);
     ASSERT_TRUE(driver.start());
@@ -745,6 +762,7 @@ TEST(ControlLoopTest, FilterCorrectsBeforeItPredicts) {
     auto clock = std::make_shared<ManualClock>();
     auto loop =
         std::make_shared<ControlLoop>(filter, nullptr, std::make_shared<RecordingNavigation>(),
+                                      std::make_shared<IdentityCommandShaper>(1.0),
                                       std::make_shared<RecordingTransmitter>(), clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
     driver.start();
@@ -764,8 +782,9 @@ TEST(ControlLoopInterfaceTest, ForwardersAreSafeToCallFromSeveralThreadsWhileThe
     auto navigation = std::make_shared<RecordingNavigation>();
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop =
-        std::make_shared<ControlLoop>(filter, nullptr, navigation, transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation,
+                                              std::make_shared<IdentityCommandShaper>(1.0),
+                                              transmitter, clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
     ControlLoopInterface &forwarders = driver;
     forwarders.start();

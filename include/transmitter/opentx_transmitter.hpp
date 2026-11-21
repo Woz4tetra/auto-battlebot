@@ -33,7 +33,7 @@ class OpenTxTransmitter : public TransmitterInterface {
 
     CommandFeedback update() override;
 
-    void send(VelocityCommand command) override;
+    void send(StickCommand command) override;
 
     bool did_init_button_press() override;
 

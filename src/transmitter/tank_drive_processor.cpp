@@ -8,14 +8,12 @@ TankDriveProcessor::TankDriveProcessor(const Config& config,
                                        std::shared_ptr<DiagnosticsModuleLogger> logger)
     : config_(config), logger_(std::move(logger)) {}
 
-TankDriveProcessor::Channels TankDriveProcessor::process(VelocityCommand command) const {
-    auto saturated = saturate_velocity(command.forward_mps, command.yaw_rate_radps,
-                                       config_.velocity_saturation_limit);
+TankDriveProcessor::Channels TankDriveProcessor::process(StickCommand command) const {
+    BodyVelocity body{.linear = command.forward, .angular = command.yaw};
+    if (config_.reverse_linear) body.linear = -body.linear;
+    if (config_.reverse_angular) body.angular = -body.angular;
 
-    if (config_.reverse_linear) saturated.linear = -saturated.linear;
-    if (config_.reverse_angular) saturated.angular = -saturated.angular;
-
-    const auto wheels_in = mix_to_wheels(saturated);
+    const auto wheels_in = mix_to_wheels(body);
     const double zero_dz = std::clamp(config_.zero_deadzone_percent, 0.0, 100.0) / 100.0;
     const double lifted_dz = std::clamp(config_.lifted_deadzone_percent, 0.0, 100.0) / 100.0;
     const WheelPair wheels_out{
@@ -23,10 +21,8 @@ TankDriveProcessor::Channels TankDriveProcessor::process(VelocityCommand command
         apply_lifted_deadzone(wheels_in.right, zero_dz, lifted_dz),
     };
 
-    logger_->debug("process", {{"linear_x_in", command.forward_mps},
-                               {"angular_z_in", command.yaw_rate_radps},
-                               {"linear_saturated", saturated.linear},
-                               {"angular_saturated", saturated.angular},
+    logger_->debug("process", {{"linear_x_in", command.forward},
+                               {"angular_z_in", command.yaw},
                                {"wheel_left_pre", wheels_in.left},
                                {"wheel_right_pre", wheels_in.right},
                                {"wheel_left_post", wheels_out.left},

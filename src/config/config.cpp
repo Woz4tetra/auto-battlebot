@@ -264,6 +264,7 @@ ClassConfiguration load_classes_from_config(const std::filesystem::path &path,
         config.target_selector = load_target_selector_from_toml(toml_data, parsed_sections);
         config.navigation = load_navigation_from_toml(toml_data, parsed_sections, config.plant,
                                                       *config.robot_filter);
+        config.command_shaper = load_command_shaper_from_toml(toml_data, parsed_sections);
         config.transmitter = load_transmitter_from_toml(toml_data, parsed_sections);
         config.control_loop = load_control_loop_from_toml(toml_data, parsed_sections);
         config.publisher = load_publisher_from_toml(toml_data, parsed_sections);

@@ -3,7 +3,6 @@
 #include <spdlog/spdlog.h>
 
 #include "enums/frame_id.hpp"
-#include "transmitter/drive_mixing.hpp"
 
 namespace auto_battlebot {
 
@@ -11,7 +10,6 @@ SimTransmitter::SimTransmitter(const SimTransmitterConfiguration &config,
                                std::shared_ptr<ClockInterface> clock)
     : init_delay_seconds_(config.init_delay_seconds),
       command_delay_ms_(config.command_delay_ms),
-      velocity_saturation_limit_(config.velocity_saturation_limit),
       clock_(std::move(clock)),
       connection_(SimConnection::instance()) {
     if (command_delay_ms_ > 0.0) {
@@ -35,13 +33,10 @@ CommandFeedback SimTransmitter::update() {
         }
     }
 
-    if (!last_sent_normalized_command_) return CommandFeedback{};
+    if (!last_sent_command_) return CommandFeedback{};
 
     CommandFeedback feedback;
-    feedback.stick_commands[FrameId::OUR_ROBOT_1] =
-        StickCommand{.forward = last_sent_normalized_command_->forward_mps,
-                     .lateral = last_sent_normalized_command_->lateral_mps,
-                     .yaw = last_sent_normalized_command_->yaw_rate_radps};
+    feedback.stick_commands[FrameId::OUR_ROBOT_1] = *last_sent_command_;
     return feedback;
 }
 
@@ -49,18 +44,13 @@ void SimTransmitter::enable() { enabled_ = true; }
 
 void SimTransmitter::disable() {
     enabled_ = false;
-    last_sent_normalized_command_.reset();
+    last_sent_command_.reset();
 }
 
-void SimTransmitter::send(VelocityCommand command) {
+void SimTransmitter::send(StickCommand command) {
     if (!enabled_) return;
 
-    const auto saturated =
-        saturate_velocity(command.forward_mps, command.yaw_rate_radps, velocity_saturation_limit_);
-    command.forward_mps = saturated.linear;
-    command.yaw_rate_radps = saturated.angular;
-
-    last_sent_normalized_command_ = command;
+    last_sent_command_ = command;
     if (!connection_) return;
 
     if (command_delay_ms_ <= 0.0) {

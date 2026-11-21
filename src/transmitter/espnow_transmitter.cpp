@@ -132,16 +132,14 @@ EspNowTransmitter::EspNowTransmitter(const EspNowTransmitterConfiguration &confi
                                      std::shared_ptr<McapRecorder> mcap_recorder)
     : config_(config),
       logger_(DiagnosticsLogger::get_logger("espnow_transmitter")),
-      processor_(
-          make_drive_processor(config.drive_processor,
-                               {
-                                   .velocity_saturation_limit = config.velocity_saturation_limit,
-                                   .zero_deadzone_percent = config.zero_deadzone_percent,
-                                   .lifted_deadzone_percent = config.lifted_deadzone_percent,
-                                   .reverse_linear = config.reverse_linear_channel,
-                                   .reverse_angular = config.reverse_angular_channel,
-                               },
-                               logger_)),
+      processor_(make_drive_processor(config.drive_processor,
+                                      {
+                                          .zero_deadzone_percent = config.zero_deadzone_percent,
+                                          .lifted_deadzone_percent = config.lifted_deadzone_percent,
+                                          .reverse_linear = config.reverse_linear_channel,
+                                          .reverse_angular = config.reverse_angular_channel,
+                                      },
+                                      logger_)),
       telemetry_channel_(kTopic, "json",
                          VizSchema::jsonschema(foxglove_adapters::kEspNowTelemetrySchemaName,
                                                foxglove_adapters::kEspNowTelemetrySchema),
@@ -197,11 +195,11 @@ int64_t espnow_round_trip_us(uint32_t now_us, uint32_t jetson_tx_us) {
     return static_cast<int64_t>(static_cast<uint32_t>(now_us - jetson_tx_us));
 }
 
-void EspNowTransmitter::send(VelocityCommand command) {
+void EspNowTransmitter::send(StickCommand command) {
     reconnect_if_needed();
     if (!dongle_.is_open() || !enabled_) return;
 
-    command.forward_mps = limit_linear_acceleration(command.forward_mps);
+    command.forward = limit_linear_acceleration(command.forward);
     const auto channels = processor_->process(command);
     const espnow_protocol::CommandPayload payload{
         ++seq_,

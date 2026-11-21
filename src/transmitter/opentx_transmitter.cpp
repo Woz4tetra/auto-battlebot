@@ -19,16 +19,14 @@ OpenTxTransmitter::OpenTxTransmitter(const OpenTxTransmitterConfiguration& confi
     : config_(config),
       logger_(DiagnosticsLogger::get_logger("opentx_transmitter")),
       clock_(std::move(clock)),
-      processor_(
-          make_drive_processor(config.drive_processor,
-                               {
-                                   .velocity_saturation_limit = config.velocity_saturation_limit,
-                                   .zero_deadzone_percent = config.zero_deadzone_percent,
-                                   .lifted_deadzone_percent = config.lifted_deadzone_percent,
-                                   .reverse_linear = config.reverse_linear_channel,
-                                   .reverse_angular = config.reverse_angular_channel,
-                               },
-                               logger_)),
+      processor_(make_drive_processor(config.drive_processor,
+                                      {
+                                          .zero_deadzone_percent = config.zero_deadzone_percent,
+                                          .lifted_deadzone_percent = config.lifted_deadzone_percent,
+                                          .reverse_linear = config.reverse_linear_channel,
+                                          .reverse_angular = config.reverse_angular_channel,
+                                      },
+                                      logger_)),
       find_device_(std::move(find_device)) {
     if (config_.max_motor_rpm_per_s && config_.max_motor_rpm > 0.0) {
         max_normalized_linear_rate_per_s_ = *config_.max_motor_rpm_per_s / config_.max_motor_rpm;
@@ -105,11 +103,11 @@ void OpenTxTransmitter::disable() {
     last_send_time_.reset();
 }
 
-void OpenTxTransmitter::send(VelocityCommand command) {
+void OpenTxTransmitter::send(StickCommand command) {
     reconnect_if_needed();
     if (!serial_.is_open() || !enabled_) return;
 
-    command.forward_mps = limit_linear_acceleration(command.forward_mps);
+    command.forward = limit_linear_acceleration(command.forward);
 
     const auto channels = processor_->process(command);
     const int channel_a_value = to_trainer_value(channels.first_output);

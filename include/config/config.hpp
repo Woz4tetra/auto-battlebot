@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "command_shaper/config.hpp"
 #include "config/config_parser.hpp"
 #include "config/config_provenance.hpp"
 #include "control_loop/config.hpp"
@@ -50,6 +51,7 @@ struct ClassConfiguration {
     std::unique_ptr<RobotFilterConfiguration> robot_filter;
     std::unique_ptr<TargetSelectorConfiguration> target_selector;
     std::unique_ptr<NavigationConfiguration> navigation;
+    std::unique_ptr<CommandShaperConfiguration> command_shaper;
     std::unique_ptr<TransmitterConfiguration> transmitter;
     std::unique_ptr<ControlLoopConfiguration> control_loop;
     std::unique_ptr<PublisherConfiguration> publisher;

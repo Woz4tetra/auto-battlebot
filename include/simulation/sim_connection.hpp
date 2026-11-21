@@ -24,7 +24,7 @@ class SimConnection {
     void disconnect();
     bool is_connected() const;
 
-    void set_command(VelocityCommand cmd);
+    void set_command(StickCommand cmd);
     bool step_and_receive(CameraData &data);
 
     const std::vector<Pose2D> &last_ground_truth_poses() const { return last_gt_poses_; }
@@ -41,7 +41,7 @@ class SimConnection {
     std::string host_;
     int port_;
     int sock_fd_ = -1;
-    VelocityCommand pending_command_{0.0, 0.0, 0.0};
+    StickCommand pending_command_{};
     std::vector<Pose2D> last_gt_poses_;
     SimMeasurementFrame last_measurements_;
     Eigen::Matrix4d last_camera_from_field_ = Eigen::Matrix4d::Identity();

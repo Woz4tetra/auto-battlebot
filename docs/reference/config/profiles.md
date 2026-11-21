@@ -123,7 +123,6 @@ playback transmitter's field init on match state.
   Stabs sends body axes.
 - The Mrs Buff CRSFR model inverts CH2 (right motor) on output, so its readback is inverted back
   (`invert_angular_channel_readback = true`). The Mr Stabs model sends raw Ele/Ail.
-- `velocity_saturation_limit = 1.0` keeps `|linear| + |angular| <= 1`.
 - ESP-NOW (`mr_stabs_mk2_espnow`): commands go out over the dongle alone. The handset talks only to
   the robot: it arms, holds the link failsafe, and SA hands the wheels to these commands. Feedback
   and the SA state come back in the robot's telemetry. `max_motor_rpm_per_s = 2000` against

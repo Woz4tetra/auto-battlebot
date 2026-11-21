@@ -9,4 +9,3 @@ lifted_deadzone_percent = 5
 zero_deadzone_percent = 2
 reverse_angular_channel = true
 invert_angular_channel_readback = true
-velocity_saturation_limit = 1.0

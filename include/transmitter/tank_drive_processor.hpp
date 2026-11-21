@@ -12,7 +12,7 @@ class TankDriveProcessor : public DriveProcessorInterface {
    public:
     TankDriveProcessor(const Config& config, std::shared_ptr<DiagnosticsModuleLogger> logger);
 
-    Channels process(VelocityCommand command) const override;
+    Channels process(StickCommand command) const override;
 
     BodyVelocity to_body_velocity(Channels channels) const override;
 
