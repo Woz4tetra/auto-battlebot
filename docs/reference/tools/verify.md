@@ -74,13 +74,17 @@ All state lives in `.claude/state/` (gitignored), keyed by session id.
 
 | Hook | Command | Does |
 | --- | --- | --- |
-| PostToolUse on Write, Edit, MultiEdit, NotebookEdit | `hooks touch` | appends the repo-relative path to `touched-<session>.txt`; records `HEAD` in `base-<session>.txt` on the first touch |
+| SessionStart | `hooks session-start` | records `HEAD` in `base-<session>.txt` |
+| PostToolUse on Write, Edit, MultiEdit, NotebookEdit | `hooks touch` | records `HEAD` as the base for a session that has none yet |
 | Stop | `hooks stop` | runs `verify --fast --changed` over the touched files, then checks the verdict |
 | SubagentStop, matcher `verifier` | `hooks subagent-stop` | records the verifier's verdict |
 
-Paths outside the repo and under `.claude/state/` or `.claude/worktrees/` are not recorded, and edits made by the verifier
-itself are dropped. Edits made through Bash (`sed -i`, heredocs) are not recorded either; only
-the edit tools fire the hook.
+The touched files are read from git: `git diff --name-only --no-renames <base>` (commits since the
+base and working-tree edits, deletions included) plus untracked files that are not ignored. Edits
+made through Bash and commits made during the session count the same as edit-tool writes. Paths
+under `.claude/state/` and `.claude/worktrees/` are left out. The working tree is shared, so
+uncommitted edits someone else makes during the session count as part of the change too. The
+verifier records no base, so it never opens a change of its own.
 
 ### Stop
 

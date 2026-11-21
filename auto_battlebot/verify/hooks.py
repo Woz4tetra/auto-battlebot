@@ -45,8 +45,16 @@ def read_input(stream: Any = None) -> dict[str, Any]:
     return json.loads(text) if text.strip() else {}
 
 
+def session_start(event: dict[str, Any], root: Path) -> int:
+    """SessionStart: record HEAD as the base the session's change is diffed against."""
+    session = event.get("session_id")
+    if session and event.get("agent_type") != VERIFIER_AGENT:
+        state.record_base(root, session)
+    return 0
+
+
 def touch(event: dict[str, Any], root: Path) -> int:
-    """PostToolUse on Write/Edit: append the edited path to the session's touched list."""
+    """PostToolUse on Write/Edit: record a base commit for a session that started without one."""
     if event.get("agent_type") == VERIFIER_AGENT:
         return 0
     tool_input = event.get("tool_input") or {}
@@ -363,6 +371,7 @@ def emit(code: int, message: str) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m auto_battlebot.verify.hooks")
     sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("session-start", help="SessionStart hook (event JSON on stdin)")
     sub.add_parser("touch", help="PostToolUse hook (event JSON on stdin)")
     sub.add_parser("stop", help="Stop hook (event JSON on stdin)")
     sub.add_parser("subagent-stop", help="SubagentStop hook (event JSON on stdin)")
@@ -375,6 +384,8 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--session", required=True)
     args = parser.parse_args(argv)
     root = repo_root()
+    if args.command == "session-start":
+        return session_start(read_input(), root)
     if args.command == "touch":
         return touch(read_input(), root)
     if args.command == "stop":

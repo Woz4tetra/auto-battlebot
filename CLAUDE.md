@@ -278,8 +278,9 @@ This applies formatters, then runs `clang-tidy` (C++ lint over `src/`), `ruff ch
 (Python lint), and `mypy` (types; scope set by `mypy.ini`). Use `--dry-run` to check
 without modifying files and `--quick` to skip the slow checks.
 
-The Stop hook runs `scripts/verify --fast --changed` (lint, then affected suites) over the files
-this session edited with the edit tools, and a failure blocks the stop. A change under `src/`,
+The Stop hook runs `scripts/verify --fast --changed` (lint, then affected suites) over every file
+that differs from the commit the session started on (git diff plus untracked files), and a
+failure blocks the stop. A change under `src/`,
 `include/`, `firmware/`, `auto_battlebot/`, or `tests/` also needs a PASS from the `verifier`
 agent (`.claude/agents/verifier.md`); the blocked stop says which session id and change hash to
 give it, along with the user's request verbatim.

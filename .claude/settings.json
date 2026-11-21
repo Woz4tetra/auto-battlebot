@@ -22,6 +22,16 @@
     ]
   },
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/venv/bin/python -m auto_battlebot.verify.hooks session-start"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

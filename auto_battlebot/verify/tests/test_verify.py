@@ -152,9 +152,49 @@ def test_record_touch_skips_outside_and_agent_state(repo: Path) -> None:
         state.record_touch(repo, SESSION, ".claude/agents/v.md", cwd=repo) == ".claude/agents/v.md"
     )
     assert state.record_touch(repo, SESSION, "src/a.cpp", cwd=repo) == "src/a.cpp"
-    state.record_touch(repo, SESSION, str(repo / "src/a.cpp"))
-    assert state.read_touched(repo, SESSION) == [".claude/agents/v.md", "src/a.cpp"]
     assert state.read_base(repo, SESSION) is not None
+
+
+def test_touched_files_come_from_git_since_the_base(repo: Path) -> None:
+    write(repo, "src/committed.cpp", "1\n")
+    write(repo, "src/gone.cpp", "1\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "before the session")
+    hooks.session_start({"session_id": SESSION}, repo)
+
+    write(repo, "src/committed.cpp", "2\n")
+    git(repo, "commit", "-q", "-am", "during the session")
+    write(repo, "scripts/by_shell.py", "x\n")
+    write(repo, "README.md", "edited\n")
+    (repo / "src/gone.cpp").unlink()
+    write(repo, ".claude/state/x", "agent state\n")
+
+    assert state.read_touched(repo, SESSION) == [
+        "README.md",
+        "scripts/by_shell.py",
+        "src/committed.cpp",
+        "src/gone.cpp",
+    ]
+
+
+def test_session_start_keeps_the_first_base(repo: Path) -> None:
+    hooks.session_start({"session_id": SESSION}, repo)
+    first = state.read_base(repo, SESSION)
+    write(repo, "a.py", "x\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "later")
+    hooks.session_start({"session_id": SESSION}, repo)
+    assert state.read_base(repo, SESSION) == first
+
+
+def test_a_session_without_a_base_has_no_change(repo: Path) -> None:
+    write(repo, "src/a.cpp", "x\n")
+    assert state.read_touched(repo, SESSION) == []
+
+
+def test_the_verifier_session_records_no_base(repo: Path) -> None:
+    hooks.session_start({"session_id": SESSION, "agent_type": "verifier"}, repo)
+    assert state.read_base(repo, SESSION) is None
 
 
 def test_content_hash_follows_content_and_deletion(repo: Path) -> None:
@@ -360,7 +400,7 @@ def test_working_changes_reads_renames(repo: Path) -> None:
 def test_verdict_is_read_from_the_handback_in_the_transcript(repo: Path, tmp_path: Path) -> None:
     touch_files(repo, "src/a.cpp")
     change = state.content_hash(repo, state.read_touched(repo, SESSION))
-    transcript = tmp_path / "agent.jsonl"
+    transcript = tmp_path.parent / f"{tmp_path.name}-agent.jsonl"
     lines = [
         {"message": {"role": "assistant", "content": [{"type": "text", "text": "looking"}]}},
         {
@@ -390,7 +430,7 @@ def test_verdict_is_read_from_the_handback_in_the_transcript(repo: Path, tmp_pat
 
 
 def session_with_subagents(tmp_path: Path) -> tuple[dict[str, str], Path]:
-    transcript = tmp_path / "sessions" / f"{SESSION}.jsonl"
+    transcript = tmp_path.parent / f"{tmp_path.name}-sessions" / f"{SESSION}.jsonl"
     subagents = transcript.with_suffix("") / "subagents"
     subagents.mkdir(parents=True)
     transcript.write_text("")

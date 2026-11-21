@@ -1,4 +1,4 @@
-"""Per-session agent state under .claude/state: touched files, change hash, results, verdicts."""
+"""Per-session agent state under .claude/state: base commit, change hash, results, verdicts."""
 
 from __future__ import annotations
 
@@ -51,32 +51,39 @@ def git(root: Path, *args: str) -> str:
     ).stdout
 
 
-def touched_file(root: Path, session: str) -> Path:
-    return state_dir(root) / f"touched-{safe_id(session)}.txt"
-
-
 def base_file(root: Path, session: str) -> Path:
     return state_dir(root) / f"base-{safe_id(session)}.txt"
 
 
+def record_base(root: Path, session: str) -> str:
+    """The session's base commit, recorded as HEAD the first time it is asked for."""
+    path = base_file(root, session)
+    if not path.exists():
+        path.write_text(git(root, "rev-parse", "HEAD").strip() + "\n")
+    return path.read_text().strip()
+
+
 def record_touch(root: Path, session: str, path: str, cwd: Path | None = None) -> str | None:
-    """Append a path to the session's touched list, recording the base commit on first touch."""
+    """An edit to a repo path: make sure the session has a base commit, return the path."""
     relative = repo_relative(root, path, cwd)
     if relative is None:
         return None
-    base = base_file(root, session)
-    if not base.exists():
-        base.write_text(git(root, "rev-parse", "HEAD").strip() + "\n")
-    with touched_file(root, session).open("a") as log:
-        log.write(relative + "\n")
+    record_base(root, session)
     return relative
 
 
+def changed_since(root: Path, base: str) -> list[str]:
+    """Every repo path that differs from base: commits since, working-tree edits, new files."""
+    changed = git(root, "diff", "--name-only", "--no-renames", base).splitlines()
+    untracked = git(root, "ls-files", "--others", "--exclude-standard").splitlines()
+    paths = {p.strip() for p in changed + untracked if p.strip()}
+    return sorted(p for p in paths if not p.startswith(UNTRACKED_PREFIXES))
+
+
 def read_touched(root: Path, session: str) -> list[str]:
-    path = touched_file(root, session)
-    if not path.exists():
-        return []
-    return sorted({line.strip() for line in path.read_text().splitlines() if line.strip()})
+    """What the session changed, from git: every path that differs from its base commit."""
+    base = read_base(root, session)
+    return [] if base is None else changed_since(root, base)
 
 
 def read_base(root: Path, session: str) -> str | None:
