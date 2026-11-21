@@ -154,7 +154,6 @@ Rows a batch could not settle. Each needs the action in the last column first.
 | Location | Needs |
 | --- | --- |
 | `auto_battlebot/mujoco_sim/onshape_export.py:1` | Decide whether purchased parts get real mass in the Onshape part studio, or export mass per part through the Onshape API; needs the Onshape exporter |
-| `auto_battlebot/rl/lockstep_world.py:130` | Add `episode_s: 20.0` to the gitignored `playground/rl/out/scenarios.json`, `scenarios_fit.json` and `old_opponents/scenarios_pre_house_radius.json`, then make the key required and drop `LEGACY_SCENARIO_EPISODE_S` and `LEGACY_ROW_EPISODE_S` (`playground/rl/evaluate_nav_policy.py`) |
 | `include/mask_model/fixed_mask_model.hpp:8` | Replace `FixedMaskModel` with `FieldFilterInterface::requires_mask()` (false for `FixedFieldFilter`), gate the Runner on it, switch the three sim TOMLs to `NoopMaskModel`. Needs `docs/reference/simulation/kinematic_sim_config.md`, which has uncommitted edits |
 | `include/rl_policy/policy_interface.hpp:14` | Decide whether navigation outputs a `NormalizedCommand` type; it changes every navigation implementation |
 | `include/robot_descriptions_cache.hpp:9` (`Resolved` lifetime) | Deleted with `RobotDescriptionsCache` in step 3 of `docs/plans/measurement_chain_simplification_plan.md` |

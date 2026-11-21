@@ -100,15 +100,12 @@ class EpisodeScore:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
-LEGACY_SCENARIO_EPISODE_S = 20.0
-
-
 class LockstepWorld:
     def __init__(
         self, scenario: dict[str, Any], cfg: WarpNavConfig | None = None, timestep: float = 1e-3
     ) -> None:
         self.cfg = cfg or WarpNavConfig(
-            episode_s=float(scenario.get("episode_s", LEGACY_SCENARIO_EPISODE_S)),
+            episode_s=float(scenario["episode_s"]),
             robot=str(scenario.get("robot", "mr_stabs_mk2")),
         )
         self.sc = scenario

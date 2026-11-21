@@ -22,11 +22,9 @@ def _row(index: int, **overrides: Any) -> dict[str, Any]:
     return row | overrides
 
 
-def test_rows_without_episode_s_are_scored_as_legacy_length_episodes() -> None:
-    result = evaluate.table([_row(0), _row(1)])
-
-    assert result["seconds_per_episode"] == pytest.approx(20.0)
-    assert result["median_time_to_first_strike_s"] == pytest.approx(20.0)
+def test_rows_without_episode_s_are_rejected() -> None:
+    with pytest.raises(KeyError, match="episode_s"):
+        evaluate.table([_row(0), _row(1)])
 
 
 def test_rows_with_episode_s_use_their_own_length() -> None:
