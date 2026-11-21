@@ -2,18 +2,16 @@
 
 Notes on `auto_battlebot/calibration/apriltag/`: the marker detector settings, gamma correction and the capture MCAP storage choices, with the numbers they were tuned against.
 
-## Detector and MCAP implementation notes
-
-### `calibration/apriltag/apriltag_detect.py`
+## Detection and pose geometry
 
 AprilTag detection and field-plane pose geometry, shared by capture and analysis.
 
-apriltag_track.py uses this live (to guide the operator in the preview); analyze_apriltag_mcap.py
+`apriltag_track.py` uses this live (to guide the operator in the preview); `analyze_apriltag_mcap.py`
 uses it to re-detect the recorded camera images after the fact. Keeping detection in one module
 means the offline poses are solved with the exact detector, gamma correction, and PnP the operator
 saw on screen.
 
-Two PnP solves, same as the original single-script flow:
+Two PnP solves:
   1. solve_floor_extrinsic locks the camera pose relative to a flat AprilTag GridBoard, defining the
      field frame (z = 0 on the floor). Solved once from several frames in which the board is
      visible.
@@ -21,7 +19,7 @@ Two PnP solves, same as the original single-script flow:
      frame. Because the pose is solved in 3D, the tag's height above the floor does not bias (x, y)
      the way a floor homography would.
 
-#### `make_detector`
+## Detector settings
 
 ArucoDetector tuned for small/distant 36h11 tags (markers ~20-40 px from a 1-1.5 m mount).
 
@@ -42,7 +40,7 @@ minMarkerDistanceRate is left at its default: lowering it interacts with subpixe
 drop a valid marker (it merged duplicate candidates), verified on the board photo (15/15 only at
 the default).
 
-#### `auto_gamma`
+## Gamma correction
 
 Brighten an underexposed frame via a gamma curve that lifts its mean toward target_mean.
 
@@ -53,10 +51,7 @@ untouched, so this never hurts a good exposure. The transform is monotonic and a
 channel, so marker corner geometry (hence the recovered pose) is unchanged. Applied at detection
 time, not when recording, so the MCAP keeps the raw frames and the gamma can be retuned offline.
 
-#### `detect_markers`
-
-Auto-brighten then detect. Returns (display_frame, corners, ids) where display_frame is the
-original-resolution gamma frame, so a preview draws markers on the same pixels it detected.
+## Upsampling small markers
 
 `scale` > 1 upsamples the (gamma-corrected) frame before detection, which recovers small markers
 sitting near the pixels-on-target limit: the robot tag is only ~40 px at 1080p and its detection
@@ -66,15 +61,7 @@ robot tag; the live preview leaves it at 1 for speed. Corners are divided back b
 returning, so PnP solves in the true original-image pixel frame regardless of scale, and the
 subpixel refinement done at the higher resolution actually sharpens the corners.
 
-### `calibration/apriltag/apriltag_mcap.py`
-
-#### `JPEG_QUALITY`
-
-`JPEG_QUALITY` sets the quality of the stored frames. High enough that the lossy edges do not meaningfully move the
-subpixel-refined marker corners, while keeping 1080p frames a few hundred KB so 60 fps capture
-sustains.
-
-#### MCAP chunk compression
+## MCAP chunk compression
 
 JPEG frames are tiny and already compressed, so ZSTD is cheap. Raw frames are 6 MB each and
 ZSTD on each one is the capture wall (~26 ms per frame; LZ4 ~13 ms), both under 60 fps. Raw frames

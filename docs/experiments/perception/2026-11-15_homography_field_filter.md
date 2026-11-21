@@ -15,10 +15,6 @@ The assumed size enters linearly: a mat that is 4% wrong makes every range 4% wr
 
 ## Rounded corners and coverage guard
 
-- `cv::approxPolyDP` returns vertices on the outline, so at the mat's rounded corners it chords across them. The quad came out 19% small in area, 11% linearly, and put the camera 11% too far away. The `RecoversTheFullRectangleThroughRoundedCorners` test renders 0.20 m corner radii to catch it. Details: `field_transform_homography_2026-09-08.md`.
-- Before edge refinement the same chording inscribed the quad inside the mat, and the mask came out 24% larger than its own fit. With refinement the fitted quad circumscribes the mask, so the coverage ratio no longer rises above 1 on its own. `RejectsAnOutlineThatSpillsOutsideTheQuad` therefore drives `max_quad_coverage` below a good fit's coverage (0.5) to exercise the wiring.
+- `cv::approxPolyDP` returns vertices on the outline, so at the mat's rounded corners it chords across them. The quad came out 19% small in area, 11% linearly, and put the camera 11% too far away. Details: `field_transform_homography_2026-09-08.md`.
+- Before edge refinement the same chording inscribed the quad inside the mat, and the mask came out 24% larger than its own fit. With refinement the fitted quad circumscribes the mask.
 - Coverage is measured against the quad clipped to the image. Unclipped, a field running off the frame has corners off the sensor, its quad is larger than anything the mask could fill, and the ratio reads as a bad outline on exactly the case this filter exists for.
-
-## Synthetic test intrinsics
-
-`test_intrinsics()` is a 1920x1200 camera with a 1006 px focal length.

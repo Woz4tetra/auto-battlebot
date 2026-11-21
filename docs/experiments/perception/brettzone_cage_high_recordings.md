@@ -15,7 +15,7 @@ venv/bin/python scripts/nhrl_to_recordings.py --from-dir dir/ --name BrettZone_2
 - The intrinsics in `config/cameras/brettzone_cage_high.toml` are backed out of NHRL's stated field of view, not measured. The homography field fit inherits that error linearly, so ranges off these recordings are indicative, not trusted.
 - The detectors were trained on ZED frames at a different mount, so detections here report transfer, not accuracy.
 
-## Fitted value: `DEFAULT_FOCAL_PX = 1331.0`
+## Focal length estimate (1331.0 px)
 
 NHRL shoots this angle with an iPhone Pro at 1x, about 71.6 degrees horizontal. At 1920 px wide that backs out to `960 / tan(35.8 deg)`. It is an estimate, not a calibration.
 

@@ -1,10 +1,6 @@
 # MassDestruction camera fit details
 
-## MassDestruction camera fit details
-
-### `playground/massd_scene/extract_target.py`
-
-`extract_target.py`:
+## Target extraction (`playground/massd_scene/extract_target.py`)
 
 Robot-free target frame from a MassDestruction broadcast clip, banners cropped off.
 
@@ -28,15 +24,9 @@ Usage:
     venv/bin/python playground/massd_scene/extract_target.py <video> --scan 12
 ```
 
-`scan_for_empty`:
+`--scan` ranks sampled frames by the floor fraction that differs from the clip median. Robots, brooms and hands all read as floor that moved. Thin objects score low, so the ranking narrows the search rather than deciding it; look at the contact sheet.
 
-Rank sampled frames by the floor fraction that differs from the clip median.
-
-Robots, brooms and hands all read as floor that moved. Thin objects score low, so the ranking narrows the search rather than deciding it; look at the contact sheet.
-
-### `playground/massd_scene/fit_massd_camera.py`
-
-`fit_massd_camera.py`:
+## Camera fit (`playground/massd_scene/fit_massd_camera.py`)
 
 Fit the MassDestruction broadcast camera: focal length and pose, from the floor alone.
 
@@ -56,11 +46,3 @@ Scale in: `--mat-size`, the plywood floor edge to edge. 2.26 m is the MassD aren
 Usage:
     venv/bin/python playground/massd_scene/fit_massd_camera.py runs/massd_scene
 ```
-
-`build_pose`:
-
-Camera pose in W from the two floor axes, the far corner and the mat size.
-
-W is the Blender world frame of `auto_battlebot.perception.cage_calibration`: mat centre at the origin, z up, +y the mat axis pointing away from the camera.
-
-- `build_pose`: Up must point back toward the camera.

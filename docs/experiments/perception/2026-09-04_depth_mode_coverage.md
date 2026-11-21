@@ -1,25 +1,20 @@
 # Depth cache script details
 
-## Depth cache script details
+## Depth mode
 
-### `playground/depth_cache/cache_gt_depth.py`
+- ZED_NEURAL_LIGHT is the `config/_common.toml` default and the cheapest neural mode. NEURAL_PLUS is the most accurate one the SDK offers and is what a depth-based detector deserves to be graded on: on a sample MassD frame it returns depth for 0.718 of pixels against NEURAL_LIGHT's 0.583. `--depth-mode` picks the mode; the cache name records the choice.
 
-- `DEFAULT_DEPTH_MODE`: ZED_NEURAL_LIGHT is the config/_common.toml default and the cheapest neural mode. NEURAL_PLUS is the most accurate one the SDK offers and is what a depth-based detector deserves to be graded on: on a sample MassD frame it returns depth for 0.718 of pixels against NEURAL_LIGHT's 0.583. Pass --depth-mode to pick; the cache name records the choice.
-- `DEPTH_MIN_M`: config/_common.toml does not set depth_minimum_distance; 0.3 m is the ZED default for METER units and the arena floor is never closer than that.
-
-`resolve_svo`:
+## SVO lookup
 
 The SVO for a recording, found by the timestamp suffix the MCAP name carries.
 
 Recordings are named `<profile>_<start>__<svo stamp>.mcap` and the SVO is `<svo stamp>.svo2`, so the suffix after the double underscore is the key. Roots are searched recursively because the May fights live in `svo/NHRL_2026-05-02/` but the 05-01 one is in `svo/tests/`.
 
-### `playground/depth_cache/check_depth_cache_alignment.py`
-
-`check_depth_cache_alignment.py`:
+## Cache alignment check
 
 Prove the cached depth belongs to the frame the labels describe.
 
-`cache_gt_depth.py` reaches each wanted frame with `set_svo_position`. Seeking an SVO can smear the decode, and a smeared seek is silent: the depth still arrives, still has the right shape, and is simply the wrong frame. Every conclusion drawn from a depth gate would then be measuring noise against labels that describe a different moment.
+The depth cache reaches each wanted frame with `set_svo_position`. Seeking an SVO can smear the decode, and a smeared seek is silent: the depth still arrives, still has the right shape, and is simply the wrong frame. Every conclusion drawn from a depth gate would then be measuring noise against labels that describe a different moment.
 
 The check re-seeks the same indices and pulls the LEFT image instead of depth, then compares it to the ground-truth PNG that carries the same stamp.
 
@@ -34,7 +29,4 @@ Usage:
     python playground/check_depth_cache_alignment.py training/data/nhrl_keypoints_eval_test         --svo-roots data/svo -o training/data/eval_results/depth_cache_alignment.json
 ```
 
-- `BOX_PAD_PX`: Pixels of slack around each GT box, so a robot that moved slightly still falls inside the window being compared rather than half outside it.
-- `compare`: Per-frame argmin is a weak matcher: when a robot barely moves between adjacent indices, the winner among neighbours is decided by noise. Averaging the curve over every sampled frame is the statistic that actually separates a good seek from a bad one. A correct seek gives a V centred on 0; a broken one gives a flat curve, because then no index is special.
-- `compare`: How much better the claimed index is than the distant ones. A flat curve means the seek carries no frame-specific information and the cache cannot be trusted.
-- `main`: +-1 counts as aligned: SVO image stamps sit about half a frame before the pipeline stamps that name the GT images, so the true minimum lies between two indices and which side wins is arbitrary. A cache off by more than that is not usable.
+- A +-1 index offset counts as aligned: SVO image stamps sit about half a frame before the pipeline stamps that name the GT images, so the true minimum lies between two indices and which side wins is arbitrary. A cache off by more than that is not usable.

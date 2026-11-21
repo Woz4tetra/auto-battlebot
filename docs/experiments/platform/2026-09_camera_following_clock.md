@@ -4,4 +4,3 @@
 
 - `SystemClock` gets it right only when camera stamps are wall-clock, which SVO playback stamps are not: unrebased they sit on the recording's clock (a gap of days), and rebased they carry a fixed offset captured during the startup transient that measured about 790 ms of the wrong sign on a 70 s replay. Either way every propagation short-circuits and the emitted estimate freezes at the shutter.
 - `ManualClock` reports zero elapsed time, so it never coasts between frames at all.
-- `set()` is called from the perception thread and `now()` from the control thread, so the anchor is a single atomic offset rather than a stamp/instant pair that could be read torn.

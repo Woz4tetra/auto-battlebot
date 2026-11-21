@@ -1,10 +1,6 @@
 # Mrs Buff Mk3 model build details
 
-## Mrs Buff Mk3 model build details
-
-### `playground/calibration/build_mrs_buff_mk3_model.py`
-
-`build_mrs_buff_mk3_model.py`:
+## Model build (`playground/calibration/build_mrs_buff_mk3_model.py`)
 
 Build the Mrs Buff Mk3 model: mass properties, collision pieces, and the MJCF.
 
@@ -34,17 +30,14 @@ The drive motors (Blitz Pro 24 mm, 650 KV, 5.2:1) turn the back wheels; 120XL be
     python playground/calibration/build_mrs_buff_mk3_model.py --split    # rerun CoACD
 ```
 
-- `R_BODY_ASM`: Assembly -> body. The footprint centre sits at Y_asm = 80.29 mm, at the axle height Z_asm = -30.5.
-- `FULL`: Onshape panel readings against the footprint-centre connector (x forward, y left, z up). Screenshot 2026-10-25 10:24: the whole assembly.
-- `WEAPON`: Screenshot 2026-10-25 10:23: the disk and every part that turns with it.
-- `WHEEL_MASS`: Screenshot 2026-10-25 10:35: one wheel (tread, core, hub plate, clamp hub, two M3 screws) against a connector on its axle, z along the axle; the four wheels are identical. The front wheels' 6 mm shoulder screws are axles that do not turn, so they stay in the chassis.
-- `WHEEL_COM_BACK_RIGHT_MM`: A wheel COM in the footprint frame (screenshot 2026-10-25 10:21, back right wheel, same parts).
-- `main`: The weapon stays in: it does not spin.
+## Onshape sources
 
-### `playground/calibration/fit_mrs_buff_mk3_interim_plant.py`
+- Assembly to body: the footprint centre sits at Y_asm = 80.29 mm, at the axle height Z_asm = -30.5.
+- Whole assembly: Onshape panel readings against the footprint-centre connector (x forward, y left, z up), screenshot 2026-10-25 10:24.
+- Weapon: the disk and every part that turns with it, screenshot 2026-10-25 10:23.
+- Wheel mass: one wheel (tread, core, hub plate, clamp hub, two M3 screws) against a connector on its axle, z along the axle, screenshot 2026-10-25 10:35. The four wheels are identical. The front wheels' 6 mm shoulder screws are axles that do not turn, so they stay in the chassis.
+- Wheel COM in the footprint frame: screenshot 2026-10-25 10:21, back right wheel, same parts.
 
-`command_tape`:
+## Interim plant fit command tapes (`playground/calibration/fit_mrs_buff_mk3_interim_plant.py`)
 
-One window's linear and angular commands on the PLANT_DT grid, piecewise constant.
-
-Each window draws one family, the way the jig protocol excites one term at a time: straight steps and reversals, spins, arcs on the steer/brake grid, and staircases near the deadzone. Holds end in zero about a third of the time, so the coast or brake decel is in the data.
+Each window's linear and angular commands are piecewise constant on the plant time step grid. Each window draws one family, the way the jig protocol excites one term at a time: straight steps and reversals, spins, arcs on the steer/brake grid, and staircases near the deadzone. Holds end in zero about a third of the time, so the coast or brake decel is in the data.

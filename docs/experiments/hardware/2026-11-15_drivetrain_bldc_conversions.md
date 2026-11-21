@@ -1,10 +1,6 @@
 # Drivetrain BLDC conversions
 
-## Drivetrain BLDC conversions
-
-### `playground/bldc_conversions/bldc_max_rpm.py`
-
-`bldc_max_rpm.py`:
+## Theoretical max RPM
 
 Theoretical max RPM calculator for the drivetrain BLDC motors.
 
@@ -30,11 +26,8 @@ Usage:
     python playground/bldc_max_rpm.py
 ```
 
-- `CELL_NOMINAL_V`: GNB LiHV cell. LiHV charges to 4.35 V/cell (vs 4.20 for a plain LiPo) and sags to ~3.8 V/cell nominal.
 
-### `playground/bldc_conversions/rpm_accel_convert.py`
-
-`rpm_accel_convert.py`:
+## RPM/s to m/s^2
 
 Convert between output-shaft acceleration (RPM/s) and wheel-surface linear acceleration (m/s^2).
 
@@ -68,5 +61,3 @@ Usage:
     python playground/rpm_accel_convert.py --rpm-per-sec 3000  # RPM/s -> m/s^2
     python playground/rpm_accel_convert.py --mps2 8.5 --wheel-diameter 0.06
 ```
-
-- `DEFAULT_WHEEL_DIAMETER_M`: output-shaft wheel diameter, meters measured linear accel before slipping/flipping.

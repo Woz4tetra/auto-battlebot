@@ -1,10 +1,6 @@
 # Basement scene pipeline details
 
-## Basement scene pipeline details
-
-### `playground/basement_scene/build_wall_textures.py`
-
-`build_wall_textures.py`:
+## Wall textures (`playground/basement_scene/build_wall_textures.py`)
 
 Stone-wall albedos for the basement scene, from the target frame and its ZED depth.
 
@@ -51,9 +47,7 @@ A plain blur would drag the unseen texels' placeholder value into the estimate a
 
 - `main`: Both run away from the shared corner, so the texture's left edge meets at the corner.
 
-### `playground/basement_scene/fit_basement_camera.py`
-
-`fit_basement_camera.py`:
+## Camera fit (`playground/basement_scene/fit_basement_camera.py`)
 
 Fit the basement drive-test box camera from ZED depth and the rail edges, K known.
 
@@ -79,17 +73,11 @@ Usage:
     venv/bin/python playground/basement_scene/fit_basement_camera.py runs/basement_scene
 ```
 
-`_mid_between_peaks`:
-
-Midpoint of the densest 5 mm bin in each half: the two opposite rail tops.
-
-Percentiles of the extent would not do: the stone wall stands at rail-top height just outside two of the rails and drags them outward.
-
-### `playground/basement_scene/export_svo_depth.py`
+## SVO depth export (`playground/basement_scene/export_svo_depth.py`)
 
 Writes the left image, metric XYZ and intrinsics for one frame of a ZED SVO, for the basement scene fit. It runs wherever the ZED SDK is installed (pyzed), which is not the training box: the basement recordings live on pathfinder under `data/svo/tests/`.
 
-- Frames are decoded in order from the start. Seeking with `set_svo_position` lands between keyframes and hands back smeared, half-decoded pictures, so do not "optimise" this into a seek.
+- Frames are decoded in order from the start. Seeking with `set_svo_position` lands between keyframes and hands back smeared, half-decoded pictures.
 - Depth is NEURAL (falls back to ULTRA), taken as the per-pixel median over the last `--depth-frames` frames up to the requested one. The camera sits still on its stand between bumps, so this only averages sensor noise. Check the printed spread if the camera moved.
 - `--out` receives `left.png` (rectified left image, BGR), `xyz.npy` (float32 HxWx3, camera frame in metres, OpenCV axes, NaN where the SDK had no depth) and `camera_rect.json` (fx, fy, cx, cy, width, height of the left camera, the K every downstream step uses).
 

@@ -1,10 +1,6 @@
 # Cage-high scene pipeline details
 
-## Cage-high scene pipeline details
-
-### `playground/cage_scene/extract_targets.py`
-
-`extract_targets.py`:
+## Target extraction (`playground/cage_scene/extract_targets.py`)
 
 Robot-free, rectified target frames from the fixed cage-high clips.
 
@@ -28,9 +24,7 @@ Usage:
         data/downloads/mrsbuff_may26 --cage 2 --out runs/cage_scene
 ```
 
-### `playground/cage_scene/fit_cage_camera.py`
-
-`fit_cage_camera.py`:
+## Camera fit (`playground/cage_scene/fit_cage_camera.py`)
 
 Fit the cage-high camera pose per clip from the rectified mat hull.
 
@@ -43,12 +37,8 @@ Usage:
     venv/bin/python playground/cage_scene/fit_cage_camera.py runs/cage_scene --event-pose
 ```
 
-- `BORDER_MARGIN_PX`: The undistorted hull polygon lands a few pixels inside the frame where the mat ran off it.
-- `YAW_LIMIT_DEG`: NHRL squares the camera to the mat; a fit yawed past this followed something other than the mat.
 
-### `playground/cage_scene/grade_render.py`
-
-`grade_render.py`:
+## Render grading (`playground/cage_scene/grade_render.py`)
 
 Grade cage renders against the robot-free target frames, per region.
 
@@ -72,11 +62,3 @@ Usage:
     venv/bin/python playground/cage_scene/grade_render.py --compare runs/cage_scene/grades/r001 \
         runs/cage_scene/grades/r002
 ```
-
-### `playground/field_transform/compare_field_transform.py`
-
-`stillest_frames`:
-
-Indices of the frames where the tripod is most settled.
-
-Motion is measured by phase correlation against the previous sampled frame, the same way the cage-camera stability check works. The camera is meant to be static, so this is really a filter for someone bumping the tripod or walking through the shot.

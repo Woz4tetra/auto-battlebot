@@ -2,14 +2,7 @@
 
 How the cage pack purchase data in `hardware/cage_pack/bom_data.py` was priced.
 
-These notes were moved out of source comments and docstrings in `hardware/` at commit
-`23e253c1`. Names, line numbers and numbers are as they were in the code then.
-
-## Notes
-
-### `cage_pack/bom_data.py`
-
-Docstring at line 1:
+## Price sources
 
 ```text
 Purchase data for the cage pack BOM: names, links and unit prices, checked 2026-11-08.
@@ -24,7 +17,7 @@ search results (first relevant listing; Amazon prices move daily). Mouser blocks
 browsing and Mini-Box shows no OpenUPS price without a cart, so neither is priced here.
 ```
 
-Line 233, `above PCBA: dict = {`:
+## Custom PCBA
 
 ```text
 The custom PCBA as one line, priced from the last JLCPCB order rather than part by part:

@@ -1,14 +1,6 @@
 # RL nav scoring details
 
-## RL nav scoring details
-
-### `playground/rl/evaluate_nav_policy.py`
-
-- `table`: A flip or a hole ends the episode early, so danger seconds per episode reward dying fast. The share of time alive spent in danger compares policies that survive for different times.
-
-### `playground/rl/score_field_session.py`
-
-`score_field_session.py`:
+## Field session scoring
 
 Score field RL sessions with the sim's episode metrics (`auto_battlebot/rl/metrics.py`).
 
@@ -26,5 +18,3 @@ The contact and wedge thresholds are unvalidated against video. Check strike and
     python playground/rl/score_field_session.py data/recordings/<session>.mcap [...]
     python playground/rl/score_field_session.py data/recordings/<session>.mcap --clips hit
 ```
-
-- `score`: Elapsed is from the recording's first message, which Foxglove's elapsed time also uses.
