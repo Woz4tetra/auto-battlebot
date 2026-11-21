@@ -9,7 +9,7 @@ Encoder settings for the H.264 recording written into the MCAP `/camera/video` c
 
 ## Encoder backends
 
-`VideoEncoder` owns the queue, the encode thread, and the pts to capture time map. Each `H264Backend` (FFmpeg or GStreamer) only turns frames into Annex-B access units. Every backend must put SPS/PPS in band ahead of every IDR and emit no B-frames, so a decoder can start at any IDR and the nth packet is the nth captured frame. `encode()` takes the frame by value so a backend can hand its memory to the encoder without a copy. `finish()` flushes: every frame `encode()` accepted reaches the sink before it returns. `tests/camera/test_h264_backend.cpp` pins these per backend.
+`VideoEncoder` owns the queue, the encode thread, and the pts to capture time map. Each `H264Backend` (FFmpeg or GStreamer) only turns frames into Annex-B access units. Every backend must put SPS/PPS in band ahead of every IDR and emit no B-frames, so a decoder can start at any IDR and the nth packet is the nth captured frame. `encode()` takes the frame by value so a backend can hand its memory to the encoder without a copy. `finish()` flushes: every frame `encode()` accepted reaches the sink before it returns.
 
 The GStreamer backend lets its `appsrc` hold 2 frames. Past that, `encode()` waits up to 1000 ms for the pipeline, then drops the frame. `VideoEncoder`'s own queue absorbs bursts, and a push into a stalled pipeline must not hang `stop()`. The pipeline carries 1920x1200 at 60 fps on the ZED Box, so this is a stall guard.
 
@@ -17,33 +17,30 @@ The GStreamer backend lets its `appsrc` hold 2 frames. Past that, `encode()` wai
 
 `submit()` returns the frame's index in the encode session, which is the position of its packet in `/camera/video` for that recording, or -1 when the frame was not taken (stopped, queue full, or broken). Cameras write that index into `frame_meta`. Only the encoder knows which frames became packets, so a counter kept anywhere else drifts at the first drop.
 
-When a backend refuses a frame that already has an index, the encoder latches `broken()`. `submit()` takes nothing from then on, since every index handed out afterward would point past the last real packet. Only `stop()` then `start()` clears it, which is the caller restarting the recording. `stop()` calls `finish()` on the backend, so frames still queued reach the sink. `VideoEncoderTest.ASlowBackendDropsAndCountsInsteadOfBlockingSubmit`, `StopFlushesTheBackendSoQueuedFramesReachTheSink`, and `RefusedFrameStopsTheSessionInsteadOfShiftingIndices` pin these.
+When a backend refuses a frame that already has an index, the encoder latches `broken()`. `submit()` takes nothing from then on, since every index handed out afterward would point past the last real packet. Only `stop()` then `start()` clears it, which is the caller restarting the recording. `stop()` calls `finish()` on the backend, so frames still queued reach the sink.
 
 Candidate order is FFmpeg `h264_nvenc` (desktop), FFmpeg `h264_nvv4l2m2m`, GStreamer `nvv4l2h264enc` (Jetson hardware encoder), then libx264 (FFmpeg, else GStreamer `x264enc`). A candidate counts only if it opens: the ZED Box's stock FFmpeg registers `h264_nvenc` but cannot open it without `libnvidia-encode`. On aarch64 libx264 is allowed only for `software_preview`; the recording itself needs a hardware encoder (measurement in `docs/experiments/perception/2026-11-19_libx264_orin_encode_rate.md`).
 
 ## Playback
 
-`VideoPlaybackCamera` joins `image_stamp_ns` from `/camera/frame_meta` to a video packet on the frame ordinal (`video_frame_index`), never on the timestamp: the two channels are logged by different threads on different clocks (see `foxglove_recording_format.md`). `VideoPlaybackCameraJoinTest.ImageStampJoinsFrameMetaOnOrdinalNotLogTime` logs the video five seconds off from frame_meta and checks the stamp still comes from frame_meta.
+`VideoPlaybackCamera` joins `image_stamp_ns` from `/camera/frame_meta` to a video packet on the frame ordinal (`video_frame_index`), never on the timestamp: the two channels are logged by different threads on different clocks (see `foxglove_recording_format.md`).
 
 The camera indexes the video channel once at `initialize()` so a `start_frame` can find its IDR. The `/camera/frame_meta` stamps are indexed in the same pass, keyed on the frame ordinal that both channels agree about.
 
-Real-time pacing sleeps until a deadline, not for one interval per frame. The first frame anchors a wall-clock instant to its stamp, and every later frame is due at the anchor plus its offset in the recording's timeline. Sleeping an interval per frame made the period `interval + pipeline_work`, so 59.94 fps cage footage played at 40 fps. A lag over 500 ms re-anchors. `VideoPlaybackCameraTest.PacingHoldsTheRecordedRateWhilePipelineWorkRuns` checks 25 ms of work per 33 ms frame does not stretch the replay.
+Real-time pacing sleeps until a deadline, not for one interval per frame. The first frame anchors a wall-clock instant to its stamp, and every later frame is due at the anchor plus its offset in the recording's timeline. A lag over 500 ms re-anchors.
 
 ## Playback seek
 
-`VideoDecoder` is stateful where `cv::imdecode` was not: it holds a codec context for the life of a file and has to be fed in stream order. Seeking means finding the last IDR at or before the target and decoding forward from there, never jumping into the middle of a GOP. `sl::Camera::setSVOPosition` has the same problem, landing on non-keyframes so the next grabs return smeared RGB, and it applies to any inter-coded stream. `VideoPlaybackCameraTest.SeekStartsFromPrecedingKeyframe` compares a seeked frame against the same frame decoded from the start.
+`VideoDecoder` is stateful: it holds a codec context for the life of a file and has to be fed in stream order. Seeking means finding the last IDR at or before the target and decoding forward from there, never jumping into the middle of a GOP. `sl::Camera::setSVOPosition` has the same problem, landing on non-keyframes so the next grabs return smeared RGB, and it applies to any inter-coded stream.
 
-## Workarounds
+## Keyframe requests
 
-- **x264enc through GStreamer.** NVIDIA's FFmpeg build on JetPack 7 has no libx264, so `VideoEncoder` falls back to `GstH264Backend` with `x264enc` for the software preview. Unverified on a Jetson from this repo.
-- **BGRA appsrc caps.** `nvvidconv` has no 3-channel input, so the GStreamer backend takes BGRA and `encode()` converts BGR to BGRA on that path. `videoconvert` takes BGR as is.
-- **Keyframe requests.** The request fires from a probe on the encoder's input pad as the requested frame arrives, so it lands on that frame however many frames `appsrc` held ahead of it. `nvv4l2h264enc` ignores the force-key-unit event and takes its force-IDR action instead; `x264enc` takes the event. The event is built by hand as a `GstForceKeyUnit` structure, because `gst_video_event_new_downstream_force_key_unit()` needs `gstreamer-video`, which is not linked. No running time means the next frame, which is the one in hand. `nvv4l2h264enc` applies force-IDR to the next frame the hardware encodes, so a hardware encoder a frame behind puts the IDR one frame before the requested one. That still lets a new preview viewer decode at once, so `VideoEncoderTest` accepts index 7 or 8 for `nvv4l2h264enc` and exactly 8 elsewhere.
-- **FFmpeg forced keyframes are IDR.** A forced keyframe is an IDR, not just an I-frame, so a new viewer can decode from it. Encoders without the option ignore it.
-- **No blocking push, no `get_state` wait.** `encode()` runs on `VideoEncoder`'s thread, and a push that waits on a stalled pipeline would hang `stop()`, so it drops and `VideoEncoder` counts the drop. `nvv4l2h264enc` opens `/dev/v4l2-nvenc` on the way to READY, so a box without the encoder block fails at start, before the first frame. A live `appsrc` with no frames yet does not preroll, so a `get_state` wait always ran to its timeout and blocked the runner (recording toggle) or the publisher (preview subscribe) for 2 s each time.
-- **Bus is read only in `finish()`.** Nothing pops the bus before then, so the sync handler drops everything but ERROR and EOS; anything else would pile up for hours.
-- **Running time, not raw PTS.** `x264enc` is a `GstVideoEncoder` and shifts its output PTS and segment by 1000 hours to keep DTS positive. `VideoEncoder` drops a packet whose ordinal matches no frame it queued, so the backend maps PTS through the segment to running time. `nvv4l2h264enc` does not shift, and there the two are equal.
-- **Start-time race in `VideoEncoder`.** The flag that keeps the encode thread alive is set under the lock, so `submit()` sees it before the thread can drain and exit. Set outside the lock, a frame submitted in between sat in the queue and opened the next recording as its first packet, two seconds stale, with every index after it shifted.
-- **Pacing in `VideoPlaybackCamera`.** The loop sleeps until the instant a frame is due, not for the interval since the last one. Sleeping a full interval on top of pipeline work made the period `interval + pipeline_work`, and 59.94 fps cage footage played back at 40 fps. `VideoPlaybackCameraTest.PacingHoldsTheRecordedRateWhilePipelineWorkRuns` covers it.
-- **Test pacing.** `test_gst_h264_backend.cpp` feeds frames with a short sleep so the drop-when-queued guard never fires.
-- **Encoder failure is fatal with recording on.** A session recorded without its video cannot be replayed, and nobody finds out until the morning after. `ZedOneRgbCamera` fails `initialize()` if no H.264 encoder opens; turning `video_recording` off in the config is the explicit way past it.
-- **Foxglove stamps.** Foxglove's decoder rejects a frame whose timestamp is not after the previous one, so `log_time_ns` on each `CompressedVideo` is strictly increasing. Foxglove image panels reject a calibration whose frame differs from the image's, so `camera_info.header` is copied from the image header.
+The request fires from a probe on the encoder's input pad as the requested frame arrives, so it lands on that frame however many frames `appsrc` held ahead of it. `nvv4l2h264enc` takes a force-IDR action and `x264enc` takes the force-key-unit event. `nvv4l2h264enc` applies force-IDR to the next frame the hardware encodes, so a hardware encoder a frame behind puts the IDR one frame before the requested one. That still lets a new preview viewer decode at once. FFmpeg forced keyframes are IDR, not just I-frames, and encoders without the option ignore it.
+
+## Encoder failure
+
+A session recorded without its video cannot be replayed, and nobody finds out until the morning after. `ZedOneRgbCamera` fails `initialize()` if no H.264 encoder opens. Turning `video_recording` off in the config is the explicit way past it.
+
+## Foxglove stamps
+
+Foxglove's decoder rejects a frame whose timestamp is not after the previous one, so `log_time_ns` on each `CompressedVideo` is strictly increasing. Foxglove image panels reject a calibration whose frame differs from the image's, so `camera_info.header` is copied from the image header.

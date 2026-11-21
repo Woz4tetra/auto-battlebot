@@ -8,8 +8,7 @@ all written against this document. Change it here first.
 
 `McapWriter` opens each file in its own `foxglove.Context`, so one topic can be written to several
 files in one process. Every `log_*` method takes an explicit `log_time_ns`; the writer never reads
-the wall clock. `tests/python/test_mcap_io.py::test_two_writers_same_topic_separate_files` pins the
-first.
+the wall clock.
 
 ## File level
 
@@ -109,7 +108,7 @@ camera re-open does not delay it.
 ## Frames
 
 `frame_id` strings are the lower-case `FrameId` enum names: `camera`, `camera_world`,
-`visual_odometry`, `field`, `our_robot_1`, `their_robot_1`, and so on. Unchanged from before.
+`visual_odometry`, `field`, `our_robot_1`, `their_robot_1`, and so on.
 
 A robot's pose is its reference point. `Keypoint::reference_offset_m` is how far that point sits ahead of the front/back keypoint midpoint, in metres along the heading. The reference point is our robot's axle, the body origin the MuJoCo plant and the RL policy use, and an opponent's footprint centre. The model that knows where its keypoints sit on the robot sets it. It is 0 for models that place the keypoints symmetrically about the reference point.
 
@@ -133,9 +132,8 @@ moment the packet was written.
 
 The encoder is FFmpeg's `h264_nvenc` on the desktop and GStreamer's `nvv4l2h264enc` on the
 Jetsons (`src/rgbd_camera/video_encoder.cpp` lists the order). Stock L4T FFmpeg registers
-`h264_nvenc` but cannot open it without `libnvidia-encode`, which no Jetson has; every ZED Box
-recording before the GStreamer backend has no `/camera/video` for that reason. With
-`video_recording = true` and no encoder that opens, the app now exits at startup instead.
+`h264_nvenc` but cannot open it without `libnvidia-encode`, which no Jetson has. With
+`video_recording = true` and no encoder that opens, the app exits at startup.
 
 Seek to the last IDR at or before the target and decode forward, discarding until you reach it.
 Seeking into the middle of a GOP returns smeared frames; this is the same failure
@@ -170,7 +168,7 @@ names and reports the index as `video_frame_index`, which is what it always was.
 
 ## `/blob_detections`, `/keypoint_detections` (JSON)
 
-Same payload as before, no `std_msgs/String` wrapper:
+Payload:
 
 ```json
 {"stamp": 1788011445.339499712, "w": 1280, "h": 720,
@@ -204,8 +202,7 @@ logged. Readers that treat messages as samples must skip held subsections, as
 contain only the subsections logged in that tick.
 
 Top-level keys are the subsection names. The empty subsection (data logged straight on the
-module logger) is keyed by the module name itself, which is what the old
-`DiagnosticStatus.name` held for it. `level` is 0 OK, 1 WARN, 2 ERROR, 3 STALE. `values` keys
+module logger) is keyed by the module name itself. `level` is 0 OK, 1 WARN, 2 ERROR, 3 STALE. `values` keys
 are the flattened `DiagnosticsData` keys (`/`-joined nested keys, `/N` array indexes) and the
 values are typed: JSON integers for `int`, JSON numbers for `double` (NaN and infinities become
 `null`), JSON strings for `std::string`. Nothing is stringified.
@@ -300,8 +297,7 @@ the robot sends over ESP-NOW (`publish_diag` in `firmware/mr_stabs_mk2/src/main.
   four are 0 until the sensor first comes up.
 - `autonomy_enabled`: ch5 (SA) as the robot decoded it. ESP-NOW substitutes the drive command
   only while this is true.
-- `espnow_active`: ESP-NOW supplied this tick's `a_percent`/`b_percent`. Always false in Phase 1
-  (shadow mode).
+- `espnow_active`: ESP-NOW supplied this tick's `a_percent`/`b_percent`.
 - `espnow_channel`: the channel the robot listens on, 0 while it sweeps.
 - `espnow_age_ms`: since the robot last accepted a command frame, a dongle repeat included;
   `null` before the first.
@@ -430,271 +426,38 @@ Live only. Per detection: a `PointsAnnotation` of type `LINE_LOOP` with the four
 `/camera/image`. Numeric fields of a detection are never copied into `metadata`; the structured
 channel carries them.
 
-## Python readers and the AprilTag capture format
+## AprilTag capture format
 
-Notes on the Python code that reads these recordings, and on the separate MCAP layout the AprilTag ground-truth tools write.
+`calibration/apriltag/apriltag_mcap.py` writes the MCAP that `apriltag_track.py` records and `analyze_apriltag_mcap.py` replays. It stores raw camera images instead of detections, so the floor lock, the detector tuning, the intrinsics and the yaw offset can be corrected and re-run offline.
 
-### `calibration/apriltag/apriltag_mcap.py`
+- `/calibration/metadata`: one JSON message with the intrinsics, image size, robot tag and floor board parameters. It is written just before the first image, so the image size comes from a real frame.
+- `/floor/image`: the frames captured during the one-time floor-board lock.
+- `/camera/image`: the driving frames the robot tag is tracked in.
+- `/transmitter/channels`: one JSON message per driving frame, only when the OpenTX radio is connected. `log_time` is the image timestamp. `sample_t` is when the snapshot was decoded off the radio, so analysis can measure how stale the sticks are. `channels` holds the raw OpenTX values.
+- `/drive/command`: one JSON message per issued command (about 50 Hz), only when run with `--drive`. `log_time` is the send time. `cmd_lin` and `cmd_ang` are normalized [-1, 1], `trainer_lin` and `trainer_ang` are the integer [-500, 500] values written to the trainer link, and `label` tags the protocol phase so the fitter can slice the run. Analysis zero-order-holds the commands onto the frame times.
 
-MCAP layout for the AprilTag ground-truth pipeline: raw camera images in, poses out (offline).
+Images are `foxglove.CompressedImage` (JPEG, the default, ZSTD chunks) or `foxglove.RawImage` (uncompressed bgr8, lossless, uncompressed chunks). JPEG is lossy at the marker edges the corner refinement keys on. Raw is bit-identical to the camera output and is stored uncompressed because compressing 6 MB frames caps capture below 60 fps (ZSTD about 26 ms, LZ4 about 13 ms, against about 3.6 ms uncompressed).
 
-apriltag_track.py records the camera images here; analyze_apriltag_mcap.py replays them, re-runs the
-AprilTag detection, and solves the field-plane pose. Recording images instead of detections means
-the floor lock, the detector tuning, the intrinsics, and the yaw offset can all be corrected and re-
-run offline without re-driving the robot.
+Timestamps are `CLOCK_MONOTONIC` seconds, and each frame's monotonic time is the MCAP `log_time`. With `--drive` the commands share that clock, so the command log and the solved poses align with no correction.
 
-A recording holds:
-  - /calibration/metadata : one JSON message (intrinsics, image size, robot tag + floor board
-    params).
-  - /floor/image          : the frames captured during the one-time floor-board lock (board
-    visible).
-  - /camera/image         : the driving frames to track the robot tag in.
-  - /transmitter/channels : one JSON message per driving frame, stamped with that frame's time,
-    holding the transmitter stick axes the driver was commanding (read-only; present only when the
-    OpenTX radio is connected).
-  - /drive/command        : one JSON message per issued command (~50 Hz), stamped with its send
-    time, holding the scripted excitation command (present only when run with --drive).
+### Foxglove overlay recording
 
-Images are stored either as foxglove.CompressedImage (JPEG, the default) or foxglove.RawImage
-(uncompressed bgr8, lossless) depending on the capture format; both open in Foxglove. JPEG is lossy
-at the marker edges the subpixel corner refinement keys on, so its stored corners differ slightly
-from the live frame; raw is bit-identical to what the camera produced. MCAP chunk compression is
-chosen per format: JPEG uses ZSTD (frames are already small, so it is cheap and shrinks them
-further), while raw uses no compression. Compressing 6 MB raw frames per frame is the capture
-bottleneck (ZSTD ~26 ms, LZ4 ~13 ms, both cap fps below 60 and barely shrink noisy sensor data), so
-raw stores uncompressed (~3.6 ms/frame) and relies on the NVMe.
+`analyze_apriltag_mcap.py` can emit a second MCAP that overlays the solved poses on the camera frames. It carries the source frames, a `foxglove.CameraCalibration`, a `foxglove.FrameTransforms` tree (field to camera fixed, field to robot per frame), and a `foxglove.SceneUpdate` with a body cube, a heading arrow and the trajectory line. Frames use the OpenCV camera convention:
 
-Timestamps are CLOCK_MONOTONIC seconds; each frame's monotonic time is the MCAP log_time, and
-analysis reads the pose timestamps straight back from it. With --drive the issued commands share
-that same clock (one process), so the command log and the solved poses align with no time
-correction.
-
-#### `CHANNELS_SCHEMA`
-
-The JSON schema for the transmitter stick axes recorded per driving frame. The MCAP log_time is
-the image timestamp (for alignment); sample_t is when the snapshot was actually decoded off the
-radio, so analysis can tell how stale the sticks are relative to the frame. channels holds the raw
-OpenTX values.
-
-#### `COMMAND_SCHEMA`
-
-JSON schema for the scripted excitation command issued per send (~50 Hz) in a run with --drive.
-The MCAP log_time is the command's CLOCK_MONOTONIC send time. cmd_lin/cmd_ang are the normalized
-[-1, 1] commands; trainer_lin/trainer_ang are the integer [-500, 500] values actually written to
-the trainer link; label tags the protocol phase so the fitter can slice the run.
-
-#### `CaptureWriter`
-
-Writes the calibration metadata and the floor / camera image streams to an MCAP file.
-
-Metadata is written lazily, just before the first image, so its image_width/image_height come
-straight from a real frame rather than from possibly-unreliable capture properties. Call
-set_metadata() once before recording any frames.
-
-#### `write_channels`
-
-Record the driver's stick axes for one frame, stamped (log_time) with image time
-`image_t`.
-
-`sample_t` is when the snapshot was decoded off the radio; its difference from `image_t` is
-the staleness of the sticks relative to the frame. No metadata gate: channels only ever
-accompany the /camera/image frames, which write the metadata first.
-
-#### `write_command`
-
-Record one scripted excitation command (--drive), stamped (log_time) with its send time
-`t`.
-
-Commands run on their own ~50 Hz clock independent of the camera; analysis zero-order-holds
-them onto the frame times. No metadata gate: commands only ever accompany the /camera/image
-frames, which write the metadata first.
-
-#### Foxglove overlay recording
-
-`analyze_apriltag_mcap.py` can emit a second MCAP that overlays the solved poses on the camera
-frames, so the geometry can be checked by eye in Foxglove. It carries everything Foxglove needs to
-project the 3D scene onto the image in the 3D panel: the camera frames (copied verbatim from the
-source), a CameraCalibration so the projection is calibrated, a TF tree (field to camera fixed,
-field to robot per frame), and scene geometry (a body cube and heading arrow at the robot, plus
-the full trajectory line).
-
-All frames use the OpenCV camera convention, so there is no extra optical rotation:
-
-- `field`: the floor GridBoard frame, z = 0 on the floor. The fixed world frame.
+- `field`: the floor GridBoard frame, z = 0 on the floor.
 - `camera`: the camera optical frame (x right, y down, z forward).
 - `robot`: the robot tag projected onto the field plane (x, y, 0) and rotated by yaw about field z.
+- `WORLD`: a display-only root that flips the field (identity or 180 degrees about x, chosen from the camera's z) so the rig shows upright in Foxglove's z-up world. It does not affect the image overlay.
 
-Everything is a Foxglove schema (foxglove.FrameTransforms, foxglove.CameraCalibration,
-foxglove.SceneUpdate), the same ones the live stack records.
+The writer undistorts frames before writing and publishes zero distortion, so Foxglove's pinhole projection of the 3D markers lands on the rectified image. The same K is kept as the new camera matrix.
 
-#### `WORLD_FRAME`
+## Python readers
 
-The calibration field frame (the GridBoard frame) can have +z pointing either way depending on
-board orientation; when it points toward the floor the camera renders below the field in
-Foxglove's z-up world. WORLD is a display-only root that flips the field (identity or 180deg about
-x, chosen from the camera's z) so the rig shows upright. It does not affect the image overlay,
-which depends only on the field -> camera relative transform.
-
-#### Overlay camera calibration
-
-The overlay writer undistorts frames before writing, and the published calibration carries zero
-distortion, so Foxglove's pinhole projection of the 3D markers lands exactly on the (now
-rectified) image. The ZED's full distortion model has too many coefficients for Foxglove to
-apply, so the writer bakes it out instead. Keeping the same K as the new camera matrix preserves
-focal length and centre.
-
-### `recording/diag_io.py`
-
-#### `_TRANSMITTER_COLUMNS`
-
-`_TRANSMITTER_COLUMNS` maps each transmitter channel to a column. values/15 is the auto switch; values/0 and values/1 are the
-actual transmitted drive command (post trainer-mode mix of navigation and driver sticks),
-which is the true plant input.
-
-#### `load_field_size`
-
-Arena (width, height) in metres, recovered from the field border marker.
-
-The C++ encoder builds the four corners as (+-size.x/2, +-size.y/2) in the
-field-center frame and then rigid-transforms them, so the rectangle edge
-lengths recover the true size regardless of the frame they are expressed in.
-
-The field is published a few times (initial + re-inits) and early detections
-can be bad. The arena is fixed, so the largest-area detection is the best
-estimate; return that.
-
-### `recording/foxglove_ws.py`
-
-Subscribe-only client for the Foxglove WebSocket protocol, as ``viz_relay`` serves it.
-
-Yields the same ``(topic, log_time_ns, MessageBytes)`` tuples as ``mcap_io.iter_messages``, so
-one consumer serves a live relay and a recording. The relay advertises channels with their
-schemas; protobuf schemas are registered with ``mcap_io`` so ``decode_tf_message`` and friends
-work on live payloads unchanged.
-
-There is no publish path: the client never advertises a client channel and never sends a
-message frame. It sends ``subscribe`` and ``unsubscribe`` and nothing else.
-
-Wire format (foxglove.websocket.v1, which the SDK's ``foxglove.sdk.v1`` shares):
-
-- server text frames: JSON ``{"op": "serverInfo" | "advertise" | "unadvertise" | ...}``
-- client text frames: ``{"op": "subscribe", "subscriptions": [{"id", "channelId"}]}``
-- server binary frames, opcode 0x01: ``u8 opcode, u32 subscription id, u64 log time ns``
-  (little endian), then the payload.
-
-### `recording/mcap_io.py`
-
-#### `_PROTO_DECODERS`
-
-`_PROTO_DECODERS` holds protobuf decoders keyed by schema name, filled from the schema records of every file read
-through ``iter_messages``. Foxglove schema names are stable, so a decoder learned from one
-recording serves any other.
-
-#### `decode_frame_meta`
-
-This decodes ``/camera/frame_meta``. ``image_stamp_ns`` is a decimal string on the wire (it is above
-2^53); the legacy bare-number form is accepted too.
-
-Recordings written before video moved into the MCAP carry ``svo_frame_index`` and ``svo_path``
-instead. The index reads back as ``video_frame_index``, which is what it always was: the
-ordinal of the frame in whatever video stream the run was writing. The path is dropped, since
-with one file there is no second file to join to.
-
-#### `decode_diagnostic_array`
-
-One dict per diagnostic status: ``{level, name, message, hardware_id, values}``.
-
-For a ``/diagnostics/<module>`` JSON message ``hardware_id`` is the module (from the topic),
-``name`` is the section key and ``values`` are typed. Held sections, which repeat values
-logged before this message, are skipped, so each logged value is read once.
-
-#### `iter_camera_frames`
-
-Frames from whichever camera topic the recording carries.
-
-A label run records ``/camera/image`` because its config clears ``ignored_topics``; an ordinary
-match recording carries ``/camera/video`` and no JPEG at all. Tools that used to need
-``scripts/combine_mcap_svo.py`` to reach match frames can point straight at the recording.
-
-#### `match_stamps`
-
-Match each reference stamp to the nearest candidate stamp within tolerance.
-
-Playback replays of the same SVO produce identical frame stamps, but the stamp reaches
-different topics through different double->ns conversions, so allow a small tolerance
-(default 1 ms; frames are more than 15 ms apart). It returns {reference_stamp: candidate_stamp}.
-
-### `recording/sysid_io.py`
-
-Readers for the drivetrain sysid topics: robot AprilTags, robot telemetry, sticks, field pose.
-
-Contracts (written by the C++ app, see ``docs/guides/sysid_guide.md``):
-
-- ``/apriltag/robot_tags`` (JSON): one message per camera frame, frames without detections
-  included. Each detection carries its four corners in OpenCV aruco order and every IPPE
-  solution as (rvec, tvec, reprojection error). rvec/tvec map marker-frame points (origin at the
-  tag center, x right, y up in the printed image, z out of the face) into the OpenCV camera
-  frame (x right, y down, z forward).
-- ``/robot/espnow_telemetry`` (JSON): one flat object per 10 ms telemetry frame over the ESP-NOW
-  dongle. ``host_receive_ns`` is the app clock at receipt (also the MCAP log_time);
-  ``timestamp_ms`` is the robot clock.
-- ``/robot/esp32_diagnostics`` (JSON): the same drive fields polled over WiFi, in recordings made
-  before the sysid profile moved to ESP-NOW (2026-10-25). Its ``seq`` is ESP-NOW's
-  ``telemetry_seq``.
-- ``/diagnostics/opentx_transmitter``, subsection ``channels``: the 16 stick channels the radio
-  echoes over USB, as ``values/0`` .. ``values/15``. Logged on every channels frame since
-  2026-10-13, only when they changed before that.
-- ``/tf`` and ``/tf_static``: ``field -> camera_world`` and ``camera_world -> camera``. The app
-  republishes both on ``/tf`` every cycle; older recordings put the first on ``/tf_static``.
-  ``diag_io.load_camera_in_field`` reads only ``/tf_static`` for it and returns an empty frame on
-  current recordings, and it keeps only the translation, so this module has its own loader that
-  returns the full transform.
-
-#### `ESP32_FIELDS`
-
-Field order of one robot telemetry event, with the pandas dtype each column gets. ESP-NOW
-frames carry more fields than these; the extras are dropped, and wifi_clients reads as 0.
-Booleans stay bool; vbat and ibat are float with NaN where the firmware had no INA228 reading
-(null, or a recording older than the field). yaw_rate, yaw_rate_cmd, and the gyro_x/gyro_y chip
-rates (deg/s, ESP-NOW telemetry only) are NaN when absent, and
-seq is a nullable integer, <NA> in recordings older than the field. backfill is False on
-event-stream rows and in recordings older than the telemetry ring.
-
-#### `load_transmitter_channels`
-
-Stick channels as the radio reported them: one row per diagnostics publish tick that read
-a channels frame, columns ``stamp_ns, ch0 .. ch15`` (raw CRSF units, 172..1811, center 992).
-
-Recordings before 2026-10-13 log channels only when they change, so hold each row until the
-next one. The stamp is the diagnostics publish tick, which trails the serial read by up to one
-tick.
-
-### `recording/video_import.py`
-
-Wrap a plain video file into a recording shaped like the RGB camera's.
-
-The camera records H.264 on ``/camera/video`` inside the same MCAP as the pipeline output
-(``docs/reference/recording/foxglove_recording_format.md``). Fixed-camera footage from elsewhere, such as NHRL's
-``Cage-N-Overhead-High`` feed, is the same shape of data from a different sensor, so re-wrapping it
-gives ``VideoPlaybackCamera`` something to replay before the camera hardware exists.
-
-What comes out is a recording, not a match: it carries the three camera channels and nothing else,
-because everything else in a real file is pipeline *output* and replay exists to regenerate it.
-
-The video is re-encoded rather than remuxed. A general MP4 uses B-frames and whatever GOP its
-encoder chose; the camera writes ``max_b_frames = 0`` and an IDR every 30 frames, and both
-``start_frame`` seeking and reading the nth message as the nth captured frame depend on that.
-
-Two CLIs sit on this: ``scripts/video_to_mcap.py`` converts videos you already have, and
-``scripts/nhrl_to_recordings.py`` runs the whole NHRL flow from fight to replayable recording set.
-
-#### `iter_access_units`
-
-Annex-B access units, one per frame, re-encoded to the camera's constraints.
-
-ffmpeg writes a raw H.264 elementary stream to stdout and libavcodec's own parser splits it
-back into one packet per coded picture. Hand-rolling that split from start codes gets the
-SPS-before-IDR case wrong in ways that only show up as a frame count that is quietly short.
+- `recording/mcap_io.py` decodes protobuf channels by schema name, learned from the schema records of every file read. `decode_frame_meta` reads `image_stamp_ns` from its decimal string, and maps the older `svo_frame_index` to `video_frame_index` and drops `svo_path`. `decode_diagnostic_array` returns one dict per diagnostic status (`level`, `name`, `message`, `hardware_id`, `values`) and skips held sections. `iter_camera_frames` yields frames from `/camera/image` (label runs) or `/camera/video` (match recordings). `match_stamps` pairs each reference stamp with the nearest candidate within a tolerance (default 1 ms; frames are more than 15 ms apart).
+- `recording/foxglove_ws.py` is a subscribe-only client for `viz_relay` that yields the same `(topic, log_time_ns, MessageBytes)` tuples as `mcap_io.iter_messages`, so one consumer serves a live relay and a recording. It speaks foxglove.websocket.v1: server text frames carry JSON `{"op": "serverInfo" | "advertise" | "unadvertise" | ...}`, the client sends `{"op": "subscribe", "subscriptions": [{"id", "channelId"}]}`, and server binary frames with opcode 0x01 are `u8 opcode, u32 subscription id, u64 log time ns` (little endian) followed by the payload.
+- `recording/diag_io.py` loads the arena size from the largest-area field border marker, whose corners are (+-size.x/2, +-size.y/2) in the field-center frame. Transmitter channel columns map `values/15` to the auto switch and `values/0` and `values/1` to the transmitted drive command, which is the plant input.
+- `recording/sysid_io.py` reads the drivetrain sysid topics: `/apriltag/robot_tags`, `/robot/espnow_telemetry`, `/robot/esp32_diagnostics`, `/diagnostics/opentx_transmitter` (subsection `channels`, 16 stick channels in raw CRSF units 172..1811, center 992) and `/tf`. Transmitter channels are held forward between rows for recordings before 2026-10-13, which logged them only on change. The stamp is the diagnostics publish tick, which trails the serial read by up to one tick. `docs/guides/sysid_guide.md` describes the writers.
+- `recording/video_import.py` wraps a plain video file into a recording shaped like the RGB camera's, so `VideoPlaybackCamera` can replay fixed-camera footage such as NHRL's `Cage-N-Overhead-High` feed. The result carries only the three camera channels, because everything else in a real file is pipeline output that replay regenerates. The video is re-encoded with `max_b_frames = 0` and an IDR every 30 frames, which `start_frame` seeking and the nth-message-is-nth-frame rule depend on. `scripts/video_to_mcap.py` converts videos you already have and `scripts/nhrl_to_recordings.py` runs the whole NHRL flow.
 
 ## Relay socket framing (app to `viz_relay`)
 
@@ -750,7 +513,7 @@ Subsections are sticky. Each publish window (the span between two `clear()` call
 
 ### ESP32 diagnostics rows
 
-- The CSV line the host parses (`parse_esp32_diagnostics_csv`) is the firmware's printf format in `firmware/mr_stabs_mk2/src/diagnostics_server.cpp`: the parser accepts 20, 21, 22, 24, or 37 fields and rejects every other count. 37 is the current layout: the 24-field layout, 12 motor guard columns, then `seq`. `tests/esp32_diagnostics/test_esp32_diagnostics.cpp` holds one literal per layout; change the firmware format and those literals together.
+- The CSV line the host parses (`parse_esp32_diagnostics_csv`) is the firmware's printf format in `firmware/mr_stabs_mk2/src/diagnostics_server.cpp`: the parser accepts 20, 21, 22, 24, or 37 fields and rejects every other count. 37 is the current layout: the 24-field layout, 12 motor guard columns, then `seq`.
 - `seq` is the firmware's row counter, +1 per row sent. A gap means rows were dropped between the robot and the host. It is empty on firmware that predates the field.
 - `backfill` is set on rows read from the firmware's telemetry ring (`GET /telemetry`): true when the row arrived later than it would have live, because it waited in the ring for the poll or for the link to come back. Its `host_receive_ns` then overstates the delivery delay, so clock fits skip it. It is empty on rows from the event stream.
 - `OpenTxTransmitter` with diagnostics wraps the radio side untouched. An `Esp32WifiTelemetry` worker polls the firmware's telemetry ring, and `update()` drains what arrived since the last tick into one `/robot/esp32_diagnostics` JSON message per 100 Hz record, logged at the host arrival time. Link health goes to the `esp32_diagnostics` diagnostics module once a second.
@@ -770,11 +533,8 @@ The AprilTag keypoint model searches a window around the last detection (the ful
 - `enabled_hint_` mirrors `enabled_` so `write()` can skip the copy without the lock while recording is off.
 - Queue cap: queued bytes past which `write()` drops a message instead of growing the queue. Messages over `kLargeMessageBytes` (video, images) hit the lower cap, so a disk that falls behind costs frames before it costs status, state and log messages. At the ZED Box's 30 Mbps the lower cap is about 30 s of video.
 - Rollover: when the current file reaches `max_size_gb` the runner rolls over by turning recording off and on, so the camera's encoder restarts with it: the new file opens on an IDR with frame indices from zero. Switching files under a running encoder started mid-GOP.
-- Lock order: the app's logger copies every log line into the MCAP through `McapLogSink`. Toggling recording logs "Recording to ..." while the recorder's lock is held, and that line comes back into `write()`. On one thread it deadlocked the app on the ZED Box. Across threads it deadlocks when one thread logs (holding the sink's lock, waiting for the recorder's) while the runner toggles (holding the recorder's lock, logging). `TogglingWithTheMcapLogSinkDoesNotDeadlock` and `LoggingFromAnotherThreadWhileTogglingDoesNotDeadlock` cover both.
-- File names: two toggles inside one second both pick a file name before the writer thread creates either, so the second cannot rely on the first existing on disk to pick a new name. `QuickTogglesEachGetTheirOwnFile` covers it.
-- The queue cap counts every queued byte, status messages included, so one 1 MiB frame fewer than `kMaxQueuedLargeBytes / 1 MiB` fits. Video over `kLargeMessageBytes` stops at the lower cap and is dropped. Status and log messages fit under the higher cap and all arrive.
 - File age counts from the current file's start and restarts with each file, because the web page's recording timer shows it.
-- A camera that cannot be re-opened ends the run. The runner closes the recordings before that, because the camera's destructor may have to exit the process (`CameraFailureExitClosesRecordings`).
+- A camera that cannot be re-opened ends the run. The runner closes the recordings before that, because the camera's destructor may have to exit the process.
 - File-level metadata sits alongside `active_profile`. `calibration_id` says which calibration rectified a recording's frames so a revised one can be applied later.
 - MCAP metadata key (under the `auto_battlebot` record) holds the calibration a recording's `/camera/video` needs, as the same TOML text a `config/cameras/` file holds. With it the recording replays without a sidecar file.
 
@@ -789,9 +549,7 @@ A recording that carries only `/camera/image` opens fine and then produces nothi
 - `AsyncPublisher` queue: a tick makes seven publish calls, so the queue holds about nine ticks.
 - `AsyncPublisher` runs another publisher's calls on one worker thread, in call order, so publishing stays off the Runner's tick. The inner publisher only ever sees the worker thread. Destroying it drains the queue before joining, so queued frames still reach the sinks. Each call copies its arguments into the queue. Camera frames are shallow `cv::Mat` copies, which is safe because every camera hands out a freshly allocated frame per grab. The queue holds 64 calls (`kMaxPendingCalls`). A full queue blocks the caller instead of dropping calls, so a recording never loses a message. The tick pays for publishing only when the worker has fallen a full queue behind, and the wait is logged as `blocked_ms`.
 - `PublisherInterface::flush()` returns once every earlier publish call has reached the sinks. Shutdown calls it before closing the recording, so a publisher that defers its work does not lose the last frames.
-- `FoxglovePublisher` declares its async workers last, so they stop before the channels they log to are destroyed.
-- The `AsyncPublisher` worker frees each call's frame when it is done with it. A pinned frame's free can be slow, so the tick's next enqueue must not wait behind it (`EnqueueDoesNotWaitForAFrameBeingFreed`).
-- A full `AsyncPublisher` queue makes the caller wait for the worker instead of dropping calls, so recordings stay complete.
+- The `AsyncPublisher` worker frees each call's frame when it is done with it. A pinned frame's free can be slow, so the tick's next enqueue must not wait behind it.
 - The recording toggle flushes from its own thread while the tick keeps publishing. A flush that waited for an empty queue could wait as long as the tick kept up, so `flush()` waits only for the calls queued before it.
 - `FoxglovePublisher` with neither sink nor recorder accepts every publish. The app runs this way when the relay is down and recording is off.
 - `/camera/preview` is a downscaled JPEG for the web dashboard. Live only, never recorded.
@@ -799,15 +557,6 @@ A recording that carries only `/camera/image` opens fine and then produces nothi
 ### Status bus
 
 `StatusBus` publishes the status topics in `RemoteTopics::status` to the relay and the MCAP recorder. Every status channel is advertised at construction, so a client sees the full list before the first message. Throttling is UI pacing on `std::chrono::steady_clock` and never feeds control, so it does not follow the playback clock. `/status/app` repeats every 5 s so a relay that connects late still gets it. `/status/network` is paced by `HostServices` (after each change and every 5 s) and `/status/battery` by `BatteryMonitor` (once a second), so the bus does not throttle either.
-
-### Relay socket framing
-
-- Client channels are per-connection on the relay side, so a frame from a Foxglove client carries the topic rather than a channel id.
-- The default socket path is a fixed `/tmp` path rather than `$XDG_RUNTIME_DIR`, so the systemd unit for the relay and the one for the app agree without sharing environment, and so the docker playback container (which runs both) needs no extra mount.
-
-### Recording compression
-
-The MCAP recorder writes with no compression. The Jetson writes this at 60 Hz next to the control loop, so the CPU goes to the loop.
 
 ### JPEG preview encoding
 
@@ -900,12 +649,10 @@ Every image gets a file. Its `method` field says which case applies, so a consum
 
 ### Left-eye JPEGs from an SVO2
 
-`iter_left_jpegs()` in `auto_battlebot/recording/svo2.py` decodes the concatenated access units with ffmpeg and re-encodes the cropped left half to MJPEG. Output frames come out one for one with the messages fed in, so the Nth JPEG is SVO frame N (`test_left_jpegs_one_per_message`).
+`iter_left_jpegs()` in `auto_battlebot/recording/svo2.py` decodes the concatenated access units with ffmpeg and re-encodes the cropped left half to MJPEG. Output frames come out one for one with the messages fed in, so the Nth JPEG is SVO frame N.
 
-- `-r` is passed because a raw elementary stream carries no timing. Without an input rate, the mjpeg encoder in the 22.04 ffmpeg (4.4) rejected the second frame with "Invalid pts (0) <= last (0)" and the export stopped after a handful of frames. ffmpeg 6.1 does not reproduce that, so the test does not pin it.
 - ZED records intra-refresh H.264 with no IDR frames, so the first frames of a recording decode partially until the refresh completes. They are emitted anyway to keep frame indices aligned with the SVO.
 - Close the iterator (`contextlib.closing`) if you stop early, so ffmpeg is torn down instead of blocking on a full pipe.
-- `_iter_jpegs` splits the MJPEG stream on the SOI marker (`FFD8FF`). Entropy-coded data byte-stuffs 0xFF as `FF00`, so the marker only appears at the start of an image. An image carrying an EXIF thumbnail would break this, and ffmpeg's MJPEG output carries none (`test_iter_jpegs_splits_on_soi_only`).
 
 ### Extracting video without the ZED SDK
 
@@ -929,65 +676,9 @@ venv/bin/python training/video_mcap_extract.py recording.mcap --frames out_dir/
 venv/bin/python training/video_mcap_extract.py recording.mcap --frames out_dir/ --stride 10
 ```
 
-## Recording readers and exporters
+## Simulation wire protocol
 
-### `playground/calibration/check_sysid_recordings.py`
-
-`stick_at`:
-
-Linear and angular stick fraction held at each stamp (channels log only on change), with each channel's resting offset removed.
-
-### `playground/mcap_auto_percentage.py`
-
-`mcap_auto_percentage.py`:
-
-Report what percentage of a match recording the robot spent in autonomous mode.
-
-The match window runs from the first time values/15 == 1024 (auto engaged) to the last auto->manual transition. Auto mode is detected from the diagnostics: opentx_transmitter / channels / values/15 == 1024.
-
-### `playground/opponent_prediction/plot_dropout_samples.py`
-
-- `replay_session`: The diagnostics re-send a channel's last value with held = true; only fresh ones count.
-
-### `playground/opponent_prediction/render_dropout_videos.py`
-
-`replay_clock_offset_ns`:
-
-Rebased pipeline stamp minus the SVO image stamp.
-
-`/keypoint_detections` is logged at its own (rebased) stamp and each tick's `/camera/frame_meta` follows it by the camera grab time, so a detection pairs with the next frame_meta.
-
-### `playground/opponent_prediction/run_replays.py`
-
-- `run`: The recorder splits video into a second file; keep the main one (the diagnostics).
-
-### `playground/radio/channel_streaming.py`
-
-`channel_streaming.py`:
-
-OpenTX Channel Data Streaming Test Script This script connects to the OpenTX radio via USB serial and parses the custom channel data packets along with CRSF telemetry data.
-
-```
-Channel packet format:
-- Sync: 0xA5
-- Length: packet length excluding sync byte
-- Data: channel values as 16-bit signed integers (little-endian)
-- Checksum: XOR of all bytes excluding sync
-```
-
-```
-Usage:
-    python3 test_channel_streaming.py [--port /dev/ttyACM0] [--baudrate 115200]
-```
-
-### `playground/radio/crsf/crsf_link_statistics.py`
-
-- `CrsfLinkStatistics.up_rssi_ant1`: Uplink RSSI Antenna 1 (dBm * -1) Uplink RSSI Antenna 2 (dBm * -1) Uplink Package success rate / Link quality (%) Uplink SNR (dB) number of currently best antenna enum {4fps = 0 , 50fps, 150fps} enum {0mW = 0, 10mW, 25mW, 100mW, 500mW, 1000mW, 2000mW, 250mW, 50mW} Downlink RSSI (dBm * -1) Downlink Package success rate / Link quality (%) Downlink SNR (dB)
-
-### `simulation/protocol.py`
-
-- `GT_POSE_SIZE`: Ground truth poses appended after depth buffer: uint32 num_robots, then num_robots * (x, y, yaw) as float64. First entry = our robot, rest = opponents in config order. x, y, yaw per robot (3 x float64 = 24 bytes)
-- `MEAS_HEADER_SIZE`: After the ground truth: what perception delivered this tick, from the sensing model (auto_battlebot/perception/sensing_model.py). One header, then one pose per ground-truth slot in the same order. Flags travel as 0.0 / 1.0 so the block stays all float64 like the rest. delivered, capture_time (sim seconds)
+`simulation/protocol.py` appends ground truth after the depth buffer: `uint32 num_robots`, then `num_robots * (x, y, yaw)` as float64 (24 bytes per robot). The first entry is our robot and the rest are opponents in config order. After the ground truth comes what perception delivered this tick from the sensing model (`auto_battlebot/perception/sensing_model.py`): one header (`delivered`, `capture_time` in sim seconds), then one pose per ground-truth slot in the same order. Flags travel as 0.0 or 1.0 so the block stays all float64.
 
 ## Python diagnostics loader (`diag_io`)
 
@@ -1020,7 +711,7 @@ Usage:
 - With no relay, queued messages are dropped and `dropped_messages()` counts them.
 - The socket is non-blocking and the thread polls it for reading and writing together, so a relay that stops reading cannot hold up commands coming the other way, or the destructor. A frame that makes no progress for 2 s (`kSendStallTimeout`) drops the connection and reconnects.
 - Image, video and point cloud channels go in a bulk queue. Everything else (status, logs, scene updates) goes in a priority queue that is sent first, so status never waits behind seconds of camera frames. Each channel stays in one queue, so its own messages keep their order.
-- A frozen relay's listen backlog still completes `connect()`, and the socket buffers the first sends. That is not a relay, so the sink logs that it connected only once the relay reads (`VizSinkTest.ConnectedIsLoggedOnlyOnceTheRelayReads`).
+- A frozen relay's listen backlog still completes `connect()`, and the socket buffers the first sends. That is not a relay, so the sink logs that it connected only once the relay reads.
 - Client messages a Foxglove client publishes (for example `{}` on `/command/reinit_field`) reach the client message handler on the sink thread.
 
 The relay unit owns the WebSocket server and restarts on its own. The app unit only orders `After=` it and never waits on it.
@@ -1069,19 +760,3 @@ Payload bytes that are already the right thing (JPEGs, the detections JSON) pass
 Chunk compression is copied from the source: the C++ recorder writes none, the JPEG-heavy Python-written captures use zstd chunks, and rewriting those uncompressed would grow them. Channels that are already Foxglove-readable pass through unchanged, because the calibration recordings mix JSON channels with ROS 1 images.
 
 The ROS 1 wire format is little-endian. A header is `uint32 seq`, `uint32 stamp_secs`, `uint32 stamp_nsecs`, `string frame_id`. A string is `uint32 length` plus raw bytes, with no null terminator. This script is the only consumer left of the pre-migration format. The readers in `auto_battlebot` refuse legacy input.
-
-## combine_mcap_svo.py notes
-
-- `scripts/combine_mcap_svo.py` reads `svo_path` straight off the `/camera/frame_meta` JSON instead of through `mcap_io.decode_frame_meta`. Once video moved into the MCAP the field stopped being part of `FrameMeta`, and only the recordings this script combines still carry it.
-- Any parse failure means the file is damaged. Truncation surfaces as an `McapError`, but a corrupt chunk can also come out of the decompressor.
-
-## Viz relay attach check
-
-`VizSink` treats the relay as attached only after the relay has read some of what the connection sent. A frozen relay's listen backlog still completes `connect()` and buffers the first sends, so a connection alone proves nothing.
-
-## Workarounds in the recorder and relay
-
-- `FoxglovePublisher` gives the annotation channels a `nullptr` recorder. Annotations render the JSON channel and are live only, so they never land in a file. `AnnotationsAreLiveOnly` passes even with the recorder swapped in, because the channel logs only with subscribers and the test has no sink.
-- `OutputChannel::log` returns early on a zero-length payload. The Foxglove SDK refuses zero-length messages (project memory, SDK source not read).
-- `tests/mcap_recorder/test_mcap_recorder_toggle.cpp`:
-  - The app's logger copies every log line into the MCAP. Toggling recording logs from inside the recorder lock, which came straight back into `write()` on the same thread and deadlocked the app on the ZED Box. The test runs the toggles on the test thread, and the ctest timeout fails a regression that hangs.

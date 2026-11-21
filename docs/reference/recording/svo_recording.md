@@ -15,10 +15,14 @@
 
 Without rebasing, frame stamps stay on the recording's clock while the control loop reads the wall clock. Everything that compares the two degrades quietly. The filter's latency compensation holds every prediction instead of leading, and the pipeline latency diagnostic reports the age of the recording rather than the age of the frame.
 
-## Workarounds
+## Frame index
 
-- **Frame index before rollover.** `on_frame_grabbed()` claims the frame's index in the file that is open at that moment, before the size check can roll the file over, so the return value names the file the frame went into. Stop or a recording turned off since the size check skips the rollover, which would restart a recording that is already cut.
-- **Capture thread stuck in `grab()`.** `ZedRgbdCamera` detaches a capture thread that does not join in time. The destructor then skips `svo_recorder_->stop()` and `zed_.close()`, since they would race the SDK on the same handle, and lets the OS reap on exit. `initialize()` sets `should_close_` and returns false, so the runner exits and systemd restarts it under `Restart=on-failure`; reopening the handle under a thread still in `grab()` would race. `ZedOneRgbCamera` waits `kCaptureThreadJoinTimeout` (3 s) and calls `std::_Exit`: joining hangs until systemd kills the process 90 s later, and detaching leaves the thread in `grab()` on a freed camera. `Runner::run()` closes the recordings before any destructor runs. Unverified: the `grab()` hang is not reproduced.
-- **`get()` timeout.** `get()` gives up with no frame past its timeout so the runner gets its tick back to read quit and reboot commands and to reinitialize the camera. A healthy ZED never goes this long. Every captured frame carries depth, so `get()` takes whatever the capture thread last published and never requests one and waits.
-- **Frame identity.** `TIME_REFERENCE::IMAGE` runs about half a frame ahead of what the SVO recorder writes for the same grab, so a timestamp alone cannot join recorded output to SVO frames. Each frame also records which camera frame it is. `TIME_REFERENCE::IMAGE` is the capture instant live and the original recording time in replay, which lets a `ManualClock` drive the pipeline off the frame stamp.
-- **Fresh `cv::Mat` per frame.** `cv::Mat::create()` reuses an allocation whenever size and type match, without consulting the reference count. Consumers hold a shallow `cv::Mat` sharing the buffer, so converting into the same destination would overwrite pixels a consumer still reads one frame behind. Each frame converts into a new Mat. Both Mats take the SDK's own step: the default `AUTO_STEP` assumes `width * elem_size`, which the SDK does not promise, and on a padded allocation it reads each row further into the previous one and shears the image down the frame.
+`on_frame_grabbed()` claims the frame's index in the file that is open at that moment, before the size check can roll the file over, so the return value names the file the frame went into. Stop or a recording turned off since the size check skips the rollover.
+
+## Frame retrieval
+
+`get()` gives up with no frame past its timeout so the runner gets its tick back to read quit and reboot commands and to reinitialize the camera. Every captured frame carries depth, so `get()` takes whatever the capture thread last published and never requests one and waits.
+
+## Frame identity
+
+`TIME_REFERENCE::IMAGE` runs about half a frame ahead of what the SVO recorder writes for the same grab, so a timestamp alone cannot join recorded output to SVO frames. Each frame also records which camera frame it is. `TIME_REFERENCE::IMAGE` is the capture instant live and the original recording time in replay, which lets a `ManualClock` drive the pipeline off the frame stamp.

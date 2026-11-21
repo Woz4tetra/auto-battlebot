@@ -31,8 +31,7 @@ NHRL's fixed `Cage-N-Overhead-High` feed, as re-wrapped by `scripts/video_to_mca
   `perception/configs/metrics_tool/nhrl_camera_intrinsics.toml` at 1280x720. That calibration is a
   3x downscale of the 3840x2160 source feed, so the file holds the 1280x720 result scaled by 1.5 to
   1080p. Distortion coefficients are normalized and carry over unscaled.
-- `fx = 876.5` at 1920 px is a 95.2 degree horizontal field, about a 16 mm equivalent. A 24 mm
-  equivalent guess (`fx = 1331`) was wrong by half: the overhead frame shows the crowd on both sides
+- `fx = 876.5` at 1920 px is a 95.2 degree horizontal field, about a 16 mm equivalent. The overhead frame shows the crowd on both sides
   of an 8 ft cage from 1.7 m up, which no 72 degree lens covers.
 - The calibration comes from 2024-10-26 footage. If NHRL has swapped the phone since, these drift.
   Re-run the board calibration, or fall back to `FiducialFieldFilter`, when a field pose looks off.
@@ -73,12 +72,12 @@ it. If plumb_bob will not converge below about half a pixel, `cv::fisheye` is th
 
 ## Python rectification mirror
 
-`auto_battlebot.perception.camera_calibration` mirrors `include/rgbd_camera/camera_calibration.hpp`: the same TOML keys, and `rectify_maps` reproduces `Rectifier::build` (`getOptimalNewCameraMatrix` with alpha 1.0, then `initUndistortRectifyMap`), so a frame rectified in Python matches what playback hands the perception stack. Anything that compares against those frames, a fitted camera pose or a rendered image, must use the rectified matrix `rectify_maps` returns, not the calibrated one. Alpha 1.0 keeps every source pixel, which is what the C++ side chooses so the mat edges are never cropped away. `tests/python/test_ecam25_calibration.py::test_rectify_maps_default_keeps_every_source_pixel` pins the alpha.
+`auto_battlebot.perception.camera_calibration` mirrors `include/rgbd_camera/camera_calibration.hpp`: the same TOML keys, and `rectify_maps` reproduces `Rectifier::build` (`getOptimalNewCameraMatrix` with alpha 1.0, then `initUndistortRectifyMap`), so a frame rectified in Python matches what playback hands the perception stack. Anything that compares against those frames, a fitted camera pose or a rendered image, must use the rectified matrix `rectify_maps` returns, not the calibrated one. Alpha 1.0 keeps every source pixel, which is what the C++ side chooses so the mat edges are never cropped away. 
 
 ## C++ rectifier
 
-`Rectifier::build` takes `alpha` 1.0 by default. A cropping alpha at this field of view cuts exactly the mat edges the field fit needs. `RectifierTest.KeepsEverySourcePixelByDefault` pins it.
+`Rectifier::build` takes `alpha` 1.0 by default. A cropping alpha at this field of view cuts exactly the mat edges the field fit needs.
 
-`size` may differ from the calibration's. The intrinsics scale to it and the distortion coefficients do not, so a calibration shot at 1920x1200 still rectifies a 1280x720 capture (`RectifierTest.ScalesIntrinsicsToCaptureSize`).
+`size` may differ from the calibration's. The intrinsics scale to it and the distortion coefficients do not, so a calibration shot at 1920x1200 still rectifies a 1280x720 capture.
 
 `camera_info()` returns the rectified matrix with D set to five zeros, so `camera_info` keeps emitting a plumb_bob model that happens to be trivial. `CameraCalibration::distortion_k1_k2_p1_p2_k3` holds the plumb-bob coefficients in that order.

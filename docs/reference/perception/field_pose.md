@@ -45,7 +45,7 @@ That is six constraints for six degrees of freedom, with the missing corners fal
 
 - `camera_pose(range, tilt_deg, yaw_deg)` looks at the field centre from `range` metres, `tilt_deg` off vertical: 0 is straight overhead, 90 would be level with the mat. Its field frame has z pointing into the floor, so up is -z. The outline fit points z at the camera instead, so compare rotations only after `kHalfTurnAboutFieldX`.
 - `field_outline_points` rounds the corners in the world, not in the image, because the mat's rounding is physical.
-- The outline winds like `FieldOutline::corners`: (-,-), (-,+), (+,+), (+,-). Each corner arc sweeps from the side arriving at the corner to the side leaving it, so points stay in winding order. A reversed outline flips `signed_area` and the solver rejects the candidate, which fails every synthetic test for the wrong reason. `tests/field_filter/test_synthetic_field.cpp` pins both.
+- The outline winds like `FieldOutline::corners`: (-,-), (-,+), (+,+), (+,-). Each corner arc sweeps from the side arriving at the corner to the side leaving it, so points stay in winding order. A reversed outline flips `signed_area` and the solver rejects the candidate, which fails every synthetic test for the wrong reason.
 
 ## Fixed field filter
 

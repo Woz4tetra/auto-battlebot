@@ -72,12 +72,11 @@ Three per-`FrameId` maps survive across frames:
 ## Blob fallback and our-robot blob suppression
 
 - A blob with a specific THEIRS label (for example `MRS_BUFF_MK1`) that cannot take its own configured `FrameId`, because a keypoint detection took it, falls back to a generic `OPPONENT` slot. The resulting `RobotDescription` is relabeled `Label::OPPONENT` so label, `frame_id`, and group stay consistent. Without the relabel, downstream consumers see a specific-model label in a generic slot, and the label flips back the next tick a proper slot frees up (an ID swap).
-- `Label::OPPONENT` maps to one `FrameId` per opponent, so `initialize(2)` maps it to `{THEIR_ROBOT_1, THEIR_ROBOT_2}`. A specific label with only `{THEIR_ROBOT_1}` can have its slot taken by an `OPPONENT` keypoint while a free `OPPONENT` fallback slot remains. The fallback test relies on this.
+- `Label::OPPONENT` maps to one `FrameId` per opponent, so `initialize(2)` maps it to `{THEIR_ROBOT_1, THEIR_ROBOT_2}`. A specific label with only `{THEIR_ROBOT_1}` can have its slot taken by an `OPPONENT` keypoint while a free `OPPONENT` fallback slot remains.
 - A fallback blob must sit apart from the keypoint detection in the image, or `is_blob_suppressed_by_keypoint` discards it before it can reach the fallback slot.
 - When blobs compete for a shared slot, the highest confidence wins the global greedy assignment, whichever label the blob has.
 - The blob model has no class for our robot. During a keypoint dropout, a blob on our own held position would get an opponent `FrameId` and be targeted, so the filter discards blobs within `our_keypoint_dropout_blob_radius_meters` of our last position anchor.
 - The suppression is time-bounded by `our_keypoint_dropout_blob_window_s`. Once the window elapses the anchor is no longer trusted, so a genuine opponent parked where we were last seen becomes targetable again.
-- Test geometry: with the fixture field transform, a blob at image row 380 sits about 0.96 m from the held pose at row 220 in the field frame, outside the default radius.
 
 ## Why prediction is load-bearing
 
@@ -85,9 +84,7 @@ The output `velocity` field is unused downstream (target selection and navigatio
 load-bearing path is the position prediction (indigo loop in the diagram): during a detection dropout it
 both gives navigation an extrapolated pose instead of a frozen one, and advances the association
 `last_position` (`set_last_position`) so the reappearing detection still matches inside the jump gate.
-This helps the common short dropouts and drifts on rare long ones. The playback A/B that
-measured it lived in `playground/control_stage0/`, retired in `9246cc64`; see
-`docs/experiments/control/control_stage0_retired.md`.
+This helps the common short dropouts and drifts on rare long ones.
 
 ## Control loop ownership and threading
 
@@ -190,18 +187,14 @@ Keypoint heights correct the radial bias of flat-plane projection. Heights are p
 - Rewind history: 64 snapshots. At the 250 Hz control rate that is roughly 240 ms, because `coast()` commits an opponent snapshot every tick and a 30 Hz frame burns about nine slots. It covers the measured 63 ms perception latency with room to spare; `num_rewind_missed` reports when it does not.
 - Clock gaps: a single propagation step longer than `kMaxIntegrationStepS` (1.0 s) freezes position, because a clock gap that large is not motion to integrate. Covariance still grows, capped at that step.
 - Estimator config: `opponent_max_coast_s` and `max_coast_s` defaults. `max_coast_s` sits at the measured p90 to p95 of perception dropout gaps; predicting multi-second gaps with a short-horizon model is fiction.
-- Plant fit status: the plant fit has not passed acceptance (heading misses by 4x at the 400 ms coast horizon), so production configs stay on `DEAD_RECKONING`. Sim and playback experiments opt in through the extends chain.
-- With the filter configuration `tests/test_control_loop.cpp` builds, `RobotFrontBackFilter` only propagates inside `correct()`. A control cycle with no new measurement leaves stale track poses untouched, which `ControlLoopTest.MeasurementIsCorrectedExactlyOnce` asserts with exact equality. A filter that predicted every cycle would fail that test for an unrelated reason.
-- Covariance consistency: `EkfMathTest.NeesConsistencyMonteCarloConstantVelocity` simulates a constant-velocity system with known Q and R over 100 Monte Carlo runs of 60 steps and checks that the mean NEES lands inside the chi-square band for the state dimension (4 DOF, asserted band 3.5 to 4.5). NEES is the check instead of RMSE because a filter with a wrong covariance fails it regardless of how small its error looks. The band is wider than the iid chi-square interval because samples within a run are correlated step to step.
+- Production configs stay on `DEAD_RECKONING`. Sim and playback experiments opt in to `EKF` through the extends chain.
 - Plant table required: every motion estimator needs the top-level `[plant]` table, because the stick-to-velocity scaling is the fit. `DEAD_RECKONING` needs it as much as `EKF`, since both arms scale sticks through the plant. A missing table is a config error, not a zero plant that freezes every prediction without saying so.
-- Every plant field is required. Dropping `delay_s` makes the parse refuse instead of defaulting a fitted physical parameter to zero. Pinned by `ConfigTest.RobotFilterMotionEstimatorPlantMissingFieldThrows`, `ConfigTest.DeadReckoningMotionEstimatorWithoutPlantTableThrows` and `ConfigTest.KalmanMotionEstimatorDeadReckoningModeRequiresPlantTable`.
+- Every plant field is required. Dropping `delay_s` makes the parse refuse instead of defaulting a fitted physical parameter to zero.
 
 - Heading flip test: it only means something while the heading's own 2-sigma is inside pi/2, so it runs only while the theta variance is below `kFlipTestMaxVariance` (pi/4 squared). Past that, a measurement more than pi/2 away is as likely a turn the track did not see as a flip.
-- Process noise covers the whole step, held or not. Time passing without measurements is uncertainty whether or not the pose may move.
 - The initial yaw-rate sigma is `k_ang`, the full-stick yaw rate. The fitted gain is the scale of what the drivetrain can be doing while unobserved.
 - Our-robot heading diagnostics record the state and the innovation of a rejected keypoint yaw. The motion profile brakes on heading, and a rejected yaw leaves theta running on the plant model alone, so without both sides a diverged theta looks like a bad measurement.
 - Our-robot speed measurement: forward speed differenced against an earlier accepted pose, because the state's v row is otherwise unobserved and tracks the plant model rather than the robot. It is attempted only alongside an accepted heading, since the difference has to be projected onto a direction. Its noise is independent position noise at both ends, propagated through the divide and held above a floor for the common-mode part.
-- The speed reference pose moves only once its baseline has been spent, or when there is none. Advancing it every frame would pin the baseline at one frame and put the speed row back in the noise it was widened to escape.
 - Render target: `now + render_lead_s()`. `now` is already past the frame stamp by the perception latency, and a command computed from this render bites another `plant.delay_s` later. Rendering at `now + delay_s` puts every track where it will be when the command lands, which is the state target selection and navigation must steer by. The extra span is not extrapolation into unknown commands: `JigPlantModel` reads each substep's command at `t - delay_s`, so integrating to `now + delay_s` consumes exactly the commands already issued up to `now`.
 - `min_coast_span_s` diagnostic: the smallest span any track is propagated over, sent out in `update()`'s diagnostics. A span past `kMaxIntegrationStepS` short-circuits to hold position, and a non-positive span propagates nothing. Both emit an estimate frozen at the shutter that looks like a healthy filter that is not moving, and both mean the control clock and frame stamps are on different timelines, which SVO playback does under `SystemClock`. It is not the render lead: opponent tracks commit every control tick and report one tick, while the our-robot track commits only in `update()` and reports a whole frame period plus the lead.
 - `coast()` renders our-robot tracks on a copy, like the dead-reckoning arm. The committed state advances only in `update()`, so measurements always fold in at or after the track stamp and the our-robot arm needs no snapshot rewind. `propagate_unwrapped` skips the finite-difference Jacobian (10 extra plant integrations) that a covariance-free render never uses.
@@ -224,15 +217,6 @@ The gate measures relief (the median height of the box's inscribed circle over t
 - A missing depth frame abstains instead of dropping detections, so a dropped frame never blinds the pipeline. A model that produces no boxes cannot be gated, only annotated.
 - A group survives whole. One keypoint over a hole in the depth map still measures from its partner, and both keep the group height, because a half-dropped front/back pair is useless downstream.
 - `ModelResultStamped::boxes` is indexed by `Keypoint::detection_index`. It is empty for models that produce no boxes. It has an entry for every detection, including ones that yielded no keypoints, so the index stays aligned with what the detector emitted and `box_for` returns the right detection's box.
-- Test fixture: the field transform puts the plane 3 m down the optical axis with the normal parallel to it, so keypoint height is exactly `3.0 - depth` at every pixel. Fixture boxes are the keypoint bounding rectangle inflated by a pad so the inscribed circle covers the midline like a real detection box.
-
-## Opponent filter test scenarios
-
-- The opponent Kalman arm is pinned explicitly in tests because the config default is HOLD, which pins every opponent at its last measured pose.
-- The control loop runs ahead of the camera: a track coasts to last_t + 50 ms, then a measurement stamped at last_t + 33 ms arrives. This is the rewind case.
-- After a 1 s unseen stretch the heading prior is wider than the flip test, so a measurement 120 degrees off is a turn the track missed, and the first one is taken.
-- Heading tests use straight-line translation with an independent constant yaw rate, which is exactly the filter's model, so tolerances can be tight.
-- The our-robot arc test command (v about 1.3 m/s, w about 0.95 rad/s under the Stage A gains) is a gentle arc.
 
 ## Ground-truth filter velocity
 

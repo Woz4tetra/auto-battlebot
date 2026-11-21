@@ -5,7 +5,7 @@
 ## Loading
 
 - `load()` streams the file into TensorRT instead of buffering it. A plan built for another GPU is rejected after the header, not after reading the whole file. That keeps `EngineSelector` probing cheap even for the 149 MB DeepLab engine.
-- Every failure path leaves the object clean (`isLoaded()` false, no buffers held), so a caller may try another path. `TrtEngineTest.FailedLoadLeavesObjectClean` and `FailedLoadLeavesObjectReusable` cover it.
+- Every failure path leaves the object clean (`isLoaded()` false, no buffers held), so a caller may try another path.
 
 ## Execution
 
@@ -26,7 +26,7 @@
 
 ## Engine filename tags
 
-`engine_path_with_platform_tag` in `auto_battlebot/tensorrt_build.py` appends `_<arch>_sm<XX>` to the engine stem, for example `model_x86_64_sm89.engine`. The `sm` tag stops an engine built for a different GPU architecture from loading silently. A precision tag goes ahead of it (`model_int8_x86_64_sm89.engine`) so the trailing `_<arch>_sm<XX>.engine` shape that the config candidate lists match on is unchanged, and FP16 filenames stay byte-identical to what `config/_zed_box.toml` already names (`test_engine_name_tags`).
+`engine_path_with_platform_tag` in `auto_battlebot/tensorrt_build.py` appends `_<arch>_sm<XX>` to the engine stem, for example `model_x86_64_sm89.engine`. The `sm` tag stops an engine built for a different GPU architecture from loading silently. A precision tag goes ahead of it (`model_int8_x86_64_sm89.engine`) so the trailing `_<arch>_sm<XX>.engine` shape that the config candidate lists match on is unchanged.
 
 ## YOLO and DeepLab build options
 
@@ -36,17 +36,12 @@
 - `--calib-cache` (YOLO): platform independent but keyed to the TensorRT version and algorithm name.
   - The cache holds one scale per tensor plus a header such as `TRT-101401-EntropyCalibration2`. It records nothing about the GPU (no architecture, sm tag or CPU arch), so it carries to another machine and keeps a Jetson follow-up short. TensorRT writes its own version string and the algorithm name into the header and rejects a mismatch. A JetPack that ships a different TensorRT recalibrates from frames.
   - `resolve_int8_config()` writes the list of calibration frames next to the cache (`<cache>.frames.txt`). It is the audit trail for which frames produced which scales, and the only way to check that a second sample is disjoint from the first.
-- Calibration is implicit, which TensorRT deprecates in favour of explicit Q/DQ. Q/DQ is a different export pipeline and out of scope. `_configure_int8()` suppresses the one deprecation warning on that assignment.
+- Calibration is implicit, which TensorRT deprecates in favour of explicit Q/DQ. Q/DQ is a different export pipeline and out of scope.
 - The calibrator feeds the network its real geometry. `_configure_int8()` reads the size from the parsed network input shape, not from `--imgsz`, so 384x640 arms need no second flag.
 - `fair_scene_allocation()` splits `--calib-count` frames across scenes by max-min fairness. It is deterministic and uses no RNG. The val split is heavily imbalanced (its three largest cage cameras hold a quarter of the frames), so a plain stride would calibrate mostly on them. Water-filling gives every scene an equal share and re-divides what a scene cannot use among scenes that still have frames.
 - `--calib-algo` (YOLO): `entropy2` clips outliers to keep resolution on the common case. `minmax` never clips.
 - `--timing-cache` (YOLO and DeepLab): tactic timings are reusable across models of the same architecture, so the first build pays the autotuning cost and the rest do not. The cache lives at `.cache/tensorrt/timing.cache` in the checkout (`DEFAULT_TIMING_CACHE` in `auto_battlebot/tensorrt_build.py`). It is gitignored and disposable, and it stays out of `$HOME` so it cannot outlive the project and go stale unnoticed after a TensorRT or driver upgrade. `convert_to_tensorrt.py` builds sequentially in one process: concurrent builders each pay a full tactic search, and sequential builds keep the cache warm in memory between models.
 
-## Quiet logging and pinned allocator
+## Quiet logging
 
 - `ScopedQuietLogging` logs TensorRT's own diagnostics at debug instead of error while an instance is alive. `EngineSelector` holds one while probing candidates. An engine built for a different GPU is expected to be rejected there, and TensorRT reports it as "the engine plan file is not compatible with this version of TensorRT". That blames the version even when the real mismatch is compute capability, and letting it through would put the misleading error `EngineSelector` exists to replace into stdout and the mcap recording. Nesting is counted per thread, so overlapping guards behave.
-- The process-wide `PinnedMatAllocator` instance is never destroyed, because `cv::Mat`s can outlive static destruction order.
-
-## Workarounds
-
-- `src/tensorrt_inference/trt_engine.cpp` defines `AB_TRT_HAS_STREAM_READER_V2` from `NV_TENSORRT_MAJOR` and `NV_TENSORRT_MINOR` and compiles whichever reader the installed headers provide. `IStreamReaderV2` arrived in TensorRT 10.7 and deprecated `IStreamReader`. Dev machines are on 10.14, JetPack 6.2 ships 10.3 and has only the older interface.
