@@ -1,6 +1,6 @@
 # auto-battlebot
 
-Autonomous aim-assist and control system for NHRL combat robot competitions. Runs on a Jetson Orin NX (JetPack 7.2) with an e-CAM25 RGB camera. End-to-end latency target: under 60ms. Dev machines keep the ZED 2i for SVO replay, which is what the recordings, keypoint corpora, and eval ground truth are tied to.
+Autonomous aim-assist and control system for NHRL combat robot competitions. Runs on a Jetson Orin NX (JetPack 7.2) with a ZED 2i camera. End-to-end latency target: under 60ms. Recordings, keypoint corpora, and eval ground truth are tied to ZED SVO replay.
 
 ## Build
 
@@ -191,7 +191,8 @@ budget. Bench measurements and anything learned by trial are not datasheet facts
 ```
 
 `scripts/comment_budget.py` enforces this against `.comment-baseline.json` (`{path: count}`; a
-file not listed has a budget of 0). The baseline is `{}`: every file's budget is 0. A workaround
+file not listed has a budget of 0). The baseline lists only accepted rules: invariants no test can
+prove, kept as comments with the user's approval. Every other file's budget is 0. A workaround
 that used to carry a comment is listed in `docs/plans/workaround_ledger.md` with its root-cause fix,
 and its reason is in that subsystem's doc. Checker details: `docs/reference/tools/comment_budget.md`.
 
@@ -208,6 +209,8 @@ python3 scripts/comment_budget.py blocks --json    # every counted block
 - Move files with `git mv` so the rename carries the budget
 - There is no opt-out marker and no `--allow` flag. Raising a budget means editing the baseline by
   hand, where it shows in the diff
+- Never add, raise, or edit a `.comment-baseline.json` entry without the user's explicit approval
+  in this conversation. Propose the comment and wait. A test, a type, or a fix comes first
 - The checker, its test, and the pre-commit hook have a budget of 0 and cannot be baselined
 
 ## Testing
@@ -378,7 +381,7 @@ drafts if they clearly beat commas, periods, or parentheses.
 
 - Deployment: Jetson Orin NX on JetPack 7.2 / L4T R39.2 (aarch64, Ubuntu 24.04, Python 3.12, CUDA 13.2, TensorRT 10.16) or JetPack 6.2 / L4T R36.4 (Ubuntu 22.04, Python 3.10, CUDA 12.6, TensorRT 10.3). The ZED Box Mini ships on 6.2.1 (`docs/setup/zed_box_mini.md`). The install scripts branch on the L4T major and take the venv's Python version from `/usr/bin/python3`, because apt builds `python3-libnvinfer` for the system python only
 - Python floor is 3.10 for JetPack 6. Import it as `from auto_battlebot.compat import tomllib`, and use no 3.11+ stdlib API outside `training/synthetic/` (Blender's 3.11). ruff and mypy target 3.10 and catch most of it
-- `BUILD_WITH_ZED` defaults to whether the ZED SDK is installed: OFF on the e-CAM25 Jetson, ON on the ZED Box Mini and dev machines (SVO playback)
+- `BUILD_WITH_ZED` defaults to whether the ZED SDK is installed: ON on the ZED Box Mini and dev machines (SVO playback)
 - TensorRT engines are not portable across TensorRT versions. The `aarch64_sm87` engines must be built on each box's own TensorRT (10.16 on JetPack 7, 10.3 on JetPack 6); the filename is unchanged by a rebuild, so old and new look identical on disk
 - Dev: Ubuntu 22/24 x86_64 with NVIDIA GPU
 - `pyproject.toml` has platform-conditional deps. Do not flatten them.
