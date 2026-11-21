@@ -64,6 +64,7 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     std::optional<double> max_motor_rpm_per_s;
 
     double velocity_saturation_limit = 1.0;
+    double channel_stream_stall_timeout_s = 0.5;
 
     OpenTxTransmitterConfiguration() { type = "OpenTxTransmitter"; }
 
@@ -94,6 +95,8 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
             parser.get_nullable_double("max_motor_rpm_per_s", max_motor_rpm_per_s);
         velocity_saturation_limit =
             parser.get_optional_double("velocity_saturation_limit", velocity_saturation_limit);
+        channel_stream_stall_timeout_s = parser.get_optional_double(
+            "channel_stream_stall_timeout_s", channel_stream_stall_timeout_s);
     }
 };
 

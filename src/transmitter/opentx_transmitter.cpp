@@ -9,7 +9,6 @@ static bool trainer_mixed_in(int trainer_raw) { return trainer_raw >= 0; }
 
 namespace {
 constexpr auto kReconnectInterval = std::chrono::seconds(1);
-constexpr auto kChannelStreamStallTimeout = std::chrono::milliseconds(500);
 constexpr int kOpenTxRawChannelMax = 1000;
 constexpr int kOpenTxTrainerOutputMax = 500;
 }  // namespace
@@ -255,7 +254,8 @@ void OpenTxTransmitter::process_channel_updates(const std::vector<uint8_t>& byte
 }
 
 bool OpenTxTransmitter::channels_fresh() const {
-    return (std::chrono::steady_clock::now() - last_channel_time_) < kChannelStreamStallTimeout;
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - last_channel_time_)
+               .count() < config_.channel_stream_stall_timeout_s;
 }
 
 TransmitterStatus OpenTxTransmitter::get_status() const {

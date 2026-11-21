@@ -11,7 +11,6 @@ What is left:
 - Two rows deferred to Mk4
 - Four rows owned by active plans
 - Seven rows kept by decision
-- `kChannelStreamStallTimeout` to config, waiting on the main checkout (below)
 
 ## Deferred to Mk4
 
@@ -54,10 +53,9 @@ The comment purge had moved code comments into docs. Those are gone:
 - 14 docs that held only relocated comments were deleted
 - 89 docs had their `Workarounds` sections, line-anchored blocks, test restatements and history removed. Content that says how a subsystem works now stays under plain headings
 - 12 dated experiment docs the 2026-11-20 sweep had filed as measurements, but which still carried line anchors, were cleaned the same way
-- `GATE_MARGIN`, `TAG_DROPOUT_MIN_GAP_NS` and the other YOLO fix gates moved to `YoloFixSettings`
+- `GATE_MARGIN`, `TAG_DROPOUT_MIN_GAP_NS` and the other YOLO fix gates moved to `YoloFixSettings`, and `kChannelStreamStallTimeout` to `OpenTxTransmitterConfiguration::channel_stream_stall_timeout_s`
 - The rule is in `CLAUDE.md` ("Comments")
 
 Left:
 
-- `kChannelStreamStallTimeout` moves to `OpenTxTransmitterConfiguration::channel_stream_stall_timeout_s` on branch `benw/purge-W-code`. It lands once the uncommitted edits to `include/transmitter/config.hpp` in the main checkout are committed
 - The sweep's "keep or move" items were not done: how-it-works prose in `docs/experiments/` (the `*_scene_pipeline`, sysid smoother and apriltag docs) still sits there instead of `docs/reference/`, and fitted-value provenance in `camera_calibrations.md`, `robot_plant_files.md` and `synthgen_cage_specs.md` still sits in reference docs
