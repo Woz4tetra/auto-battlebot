@@ -188,6 +188,38 @@ def test_slop_check_skips_claude_md_skills_and_data(tmp_path: Path) -> None:
         assert _run_slop(tmp_path, tmp_path / rel, banned).returncode == 0, rel
 
 
+def _run_slop_args(*args: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(REPO / "scripts" / "no_ai_slop_check.sh"), *args],
+        input=stdin,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_slop_check_takes_file_arguments(tmp_path: Path) -> None:
+    clean = tmp_path / "clean.md"
+    clean.write_text("fine\n")
+    dirty = tmp_path / "dirty.md"
+    dirty.write_text("fine\nwe leverage this\n")
+    assert _run_slop_args(str(clean)).returncode == 0
+    result = _run_slop_args(str(clean), str(dirty))
+    assert result.returncode == 2
+    assert f"banned wording in {dirty}" in result.stderr
+    assert "2:we leverage this" in result.stderr
+
+
+def test_slop_check_fails_when_given_nothing_to_check(tmp_path: Path) -> None:
+    assert _run_slop_args().returncode == 2
+    assert _run_slop_args(str(tmp_path / "missing.md")).returncode == 2
+
+
+def test_slop_check_passes_payload_without_file_path() -> None:
+    payload = json.dumps({"tool_input": {"notebook_path": "/x.ipynb"}})
+    assert _run_slop_args(stdin=payload).returncode == 0
+
+
 def test_retimed_originals_overfetch_by_max_offset(combine: ModuleType, tmp_path: Path) -> None:
     recording = tmp_path / "orig.mcap"
     with mcap_write.McapWriter(recording, active_profile="unit_test") as writer:

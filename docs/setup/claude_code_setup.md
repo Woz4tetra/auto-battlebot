@@ -11,4 +11,10 @@
 
 `scripts/no_ai_slop_check.sh` is the PostToolUse (Write and Edit) hook. It flags AI-slop wording in prose files and in the comment lines of source files. It reads the hook payload on stdin, scans the file that was just written, and on a hit prints the offending lines and exits 2, which feeds them back to Claude as an error to fix before it continues.
 
+Run it by hand on files by passing them as arguments. With no arguments it reads the hook payload, and with no arguments and an empty or terminal stdin it exits 2 instead of passing with nothing checked.
+
+```bash
+scripts/no_ai_slop_check.sh docs/setup/claude_code_setup.md docs/README.md
+```
+
 Rules come from the no-ai-slop skill (`~/.claude/skills/no-ai-slop/SKILL.md`), whose wording section is also inlined in `CLAUDE.md`. Only the flat wordlist is enforced here. The structural patterns (colon reveals, binary contrasts, kicker endings) are not greppable and are left to `CLAUDE.md`.

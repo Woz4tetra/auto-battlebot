@@ -785,6 +785,7 @@ TEST(ControlLoopInterfaceTest, ForwardersAreSafeToCallFromSeveralThreadsWhileThe
 
     const auto measurements = make_measurements(60);
     std::atomic<bool> done{false};
+    std::atomic<bool> submitted{false};
     std::thread submitter([&] {
         for (int round = 0; round < 20; ++round) {
             for (const auto &m : measurements) {
@@ -793,6 +794,7 @@ TEST(ControlLoopInterfaceTest, ForwardersAreSafeToCallFromSeveralThreadsWhileThe
                 forwarders.set_target_override(std::nullopt);
             }
         }
+        submitted.store(true);
     });
     std::thread setter([&] {
         while (!done.load()) {
@@ -809,12 +811,16 @@ TEST(ControlLoopInterfaceTest, ForwardersAreSafeToCallFromSeveralThreadsWhileThe
             forwarders.transmitter_status();
         }
     });
-    for (int cycle = 0; cycle < 400; ++cycle) {
+    int cycle = 0;
+    const auto run_one_cycle = [&] {
         forwarders.pump_input();
         clock->set(1.0 + 0.0333 * cycle);
         forwarders.advance_to(1.0 + 0.0333 * cycle);
-    }
+        ++cycle;
+    };
+    while (cycle < 400 || !submitted.load()) run_one_cycle();
     submitter.join();
+    run_one_cycle();
     done.store(true);
     setter.join();
     reader.join();
