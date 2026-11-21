@@ -87,3 +87,5 @@ runs/
 # source modules, so they are re-included.
 web/node_modules/
 !/web/src/lib/
+build-asan/
+build-tsan/

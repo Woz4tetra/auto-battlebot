@@ -32,7 +32,8 @@ build_cpp_project() {
 
     if [ ! -f "Makefile" ]; then
         echo "Running cmake with BUILD_TESTING=${BUILD_TESTING_FLAG} and BUILD_TYPE=${BUILD_TYPE}..."
-        cmake .. -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DBUILD_TESTING="${BUILD_TESTING_FLAG}" -DBUILD_DEBUG="${BUILD_TESTING_FLAG}"
+        cmake .. -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DBUILD_TESTING="${BUILD_TESTING_FLAG}" -DBUILD_DEBUG="${BUILD_TESTING_FLAG}" \
+            -DAUTO_BATTLEBOT_SANITIZER="${AUTO_BATTLEBOT_SANITIZER:-none}"
     fi
 
     echo "Building project..."
