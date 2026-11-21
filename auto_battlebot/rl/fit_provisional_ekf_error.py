@@ -122,7 +122,6 @@ def lockstep_errors(mcap: Path) -> pd.DataFrame:
                 "stamp_s": k * TICK_S,
                 "speed": float(np.hypot(vx[k], vy[k])),
                 "yaw_rate": float(abs(w[k])),
-                "age": float(e.get("our_measurement_age_s", 0.0)),
                 "along": c * dx + s_ * dy,
                 "cross": -s_ * dx + c * dy,
                 "theta": (e["our_yaw"] - yaw[k] + np.pi) % (2 * np.pi) - np.pi,
@@ -133,8 +132,7 @@ def lockstep_errors(mcap: Path) -> pd.DataFrame:
     out = pd.DataFrame(rows)
     if out.empty:
         return out
-    fresh = out["age"] - out["age"].min() <= 1.5 * TICK_S
-    return out[fresh & (out["theta"].abs() < np.pi / 2)]
+    return out[out["theta"].abs() < np.pi / 2]
 
 
 def tau_from_acf(series: np.ndarray, stamps: np.ndarray) -> float:
