@@ -487,7 +487,7 @@ second app connecting while one is attached is accepted and closed at once (the 
 retries quietly every second), so a dev replay next to a service instance cannot fight over the
 relay.
 
-## Design notes from the headers
+## Design notes
 
 ### Frame identity
 
