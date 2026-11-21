@@ -164,6 +164,10 @@ live-vs-replay tag comparison shows the 15 Mbps default loses nothing.
 
 - The switcher offers `*_zed_box` profiles only. `config/default_profile` is `mrs_buff_mk3_zed_box`.
 - `mr_stabs_mk2_desktop`: the x86 bench with a ZED 2i, on `_common`'s `MotionProfileNavigation`.
+- No profile drives the ZED 2i handheld (`handheld-autonomy`). A deploy there selects a ZED Box
+  profile, and `ZedOneRgbCamera` cannot open a ZED 2i. Bringing it back needs a `_handheld` base
+  with aarch64 engines; the stereo path (`ZedRgbdCamera`, `PointCloudFieldFilter`, `HeightGate`)
+  is still built and reached by `mr_stabs_mk2_desktop`.
 - `mr_stabs_mk2_fid_zed_box`, `mr_stabs_mk2_aer_zed_box`: ESP-NOW transmitter, fiducial and AER
   fields, `RlPolicyNavigation` from `navigation/mr_stabs_mk2_rl.toml` on bundle `rl_nav_p4`,
   retrained from p3 with sensing dropouts off. It trained in the sim's 2.4 m arena; this field is 1.5 m. It has no
