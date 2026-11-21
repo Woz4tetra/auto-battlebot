@@ -59,6 +59,26 @@ fg::SceneEntityDeletion make_deletion(const Header &header, const std::string &n
     return deletion;
 }
 
+struct EllipseAxes {
+    double major = 0.0;
+    double minor = 0.0;
+    double angle = 0.0;
+};
+
+EllipseAxes sigma_ellipse(const PoseUncertainty &uncertainty) {
+    if (!uncertainty.position_covariance_m2) {
+        const double radius = uncertainty.position_sigma_major_axis_m.value_or(0.0);
+        return {radius, radius, 0.0};
+    }
+    const PositionCovariance &c = *uncertainty.position_covariance_m2;
+    Eigen::Matrix2d covariance;
+    covariance << c.xx, c.xy, c.xy, c.yy;
+    const Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> eigen(covariance);
+    const Eigen::Vector2d values = eigen.eigenvalues().cwiseMax(0.0);
+    const Eigen::Vector2d major_axis = eigen.eigenvectors().col(1);
+    return {std::sqrt(values(1)), std::sqrt(values(0)), std::atan2(major_axis.y(), major_axis.x())};
+}
+
 fg::ArrowPrimitive make_pose_arrow(const fg::Pose &pose, double length, double shaft_diameter,
                                    double head_diameter, const fg::Color &color) {
     fg::ArrowPrimitive arrow;
@@ -231,16 +251,22 @@ fg::SceneUpdate to_robot_scene(const RobotDescriptionsStamped &robots) {
             update.entities.push_back(std::move(entity));
         }
 
-        if (robot.uncertainty.position_sigma_major_axis_m) {
+        if (robot.uncertainty.position_sigma_major_axis_m ||
+            robot.uncertainty.position_covariance_m2) {
             constexpr int kRingSegments = 32;
-            const double radius = 2.0 * *robot.uncertainty.position_sigma_major_axis_m;
+            constexpr double kSigmas = 2.0;
+            const EllipseAxes axes = sigma_ellipse(robot.uncertainty);
+            const double cos_a = std::cos(axes.angle);
+            const double sin_a = std::sin(axes.angle);
             fg::SceneEntity entity = make_entity(robots.header, "robot_uncertainty", robot_id);
             fg::LinePrimitive ring =
                 make_line(fg::LinePrimitive::LineType::LINE_STRIP, 0.006, solid_color);
             for (int step = 0; step <= kRingSegments; ++step) {
                 const double angle = 2.0 * M_PI * step / kRingSegments;
-                ring.points.push_back(to_point3(robot.pose.position.x + radius * std::cos(angle),
-                                                robot.pose.position.y + radius * std::sin(angle),
+                const double u = kSigmas * axes.major * std::cos(angle);
+                const double v = kSigmas * axes.minor * std::sin(angle);
+                ring.points.push_back(to_point3(robot.pose.position.x + u * cos_a - v * sin_a,
+                                                robot.pose.position.y + u * sin_a + v * cos_a,
                                                 robot.pose.position.z));
             }
             entity.lines.push_back(std::move(ring));

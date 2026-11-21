@@ -11,8 +11,15 @@
 #include "velocity.hpp"
 
 namespace auto_battlebot {
+struct PositionCovariance {
+    double xx = 0.0;
+    double xy = 0.0;
+    double yy = 0.0;
+};
+
 struct PoseUncertainty {
     std::optional<double> position_sigma_major_axis_m = std::nullopt;
+    std::optional<PositionCovariance> position_covariance_m2 = std::nullopt;
     std::optional<double> heading_sigma_rad = std::nullopt;
     std::optional<double> yaw_rate_sigma_rad_s = std::nullopt;
 };

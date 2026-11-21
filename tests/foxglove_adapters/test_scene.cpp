@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 
 #include "foxglove_adapters/scene.hpp"
@@ -124,6 +126,72 @@ TEST_F(SceneAdapterTest, RobotEntitiesUseFrameIndexIds) {
     EXPECT_EQ(update.entities[8].id, "robot_keypoint_lines/6");
     ASSERT_EQ(update.entities[8].lines.size(), 1u);
     EXPECT_EQ(update.entities[8].lines[0].points.size(), 2u);
+}
+
+const foxglove::schemas::LinePrimitive *uncertainty_ring(
+    const foxglove::schemas::SceneUpdate &&update) = delete;
+
+const foxglove::schemas::LinePrimitive *uncertainty_ring(
+    const foxglove::schemas::SceneUpdate &update) {
+    for (const auto &entity : update.entities) {
+        if (entity.id.rfind("robot_uncertainty/", 0) == 0 && !entity.lines.empty()) {
+            return &entity.lines[0];
+        }
+    }
+    return nullptr;
+}
+
+TEST_F(SceneAdapterTest, UncertaintyRingIsTheTwoSigmaCovarianceEllipse) {
+    RobotDescriptionsStamped one;
+    one.header = test_header;
+    RobotDescription robot = robots.descriptions[0];
+    const double major_sigma = 0.2;
+    const double minor_sigma = 0.05;
+    const double angle = M_PI / 6.0;
+    const double c = std::cos(angle);
+    const double s = std::sin(angle);
+    const double major_var = major_sigma * major_sigma;
+    const double minor_var = minor_sigma * minor_sigma;
+    robot.uncertainty.position_covariance_m2 =
+        PositionCovariance{major_var * c * c + minor_var * s * s, (major_var - minor_var) * c * s,
+                           major_var * s * s + minor_var * c * c};
+    robot.uncertainty.position_sigma_major_axis_m = major_sigma;
+    one.descriptions.push_back(robot);
+
+    const auto update = foxglove_adapters::to_robot_scene(one);
+    const auto *ring = uncertainty_ring(update);
+    ASSERT_NE(ring, nullptr);
+    double farthest = 0.0;
+    double nearest = 1e9;
+    double farthest_angle = 0.0;
+    for (const auto &point : ring->points) {
+        const double dx = point.x - robot.pose.position.x;
+        const double dy = point.y - robot.pose.position.y;
+        const double r = std::hypot(dx, dy);
+        if (r > farthest) {
+            farthest = r;
+            farthest_angle = std::atan2(dy, dx);
+        }
+        nearest = std::min(nearest, r);
+    }
+    EXPECT_NEAR(farthest, 2.0 * major_sigma, 1e-6);
+    EXPECT_NEAR(nearest, 2.0 * minor_sigma, 1e-3);
+    EXPECT_NEAR(std::remainder(farthest_angle - angle, M_PI), 0.0, 1e-6);
+}
+
+TEST_F(SceneAdapterTest, UncertaintyRingFallsBackToACircleWithoutCovariance) {
+    RobotDescriptionsStamped one;
+    one.header = test_header;
+    RobotDescription robot = robots.descriptions[0];
+    robot.uncertainty.position_sigma_major_axis_m = 0.1;
+    one.descriptions.push_back(robot);
+
+    const auto update = foxglove_adapters::to_robot_scene(one);
+    const auto *ring = uncertainty_ring(update);
+    ASSERT_NE(ring, nullptr);
+    for (const auto &point : ring->points) {
+        EXPECT_NEAR(std::hypot(point.x - 1.0, point.y - 2.0), 0.2, 1e-6);
+    }
 }
 
 TEST_F(SceneAdapterTest, EmptyRobotsStillClearsTheScene) {

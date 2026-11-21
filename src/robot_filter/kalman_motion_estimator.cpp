@@ -45,6 +45,11 @@ constexpr std::array<bool, 6> kOpponentWrappedAngleStates = {false, false, false
 constexpr double kMaxHeadingVariance = M_PI * M_PI;
 constexpr double kFlipTestMaxVariance = (M_PI / 4.0) * (M_PI / 4.0);
 
+auto_battlebot::PositionCovariance position_covariance(
+    const auto_battlebot::ekf::Mat<2, 2> &covariance) {
+    return {covariance(0, 0), 0.5 * (covariance(0, 1) + covariance(1, 0)), covariance(1, 1)};
+}
+
 double position_sigma(const auto_battlebot::ekf::Mat<2, 2> &covariance) {
     const Eigen::SelfAdjointEigenSolver<auto_battlebot::ekf::Mat<2, 2>> eigen(
         covariance, Eigen::EigenvaluesOnly);
@@ -238,6 +243,8 @@ RobotDescription KalmanMotionEstimator::render_our_ekf(const OurEkfTrack &track,
     }
     description.uncertainty.position_sigma_major_axis_m =
         position_sigma(track.covariance.block<2, 2>(0, 0));
+    description.uncertainty.position_covariance_m2 =
+        position_covariance(track.covariance.block<2, 2>(0, 0));
     return description;
 }
 
@@ -303,6 +310,8 @@ RobotDescription KalmanMotionEstimator::render_opponent(const OpponentTrack &tra
 
     description.uncertainty.position_sigma_major_axis_m =
         position_sigma(track.covariance.block<2, 2>(kPx, kPx));
+    description.uncertainty.position_covariance_m2 =
+        position_covariance(track.covariance.block<2, 2>(kPx, kPx));
 
     double omega = 0.0;
     if (track.heading_initialized) {

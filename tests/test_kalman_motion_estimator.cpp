@@ -277,6 +277,28 @@ TEST(KalmanMotionEstimatorTest, AnUnmeasuredTrackExpiresOnceItsPositionSigmaPass
     }
 }
 
+TEST(KalmanMotionEstimatorTest, EveryTrackCarriesItsPositionCovariance) {
+    KalmanMotionEstimator estimator{default_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+    estimator.predict(kStartTime, CommandFeedback{});
+    estimator.update({make_our_measurement(0.0, 0.0), make_opponent_measurement(1.0, 1.0)},
+                     kStartTime, assigner, field, context);
+    estimator.predict(kStartTime + 0.2, CommandFeedback{});
+    const auto outputs = estimator.update({}, kStartTime + 0.2, assigner, field, context);
+    ASSERT_EQ(outputs.size(), 2u);
+    for (const RobotDescription &output : outputs) {
+        ASSERT_TRUE(output.uncertainty.position_covariance_m2.has_value());
+        const PositionCovariance &c = *output.uncertainty.position_covariance_m2;
+        const double trace = c.xx + c.yy;
+        const double det = c.xx * c.yy - c.xy * c.xy;
+        const double largest = 0.5 * trace + std::sqrt(std::max(0.0, 0.25 * trace * trace - det));
+        EXPECT_GT(det, 0.0);
+        EXPECT_NEAR(std::sqrt(largest), *output.uncertainty.position_sigma_major_axis_m, 1e-9);
+    }
+}
+
 TEST(KalmanMotionEstimatorTest, AMeasuredTrackNeverExpires) {
     KalmanMotionEstimatorConfiguration config = default_config();
     config.max_position_sigma_m = 0.05;
