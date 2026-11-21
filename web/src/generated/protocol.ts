@@ -74,7 +74,6 @@ export interface TrackedRobot {
   image?: ImagePoint;
   label: string;
   ours: boolean;
-  stale: boolean;
   x: number;
   y: number;
   yaw: number;
