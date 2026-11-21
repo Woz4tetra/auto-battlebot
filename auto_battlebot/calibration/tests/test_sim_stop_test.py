@@ -9,6 +9,7 @@ import pytest
 
 from auto_battlebot.calibration import sim_stop_test as stop
 from auto_battlebot.compat import tomllib
+from auto_battlebot.control.plant import PlantParams
 
 
 def test_python_sim_server_listens_where_the_cpp_profile_connects(
@@ -24,3 +25,19 @@ def test_python_sim_server_listens_where_the_cpp_profile_connects(
 
 def test_sim_port_comes_from_the_cpp_profile() -> None:
     assert stop.sim_port() == 14882
+
+
+def test_cpp_overlay_writes_navigation_speeds_in_metres_per_second(tmp_path: Path) -> None:
+    out = tmp_path / "cpp.toml"
+    stop.write_cpp_overlay(PlantParams(), 1.7, out)
+    navigation = tomllib.loads(out.read_text())["navigation"]
+    assert navigation["attack_terminal_speed_mps"] == 0.0
+    assert navigation["max_linear_speed_mps"] == 1.7
+    assert "max_linear_command" not in navigation
+    assert "attack_terminal_speed_fraction" not in navigation
+
+
+def test_cpp_overlay_without_a_speed_cap_inherits_the_profile_cap(tmp_path: Path) -> None:
+    out = tmp_path / "cpp.toml"
+    stop.write_cpp_overlay(PlantParams(), None, out)
+    assert "max_linear_speed_mps" not in tomllib.loads(out.read_text())["navigation"]

@@ -33,14 +33,13 @@ struct NoopNavigationConfiguration : public NavigationConfiguration {
 
 struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
     JigPlantParams plant;
-    double deadzone = 0.0;
     double accel_limit = 8.5;
 
     double steer_brake_floor = 0.3;
-    double attack_terminal_speed_fraction = 1.0;
-    double run_away_terminal_speed_fraction = 0.0;
+    double attack_terminal_speed_mps = 4.35;
+    double run_away_terminal_speed_mps = 0.0;
     double stop_distance_m = 0.15;
-    double speed_kp = 0.15;
+    double speed_kp = 0.65;
     double speed_ki = 0.0;
 
     bool compensate_angular_droop = false;
@@ -50,13 +49,12 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
     double angular_kd = 0.32;
     double angle_threshold = 1.7;
     double max_yaw_rate = 7.93;
-    std::optional<double> max_angular_command = 1.0;
     bool enable_hysteresis = true;
     double boundary_margin = 0.1;
     int hazard_push_out_max_passes = 6;
-    std::optional<double> max_linear_command = 1.0;
+    std::optional<double> max_linear_speed_mps;
     std::optional<double> wall_reverse_distance_m;
-    double wall_reverse_min_speed = 0.0;
+    double wall_reverse_min_speed_mps = 0.0;
     double wall_heading_threshold_rad = 0.6;
     bool hazard_tangent_enable = true;
     int hazard_tangent_max_iterations = 3;
@@ -73,11 +71,13 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
 
     // clang-format off
     PARSE_CONFIG_FIELDS(
-        PARSE_FIELD_DOUBLE(deadzone)
+        PARSE_RENAMED(deadzone, command_shaper.linear_deadzone)
         PARSE_FIELD_DOUBLE(accel_limit)
         PARSE_FIELD_DOUBLE(steer_brake_floor)
-        PARSE_FIELD_DOUBLE(attack_terminal_speed_fraction)
-        PARSE_FIELD_DOUBLE(run_away_terminal_speed_fraction)
+        PARSE_RENAMED(attack_terminal_speed_fraction, attack_terminal_speed_mps)
+        PARSE_FIELD_DOUBLE(attack_terminal_speed_mps)
+        PARSE_RENAMED(run_away_terminal_speed_fraction, run_away_terminal_speed_mps)
+        PARSE_FIELD_DOUBLE(run_away_terminal_speed_mps)
         PARSE_RENAMED(stop_distance, stop_distance_m)
         PARSE_FIELD_DOUBLE(stop_distance_m)
         PARSE_FIELD_DOUBLE(speed_kp)
@@ -88,14 +88,15 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
         PARSE_FIELD_DOUBLE(angular_kd)
         PARSE_FIELD_DOUBLE(angle_threshold)
         PARSE_FIELD_DOUBLE(max_yaw_rate)
-        PARSE_FIELD_NULLABLE_DOUBLE(max_angular_command)
         PARSE_FIELD_BOOL(enable_hysteresis)
         PARSE_FIELD_DOUBLE(boundary_margin)
         PARSE_FIELD(hazard_push_out_max_passes)
-        PARSE_FIELD_NULLABLE_DOUBLE(max_linear_command)
+        PARSE_RENAMED(max_linear_command, max_linear_speed_mps)
+        PARSE_FIELD_NULLABLE_DOUBLE(max_linear_speed_mps)
         PARSE_RENAMED(wall_reverse_distance, wall_reverse_distance_m)
         PARSE_FIELD_NULLABLE_DOUBLE(wall_reverse_distance_m)
-        PARSE_FIELD_DOUBLE(wall_reverse_min_speed)
+        PARSE_RENAMED(wall_reverse_min_speed, wall_reverse_min_speed_mps)
+        PARSE_FIELD_DOUBLE(wall_reverse_min_speed_mps)
         PARSE_RENAMED(wall_heading_threshold, wall_heading_threshold_rad)
         PARSE_FIELD_DOUBLE(wall_heading_threshold_rad)
         PARSE_FIELD_BOOL(hazard_tangent_enable)

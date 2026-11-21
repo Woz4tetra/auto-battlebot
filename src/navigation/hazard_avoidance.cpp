@@ -102,31 +102,24 @@ HazardBarrierResult HazardAvoidance::limit_command(const Pose2D &our_pose,
                              settings_.barrier_horizon_s;
         const double excess = v_approach - bound;
 
-        const double brake_fraction = std::min(1.0, settings_.excess_gain * excess);
+        const double brake_speed = settings_.excess_gain * excess;
         if (toward > 0.0) {
             v_max = std::min(v_max, bound / toward);
             if (excess > 0.0) {
-                v_max = std::min(v_max, -full_rev * brake_fraction);
+                v_max = std::min(v_max, -std::min(full_rev, brake_speed));
                 result.braking = true;
             }
         } else {
             v_min = std::max(v_min, bound / toward);
             if (excess > 0.0) {
-                v_min = std::max(v_min, full_fwd * brake_fraction);
+                v_min = std::max(v_min, std::min(full_fwd, brake_speed));
                 result.braking = true;
             }
         }
         result.approach_speed_bound_mps = std::min(result.approach_speed_bound_mps, bound);
     }
 
-    const auto fraction_of_full = [&](double v) { return v / (v >= 0.0 ? full_fwd : full_rev); };
-    double limited;
-    if (v_min > v_max) {
-        const double fraction = 0.5 * (fraction_of_full(v_min) + fraction_of_full(v_max));
-        limited = fraction * (fraction >= 0.0 ? full_fwd : full_rev);
-    } else {
-        limited = std::clamp(command.forward_mps, v_min, v_max);
-    }
+    const double limited = v_min > v_max ? 0.0 : std::clamp(command.forward_mps, v_min, v_max);
     if (limited != command.forward_mps) {
         command.forward_mps = limited;
         result.engaged = true;
@@ -149,7 +142,7 @@ bool HazardAvoidance::apply_reverse(const Pose2D &our_pose, const FieldDescripti
         if (heading_err >= settings_.heading_threshold) continue;
 
         command.forward_mps =
-            -std::max(std::abs(command.forward_mps), std::abs(settings_.reverse_min_speed));
+            -std::max(std::abs(command.forward_mps), std::abs(settings_.reverse_min_speed_mps));
         return true;
     }
     return false;

@@ -1,0 +1,9 @@
+[navigation]
+type = "MotionProfileNavigation"
+stop_distance_m = 0.15
+attack_terminal_speed_mps = 5.73
+wall_reverse_distance_m = 0.25
+wall_heading_threshold_rad = 1.047
+wall_reverse_min_speed_mps = 0.94
+max_linear_speed_mps = 4.58
+speed_kp = 0.86

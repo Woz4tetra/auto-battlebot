@@ -21,11 +21,13 @@ struct CommandShaperConfiguration {
 
 struct PlantCommandShaperConfiguration : public CommandShaperConfiguration {
     double velocity_saturation_limit = 1.0;
+    double linear_deadzone = 0.0;
     JigPlantParams plant;
 
     PlantCommandShaperConfiguration() { type = "PlantCommandShaper"; }
 
-    PARSE_CONFIG_FIELDS(PARSE_FIELD_DOUBLE(velocity_saturation_limit))
+    PARSE_CONFIG_FIELDS(PARSE_FIELD_DOUBLE(velocity_saturation_limit)
+                            PARSE_FIELD_DOUBLE(linear_deadzone))
 
     void apply_plant(const PlantConfiguration &plant_config) override;
 };

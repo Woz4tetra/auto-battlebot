@@ -47,9 +47,11 @@ class MotionProfileNavigation : public NavigationInterface {
     double compute_yaw_reference(double angle_error, double now_s);
 
     double compute_angular_command(double w_ref, double dt);
+    double linear_speed_fraction(double v_mps) const;
+    double yaw_rate_fraction(double w_radps) const;
 
     void override_linear_with_wall_reverse(const Pose2D &our_pose, const FieldDescription &field,
-                                           StickCommand &stick) const;
+                                           VelocityCommand &cmd) const;
 
     Pose2D clamp_to_field(const Pose2D &pose, const FieldDescription &field) const;
 
@@ -66,15 +68,12 @@ class MotionProfileNavigation : public NavigationInterface {
     double tau_accel_;
     double tau_decel_;
     double latency_;
-    double deadzone_;
     double accel_limit_;
     double steer_brake_coeff_;
     double steer_brake_floor_;
-    double angular_deadzone_left_;
-    double angular_deadzone_right_;
 
-    double attack_terminal_speed_fraction_;
-    double run_away_terminal_speed_fraction_;
+    double attack_terminal_speed_mps_;
+    double run_away_terminal_speed_mps_;
     double stop_distance_m_;
     HazardAvoidance hazards_;
 
@@ -90,19 +89,17 @@ class MotionProfileNavigation : public NavigationInterface {
     double angular_kd_;
     double angle_threshold_;
     double max_yaw_rate_;
-    std::optional<double> max_angular_command_;
     bool enable_hysteresis_;
 
     double boundary_margin_;
     int hazard_push_out_max_passes_;
-    std::optional<double> max_linear_command_;
+    std::optional<double> max_linear_speed_mps_;
     std::optional<double> wall_reverse_distance_m_;
-    double wall_reverse_min_speed_;
+    double wall_reverse_min_speed_mps_;
     double wall_heading_threshold_rad_;
 
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
     std::shared_ptr<ClockInterface> clock_;
-    JigPlantParams plant_;
 
     int committed_turn_sign_ = 0;
     double prev_angle_error_ = 0.0;

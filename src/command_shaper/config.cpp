@@ -41,7 +41,8 @@ std::shared_ptr<CommandShaperInterface> make_command_shaper(
     if (config.type == "PlantCommandShaper") {
         const auto &plant_config = config_cast<PlantCommandShaperConfiguration>(config);
         return std::make_shared<PlantCommandShaper>(plant_config.plant,
-                                                    plant_config.velocity_saturation_limit);
+                                                    plant_config.velocity_saturation_limit,
+                                                    plant_config.linear_deadzone);
     }
     throw std::invalid_argument("Failed to load CommandShaper of type " + config.type);
 }

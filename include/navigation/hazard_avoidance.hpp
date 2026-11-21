@@ -18,14 +18,14 @@ struct HazardAvoidanceSettings {
 
     double reverse_distance = 0.12;
     double heading_threshold = 1.047;
-    double reverse_min_speed = 0.35;
+    double reverse_min_speed_mps = 1.5;
 
     bool barrier_enable = true;
     double max_linear_speed_fwd = 0.0;
     double max_linear_speed_rev = 0.0;
     double barrier_horizon_s = 0.0;
     double barrier_delay_s = 0.0;
-    double excess_gain = 1.5;
+    double excess_gain = 6.5;
 };
 
 struct HazardBarrierResult {

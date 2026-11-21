@@ -51,13 +51,17 @@ TEST(CommandShaperTest, YawDividesByAngularGain) {
                      -10.0 / plant.k_ang);
 }
 
-TEST(CommandShaperTest, InvertsThePlantForwardMapAcrossTheStickRange) {
+TEST(CommandShaperTest, FullSpeedTimesAStickShapesBackToThatStick) {
     const JigPlantParams plant = asymmetric_plant();
     const PlantCommandShaper shaper(plant, 0.0);
     for (double forward = -1.0; forward <= 1.0; forward += 0.05) {
         for (double yaw = -1.0; yaw <= 1.0; yaw += 0.05) {
             const StickCommand stick{.forward = forward, .lateral = 0.0, .yaw = yaw};
-            const StickCommand shaped = shaper.shape(plant_stick_to_body_velocity(stick, plant));
+            const VelocityCommand body{
+                .forward_mps = forward * (forward >= 0.0 ? plant.k_fwd : plant.k_rev),
+                .lateral_mps = 0.0,
+                .yaw_rate_radps = yaw * plant.k_ang};
+            const StickCommand shaped = shaper.shape(body);
             EXPECT_NEAR(shaped.forward, forward, 1e-12) << forward << "," << yaw;
             EXPECT_NEAR(shaped.yaw, yaw, 1e-12) << forward << "," << yaw;
         }
@@ -70,6 +74,16 @@ TEST(CommandShaperTest, SaturatesAfterConvertingWithAngularPriority) {
     const StickCommand stick = shaper.shape(body(plant.k_fwd, 0.4 * plant.k_ang));
     EXPECT_NEAR(stick.yaw, 0.4, 1e-12);
     EXPECT_NEAR(stick.forward, 0.6, 1e-12);
+}
+
+TEST(CommandShaperTest, LinearDeadzoneLiftsSmallCommandsBeforeSaturation) {
+    const JigPlantParams plant = asymmetric_plant();
+    const PlantCommandShaper shaper(plant, 1.0, 0.1);
+    EXPECT_NEAR(shaper.shape(body(0.5 * plant.k_fwd, 0.0)).forward, 0.1 + 0.5 * 0.9, 1e-12);
+    EXPECT_NEAR(shaper.shape(body(-0.5 * plant.k_rev, 0.0)).forward, -(0.1 + 0.5 * 0.9), 1e-12);
+    EXPECT_DOUBLE_EQ(shaper.shape(body(0.0, 0.0)).forward, 0.0);
+    EXPECT_DOUBLE_EQ(shaper.shape(body(0.0, 2.0)).yaw, 2.0 / plant.k_ang)
+        << "the deadzone is linear only";
 }
 
 TEST(CommandShaperTest, SaturationLimitBelowOneShrinksLinearHeadroom) {

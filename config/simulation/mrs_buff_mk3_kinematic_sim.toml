@@ -6,10 +6,6 @@ hazards_file = "config/hazards/massd_arena_north_south.toml"
 [navigation]
 type = "MotionProfileNavigation"
 stop_distance_m = 0.15
-attack_terminal_speed_fraction = 1.0
-run_away_terminal_speed_fraction = 0.0
 wall_reverse_distance_m = 0.25
 wall_heading_threshold_rad = 1.047
-wall_reverse_min_speed = 0.25
-max_linear_command = 1.0
-max_angular_command = 1.0
+max_linear_speed_mps = 4.35

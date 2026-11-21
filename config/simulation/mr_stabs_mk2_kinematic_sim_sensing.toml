@@ -33,3 +33,6 @@ enable = false
 
 [clock]
 type = "ManualClock"
+
+[navigation]
+from = "navigation/mr_stabs_mk2_motion_profile"

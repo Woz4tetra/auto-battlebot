@@ -98,13 +98,13 @@ def write_sim_config(
         tomli_w.dump(cfg, handle)
 
 
-def write_cpp_overlay(table: PlantParams, max_linear: float | None, path: Path) -> None:
+def write_cpp_overlay(table: PlantParams, max_linear_mps: float | None, path: Path) -> None:
     nav: dict[str, Any] = {
         "type": "MotionProfileNavigation",
-        "attack_terminal_speed_fraction": 0.0,
+        "attack_terminal_speed_mps": 0.0,
     }
-    if max_linear is not None:
-        nav["max_linear_command"] = max_linear
+    if max_linear_mps is not None:
+        nav["max_linear_speed_mps"] = max_linear_mps
     data = {
         "extends": CPP_BASE,
         "navigation": nav,
@@ -199,10 +199,10 @@ def main() -> None:
     ap.add_argument("--seconds", type=float, default=8.0, help="sim time per run")
     ap.add_argument("--stop-distance", type=float, default=0.15, help="match [navigation]")
     ap.add_argument(
-        "--max-linear-command",
+        "--max-linear-speed-mps",
         type=float,
         default=None,
-        help="override [navigation] max_linear_command (0.8 inherited)",
+        help="override [navigation] max_linear_speed_mps (inherited from the profile)",
     )
     ap.add_argument("--timeout", type=float, default=300.0, help="wall seconds per run")
     ap.add_argument("--out", type=Path, default=None)
@@ -234,7 +234,7 @@ def main() -> None:
             trace, log = out / f"{tag}.trace.csv", out / f"{tag}.log"
             trace.unlink(missing_ok=True)
             write_sim_config(case, args.fit_file, radio_ms, args.seconds, trace, sim_cfg)
-            write_cpp_overlay(table, args.max_linear_command, cpp_cfg)
+            write_cpp_overlay(table, args.max_linear_speed_mps, cpp_cfg)
             start = time.monotonic()
             clean = run_once(sim_cfg, cpp_cfg, log, args.timeout)
             row: dict[str, Any] = {"arm": arm, "case": case.name, "clean_exit": clean}

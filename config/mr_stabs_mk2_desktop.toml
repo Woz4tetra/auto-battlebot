@@ -9,3 +9,6 @@ from = "transmitters/mr_stabs_mk2_opentx"
 
 [plant]
 from = "robots/mr_stabs_mk2"
+
+[navigation]
+from = "navigation/mr_stabs_mk2_motion_profile"

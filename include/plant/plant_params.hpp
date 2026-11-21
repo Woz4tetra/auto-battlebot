@@ -38,7 +38,4 @@ double plant_effective_command(double u, double dz_pos, double dz_neg);
 void plant_steady_state(double u_lin, double u_ang, const JigPlantParams &params, double &v_target,
                         double &w_target);
 
-VelocityCommand plant_stick_to_body_velocity(const StickCommand &stick,
-                                             const JigPlantParams &params);
-
 }  // namespace auto_battlebot

@@ -293,19 +293,6 @@ HazardAvoidanceSettings barrier_settings() {
     return settings;
 }
 
-VelocityCommand drive(double stick_forward) {
-    const HazardAvoidanceSettings settings = barrier_settings();
-    const double gain =
-        stick_forward >= 0.0 ? settings.max_linear_speed_fwd : settings.max_linear_speed_rev;
-    return {.forward_mps = stick_forward * gain, .lateral_mps = 0.0, .yaw_rate_radps = 0.0};
-}
-
-double stick(double forward_mps) {
-    const HazardAvoidanceSettings settings = barrier_settings();
-    return forward_mps /
-           (forward_mps >= 0.0 ? settings.max_linear_speed_fwd : settings.max_linear_speed_rev);
-}
-
 TEST(HazardBarrierTest, FarHazardLeavesTheCommandAlone) {
     const HazardAvoidanceSettings settings = barrier_settings();
     constexpr double kHazardRadius = 0.4;
@@ -314,57 +301,57 @@ TEST(HazardBarrierTest, FarHazardLeavesTheCommandAlone) {
     ASSERT_GT(kFarGap / settings.barrier_horizon_s, settings.max_linear_speed_fwd);
     HazardAvoidance avoidance(settings);
     const FieldDescription field = field_with({hazard(kHazardDistance, 0.0, kHazardRadius)});
-    VelocityCommand cmd = drive(1.0);
+    VelocityCommand cmd{1.0, 0.0, 0.0};
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
     EXPECT_FALSE(result.engaged);
-    EXPECT_NEAR(stick(cmd.forward_mps), 1.0, kTol);
+    EXPECT_NEAR(cmd.forward_mps, 1.0, kTol);
 }
 
 TEST(HazardBarrierTest, NearHazardTapersThrustWithTheGap) {
     HazardAvoidance avoidance(barrier_settings());
     const FieldDescription field = field_with({hazard(0.8, 0.0, 0.4)});
-    VelocityCommand cmd = drive(1.0);
+    VelocityCommand cmd{barrier_settings().max_linear_speed_fwd, 0.0, 0.0};
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
     EXPECT_TRUE(result.engaged);
     EXPECT_FALSE(result.braking);
-    EXPECT_NEAR(stick(cmd.forward_mps), 0.4, kTol);
+    EXPECT_NEAR(cmd.forward_mps, 2.0, kTol) << "0.4 m gap over a 0.2 s horizon";
     EXPECT_NEAR(result.approach_speed_bound_mps, 2.0, kTol);
 }
 
 TEST(HazardBarrierTest, MeasuredExcessCommandsReverseThroughAZeroCommand) {
     HazardAvoidance avoidance(barrier_settings());
     const FieldDescription field = field_with({hazard(0.8, 0.0, 0.4)});
-    VelocityCommand cmd = drive(0.0);
+    VelocityCommand cmd{0.0, 0.0, 0.0};
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 3.0, cmd);
     EXPECT_TRUE(result.engaged);
     EXPECT_TRUE(result.braking);
-    EXPECT_NEAR(stick(cmd.forward_mps), -1.0, kTol);
+    EXPECT_NEAR(cmd.forward_mps, -barrier_settings().max_linear_speed_rev, kTol)
+        << "1.75 m/s of excess asks for more braking than full reverse";
 }
 
 TEST(HazardBarrierTest, InsideTheHardRadiusReversesProportionallyToDepth) {
     const HazardAvoidanceSettings settings = barrier_settings();
-    constexpr double kExcessGain = 1.5;
     constexpr double kDistance = 0.3;
     constexpr double kHardRadius = 0.4;
     const double kBound = (kDistance - kHardRadius) / settings.barrier_horizon_s;
     HazardAvoidance avoidance(settings);
     const FieldDescription field = field_with({hazard(kDistance, 0.0, kHardRadius)});
-    VelocityCommand cmd = drive(0.5);
+    VelocityCommand cmd{2.0, 0.0, 0.0};
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
     EXPECT_TRUE(result.engaged);
     EXPECT_TRUE(result.braking);
-    EXPECT_NEAR(stick(cmd.forward_mps), kExcessGain * kBound, kTol);
+    ASSERT_LT(-settings.excess_gain * kBound, settings.max_linear_speed_rev);
+    EXPECT_NEAR(cmd.forward_mps, settings.excess_gain * kBound, kTol);
     EXPECT_LT(result.approach_speed_bound_mps, 0.0);
 }
 
 TEST(HazardBarrierTest, RearFirstApproachDrivesForwardNotFurtherBack) {
     HazardAvoidance avoidance(barrier_settings());
     const FieldDescription field = field_with({hazard(-0.8, 0.0, 0.4)});
-    VelocityCommand cmd = drive(0.0);
+    VelocityCommand cmd{0.0, 0.0, 0.0};
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, -3.0, cmd);
     EXPECT_TRUE(result.braking);
-    EXPECT_GT(stick(cmd.forward_mps), 0.0)
-        << "a rear-first approach was answered by backing in further";
+    EXPECT_GT(cmd.forward_mps, 0.0) << "a rear-first approach was answered by backing in further";
 }
 
 TEST(HazardBarrierTest, ReverseTowardAHazardBehindIsLimited) {
@@ -374,50 +361,38 @@ TEST(HazardBarrierTest, ReverseTowardAHazardBehindIsLimited) {
     const double kBound = kGapBehind / settings.barrier_horizon_s;
     HazardAvoidance avoidance(settings);
     const FieldDescription field = field_with({hazard(-0.7, 0.0, 0.4)});
-    VelocityCommand cmd = drive(-1.0);
+    VelocityCommand cmd{-settings.max_linear_speed_rev, 0.0, 0.0};
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
     EXPECT_TRUE(result.engaged);
-    EXPECT_NEAR(stick(cmd.forward_mps), kBound / (settings.max_linear_speed_rev * kToward), kTol);
+    EXPECT_NEAR(cmd.forward_mps, kBound / kToward, kTol);
 }
 
 TEST(HazardBarrierTest, SlidingRearFirstAtAHazardCommandsForwardNotReverse) {
     HazardAvoidance avoidance(barrier_settings());
     const FieldDescription field = field_with({hazard(-0.7, 0.0, 0.4)});
-    VelocityCommand cmd = drive(0.0);
+    VelocityCommand cmd{0.0, 0.0, 0.0};
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, -3.0, cmd);
     EXPECT_TRUE(result.engaged);
     EXPECT_TRUE(result.braking);
-    EXPECT_NEAR(stick(cmd.forward_mps), 1.0, kTol);
+    EXPECT_NEAR(cmd.forward_mps, barrier_settings().max_linear_speed_fwd, kTol);
 }
 
 TEST(HazardBarrierTest, SqueezedBetweenOverlappingHazardsStops) {
     HazardAvoidance avoidance(barrier_settings());
     const FieldDescription field = field_with({hazard(0.2, 0.0, 0.4), hazard(-0.2, 0.0, 0.4)});
-    VelocityCommand cmd = drive(1.0);
+    VelocityCommand cmd{barrier_settings().max_linear_speed_fwd, 0.0, 0.0};
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
     EXPECT_TRUE(result.engaged);
-    EXPECT_NEAR(stick(cmd.forward_mps), 0.0, kTol);
-}
-
-TEST(HazardBarrierTest, CapsForwardSpeedAtTheGapOverTheHorizonInMetresPerSecond) {
-    const HazardAvoidanceSettings settings = barrier_settings();
-    constexpr double kGap = 0.8 - 0.4;
-    HazardAvoidance avoidance(settings);
-    const FieldDescription field = field_with({hazard(0.8, 0.0, 0.4)});
-    VelocityCommand cmd{settings.max_linear_speed_fwd, 0.0, 0.0};
-    const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 0.0, cmd);
-    EXPECT_TRUE(result.engaged);
-    EXPECT_NEAR(cmd.forward_mps, kGap / settings.barrier_horizon_s, kTol);
-    EXPECT_NEAR(result.approach_speed_bound_mps, kGap / settings.barrier_horizon_s, kTol);
+    EXPECT_NEAR(cmd.forward_mps, 0.0, kTol);
 }
 
 TEST(HazardBarrierTest, PassingAbeamCostsNothing) {
     HazardAvoidance avoidance(barrier_settings());
     const FieldDescription field = field_with({hazard(0.0, 0.45, 0.4)});
-    VelocityCommand cmd = drive(1.0);
+    VelocityCommand cmd{1.0, 0.0, 0.0};
     const auto result = avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 3.0, cmd);
     EXPECT_FALSE(result.engaged);
-    EXPECT_NEAR(stick(cmd.forward_mps), 1.0, kTol);
+    EXPECT_NEAR(cmd.forward_mps, 1.0, kTol);
 }
 
 TEST(HazardBarrierTest, NoPlantFitMeansNoBarrier) {
@@ -425,9 +400,9 @@ TEST(HazardBarrierTest, NoPlantFitMeansNoBarrier) {
     settings.prediction_horizon_s = 0.0;
     HazardAvoidance avoidance(settings);
     const FieldDescription field = field_with({hazard(0.5, 0.0, 0.4)});
-    VelocityCommand cmd = drive(1.0);
+    VelocityCommand cmd{1.0, 0.0, 0.0};
     EXPECT_FALSE(avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 3.0, cmd).engaged);
-    EXPECT_NEAR(stick(cmd.forward_mps), 1.0, kTol);
+    EXPECT_NEAR(cmd.forward_mps, 1.0, kTol);
 }
 
 TEST(HazardBarrierTest, DisabledIsAPassThrough) {
@@ -435,9 +410,9 @@ TEST(HazardBarrierTest, DisabledIsAPassThrough) {
     settings.barrier_enable = false;
     HazardAvoidance avoidance(settings);
     const FieldDescription field = field_with({hazard(0.5, 0.0, 0.4)});
-    VelocityCommand cmd = drive(1.0);
+    VelocityCommand cmd{1.0, 0.0, 0.0};
     EXPECT_FALSE(avoidance.limit_command(pose(0.0, 0.0, 0.0), field, 3.0, cmd).engaged);
-    EXPECT_NEAR(stick(cmd.forward_mps), 1.0, kTol);
+    EXPECT_NEAR(cmd.forward_mps, 1.0, kTol);
 }
 
 TEST(HazardDisplayTest, ATrackedRingIsBothRobotCirclesPlusTheMargin) {

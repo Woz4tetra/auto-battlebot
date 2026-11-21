@@ -6,3 +6,6 @@ neutral_count = 1
 
 [plant]
 from = "robots/mr_stabs_mk2"
+
+[navigation]
+from = "navigation/mr_stabs_mk2_motion_profile"

@@ -24,9 +24,7 @@ lockstep, and the split matters:
    `CommandFeedback`. The feedback is normalized [-1, 1] stick, the same space the command
    was sent in. Physical units never cross this boundary: whoever needs m/s and rad/s
    applies the `[plant]` gains themselves, so the drivetrain scaling is defined once. The
-   EKF hands the stick command to `JigPlantModel`; the dead-reckoning arm calls
-   `plant_stick_to_body_velocity()`, the same gains without the deadzones, coupling, and
-   lag a single-frame hold cannot represent.
+   EKF hands the stick command to `JigPlantModel`.
 2. `robot_filter_->predict(now, command_feedback)`, every tick. Inside the estimator this
    pushes a `TimedCommand` into `CommandRingBuffer` and then calls `coast(now)`.
 3. `robot_filter_->correct(...)`, only when a new perception frame landed. This runs the
@@ -34,8 +32,8 @@ lockstep, and the split matters:
 4. `target_selector_->get_target(...)` picks the goal pose.
 5. `navigation_->update(...)` returns a `VelocityCommand` in m/s and rad/s.
 6. `command_shaper_->shape(command)` turns it into a `StickCommand`. `PlantCommandShaper`
-   divides linear by `k_fwd` or `k_rev` by sign and yaw by `k_ang`, the inverse of
-   `plant_stick_to_body_velocity()`, then saturates.
+   divides linear by `k_fwd` or `k_rev` by sign and yaw by `k_ang`, lifts the linear stick past
+   `linear_deadzone`, then saturates. It is the only place a body velocity becomes a stick.
 7. `transmitter_->send(stick)`, which is what step 1 reads back on the next tick.
 
 ## Estimator: the plant run forward
@@ -82,10 +80,10 @@ a robot is gone.
 `MotionProfileNavigation` (`src/navigation/motion_profile_navigation.cpp`) drives to the
 goal and arrives at a commanded terminal velocity without overrunning. The terminal
 velocity is per behavior mode, because the mode set on the dashboard decides what the mission is:
-`attack_terminal_speed_fraction` ships at `1.0` so the robot drives through the opponent at full
-speed, and `run_away_terminal_speed_fraction` ships at `0.0` so it arrives stopped at the safe
-point. Both are a fraction of the plant's `k_fwd`, clamped to `[0, 1]`, so a refit
-rescales them. A mode flip resets the trajectory
+`attack_terminal_speed_mps` ships at each robot's `k_fwd` so the robot drives through the opponent
+at full speed, and `run_away_terminal_speed_mps` ships at `0.0` so it arrives stopped at the safe
+point. Both are m/s, clamped to `[0, k_fwd]`; a refit that changes `k_fwd` needs the profile's
+value updated by hand. A mode flip resets the trajectory
 state, since the goal and the terminal speed both change at once and carrying the old
 reference across would feed the feedforward a `dv/dt` step the plant never asked for.
 
@@ -226,21 +224,24 @@ Nothing in C++ defaults to a fit, so a test that default-constructs a config get
 
 Motion-profiled tracker with inverse-plant feedforward and speed feedback. For a first-order drivetrain it drives to the goal and arrives at a commanded terminal velocity without overrunning.
 
-The terminal velocity is per behavior mode: ATTACK drives through the opponent at full speed, RUN_AWAY arrives stopped at the safe point. Both are configurable, and a mode flip resets the trajectory state because the mission changed. The config value is a fraction of the plant's `k_fwd`, clamped to [0, 1] (0 is a precise zero-velocity stop, 1 is full speed). It is normalized rather than m/s so a refit rescales it instead of leaving a hand-copied speed stale.
+The terminal velocity is per behavior mode: ATTACK drives through the opponent at full speed, RUN_AWAY arrives stopped at the safe point. Both are configurable, and a mode flip resets the trajectory state because the mission changed. The config value is in m/s, clamped to [0, `k_fwd`] (0 is a precise zero-velocity stop, `k_fwd` is full speed).
+
+The whole controller works in m/s and rad/s. It returns body velocity, and `PlantCommandShaper` divides by `k_fwd`, `k_rev` and `k_ang` to make sticks. Nothing in navigation reads or writes a stick.
 
 1. Distance-to-go velocity profile. The residual travel after commanding v_term on a first-order plant is about v * (tau_decel + latency), so the reference speed is capped at v_term + d / (tau_decel + latency): a coast-aware brake schedule derived from the measured plant, not a hand-tuned brake distance. Ramp-up is rate-limited for a clean launch.
-2. Inverse-plant feedforward. Maps the reference speed (m/s) back to a normalized command by dividing by max speed, adds tau_accel * dv/dt to overcome spin-up lag, divides out the steer-brake authority the turn is costing, and applies exact inverse-deadzone.
+2. Inverse-plant feedforward. Commands the reference speed plus tau_accel * dv/dt to overcome spin-up lag, then divides out the steer-brake authority the turn is costing. The result is clamped to [-`k_rev`, `k_fwd`].
 3. Speed PID feedback. Corrects plant-model error using our filtered speed, so open-loop feedforward accuracy and disturbance rejection stay separated. The feedback is dropped while our track is stale, because a dead-reckoned speed is a function of our own command and closing a loop on it is not feedback. The last measured speed is held through stale stretches so the latency lead keeps working while the speed feedback is off.
-4. Angular control in the same shape: turn-lock hysteresis, a PD on heading producing a yaw-rate reference in rad/s, then an inverse-plant feedforward through `max_angular_speed` with the regime-appropriate yaw time constant and the angular droop divided out. The yaw spin-up constant is about twice the coast constant, so the feedforward needs the sign of the reference's rate of change: a turn winding up needs extra command, and a turn stopping needs the command pulled back early or the heading sails past.
+4. Angular control in the same shape: turn-lock hysteresis, a PD on heading producing a yaw-rate reference in rad/s, then a feedforward with the regime-appropriate yaw time constant and the angular droop divided out, clamped to ±`k_ang`. The yaw spin-up constant is about twice the coast constant, so the feedforward needs the sign of the reference's rate of change: a turn winding up needs extra command, and a turn stopping needs the command pulled back early or the heading sails past.
 
 A mission reset clears the trajectory and integrator state that only makes sense within one mission: turn commitment, reference speeds, the speed integral, and the coupling history. It runs when a zero-velocity goal is reached and when the behavior mode flips. It leaves the pose and speed memory alone, since those describe the robot rather than the mission.
 
 ## Plant terms in the navigation config
 
-- The measured drivetrain is stamped in by `apply_plant` from the shared top-level `[plant]` table rather than parsed from `[navigation]`. The controller inverts the same fit the our-robot EKF propagates, so both read one table. `k_fwd` / `k_rev` are the divisors mapping a reference speed back to a normalized command, `tau_lin_a` feedforwards dv/dt against spin-up lag, `tau_lin_d` and `delay_s` set the brake horizon, `c_sb` is the steer-brake loss the controller divides back out, and `dz_ang_l` / `dz_ang_r` turn a commanded turn into the effective turn the coupling terms are defined against.
+- The measured drivetrain is stamped in by `apply_plant` from the shared top-level `[plant]` table rather than parsed from `[navigation]`. The controller inverts the same fit the our-robot EKF propagates, so both read one table. `k_fwd` / `k_rev` / `k_ang` are the top speeds the commands are clamped to, `tau_lin_a` feedforwards dv/dt against spin-up lag, `tau_lin_d` and `delay_s` set the brake horizon, and `c_sb` / `c_ad` are the coupling losses the controller divides back out.
+- The coupling terms are defined in the plant against the effective stick, which at steady state is the speed as a fraction of top speed: `|w| / k_ang` for steer-brake and `|v| / k_fwd` (or `k_rev` reversing) for droop. The controller reads those fractions from its own m/s and rad/s commands.
 - `steer_brake_floor`: floor on the steer-brake authority multiplier. 1/c_sb = 0.370 is where the fitted linear loss reaches zero and where the fit's own residuals say the shape stops describing the plant, so the compensation saturates there instead of extrapolating into a singularity.
 - Angular control is closed in rad/s, the same shape as the linear channel. Gains are rad/s per radian, not normalized command per radian.
-- Droop compensation (fit c_ad = 0.463): the plant multiplies yaw authority by (1 - c_ad * |u_lin_eff|), so the heading loop is weaker at speed than in place. It defaults OFF even though the coefficient is measured, because compensating it makes the controller worse. On the 90-degree turning approach, enabling it takes terminal error from 0.008 m to 0.067 m and time-to-goal from 1.10 s to 2.83 s. Compensating buys faster heading convergence by commanding a harder turn, and a harder turn is exactly what the steer-brake term charges forward speed for. The heading loop is closed-loop already and gets there without the help; the forward speed it spends is not refunded.
+- Droop compensation (fit c_ad = 0.463): the plant multiplies yaw authority by (1 - c_ad * |v| / k), so the heading loop is weaker at speed than in place. It defaults OFF even though the coefficient is measured, because compensating it makes the controller worse. On the 90-degree turning approach, enabling it takes terminal error from 0.008 m to 0.067 m and time-to-goal from 1.10 s to 2.83 s. Compensating buys faster heading convergence by commanding a harder turn, and a harder turn is exactly what the steer-brake term charges forward speed for. The heading loop is closed-loop already and gets there without the help; the forward speed it spends is not refunded.
 - Floor on the droop multiplier: c_ad = 0.463 never reaches zero, so the floor is a guard against a refit pushing the coefficient past 1, not a shape limit like `steer_brake_floor`.
 
 ### The coupling compensations are mutually recursive
@@ -257,9 +258,9 @@ The droop term reads the linear command and the steer-brake term reads the turn 
 - Zero terminal velocity is a precise stop: at the safe point the robot holds instead of creeping through and giving the ground back. Stopping short of the opponent is the failure the ATTACK drive-through terminal velocity prevents.
 - The brake schedule for a zero terminal velocity binds at 0.3 m (0.3 / 0.176 s = 1.7 m/s). A full-speed terminal velocity stays clamped at `max_linear_speed_fwd` there.
 - With speed feedback disabled the command is a pure function of the reference speed, so a robot arriving at 2 m/s is commanded exactly like a stationary one at the same distance. This is how `BrakeScheduleDoesNotSubtractALatencyLead` observes the estimator's render lead.
-- The fraction is of the fit, so half throttle at the goal means half of whatever `k_fwd` says. Halving `k_fwd` and doubling the fraction gives the same arrival speed.
-- At the Mrs Buff Mk3 fit (`k_fwd` 4.88 m/s), the fractions 0.1, 0.3 and 0.4 ask for about 0.5, 1.5 and 2.0 m/s. `AttackTerminalSpeedFractionIsConfigurable` compares 0.1 against 0.3 at 0.1 m, where neither saturates the command. Past about 0.23 m both ask for more than the drivetrain has and the clamp hides the difference.
-- Fractions outside [0, 1] are clamped: above 1 the drivetrain has nothing left, and below 0 there is no reverse arrival because the controller only drives toward the goal.
+- The speed is absolute, so a refit that halves `k_fwd` leaves a 1.5 m/s arrival at 1.5 m/s (`TerminalSpeedIsInMetresPerSecondWhateverTheTopSpeed`).
+- `AttackTerminalSpeedIsConfigurable` compares 0.5 against 1.5 m/s at 0.1 m, where neither saturates the command. Past about 0.23 m both ask for more than the drivetrain has and the clamp hides the difference.
+- Speeds outside [0, `k_fwd`] are clamped: above `k_fwd` the drivetrain has nothing left, and below 0 there is no reverse arrival because the controller only drives toward the goal.
 - A mode flip is a new mission, so the turn latch clears with it. The latch holds a committed turn across the 180 degree sign flip within a mission, and must not survive into the next one.
 
 ## Dead-reckoning gains

@@ -13,6 +13,7 @@ saturated sticks in [-1, 1].
 | --- | --- |
 | `type` | `PlantCommandShaper` (the default when the section is absent): linear divided by `[plant]` `k_fwd` or `k_rev` by sign, yaw by `k_ang`, then saturated |
 | `velocity_saturation_limit` | Combined budget `\|linear\| + \|angular\| <= limit`. Angular takes priority and linear fills the headroom. 0 clamps each channel to [-1, 1] on its own. Default 1.0 |
+| `linear_deadzone` | Inverse deadzone on the forward stick, 0..1: a nonzero command `u` becomes `sign(u) * (dz + \|u\| * (1 - dz))` before saturation. Default 0, because the transmitter's `lifted_deadzone_percent` handles the physical deadzone on the real robot |
 
 ## `[transmitter]`
 
@@ -61,27 +62,29 @@ carries no arm authority (`firmware/mr_stabs_mk2/README.md`).
 
 ### `MotionProfileNavigation`
 
-Reads the top-level `[plant]` table. See `docs/reference/control/plant_backed_control.md`.
+Reads the top-level `[plant]` table. See `docs/reference/control/plant_backed_control.md`. Every
+field is in m/s, rad/s or a unitless ratio; the output is body velocity, and only `[command_shaper]`
+turns it into sticks. `config/navigation/motion_profile.toml` holds the Mrs Buff Mk3 values and
+`config/navigation/mr_stabs_mk2_motion_profile.toml` the Mr Stabs Mk2 ones, converted from each
+robot's own `k_fwd` / `k_rev`.
 
 | Field | Meaning |
 | --- | --- |
-| `deadzone` | Residual command deadzone the plant still shows, 0..1. Exact inverse-deadzone is applied to the final command when > 0. Distinct from the fit's `dz_lin_fwd` and `dz_lin_rev`. Defaults to 0 because the transmitter's `lifted_deadzone_percent` handles the physical deadzone upstream on the real robot, and the kinematic sim's residual deadzone is 0 |
 | `accel_limit` | Rate limit (m/s^2) on how fast the reference speed may rise, for a clean launch and a bounded feedforward derivative. Braking is never rate-limited |
-| `attack_terminal_speed_fraction` | Terminal speed while the driver has ATTACK selected, as a fraction of the plant's `k_fwd` |
-| `run_away_terminal_speed_fraction` | Terminal speed while the driver has RUN_AWAY selected, as a fraction of the plant's `k_fwd` |
+| `attack_terminal_speed_mps` | Terminal speed (m/s) while the driver has ATTACK selected, clamped to [0, `k_fwd`]. Default 4.35, the Mrs Buff Mk3 top speed |
+| `run_away_terminal_speed_mps` | Terminal speed (m/s) while the driver has RUN_AWAY selected, clamped to [0, `k_fwd`]. Default 0, a stop at the safe point |
 | `stop_distance_m` | Distance at which a zero-velocity mission is complete and the command is cut. Used only when the active terminal velocity is 0, since a drive-through mission never stops |
-| `speed_kp` | Gain from speed error (`v_ref - v_actual`, m/s) to a normalized command |
-| `speed_ki` | Integral gain on speed error. 0 is P-only |
+| `speed_kp` | Gain from speed error (`v_ref - v_actual`, m/s) to added forward command, m/s per m/s |
+| `speed_ki` | Integral gain on speed error, m/s per m. The integral is bounded so its term never exceeds `k_fwd`. 0 is P-only |
 | `angular_kp` | Proportional gain on heading error, rad/s per rad |
 | `angular_kd` | Derivative gain on heading error, rad/s per rad/s. 0 is P-only |
 | `angle_threshold` | Heading error (rad) below which the robot drives forward. Above it, the robot turns in place |
 | `max_yaw_rate` | Cap on the yaw-rate reference (rad/s). 0 is no limit. Bounds rotation per control tick: at 30 Hz, 7.9 rad/s is 15 degrees per tick |
-| `max_angular_command` | Cap on the magnitude of the normalized turn command, 0..1. Unset is no limit. Output-side safety clamp; `max_yaw_rate` is the one that shapes behavior |
 | `enable_hysteresis` | Turn-direction hysteresis, prevents dithering when the target is behind |
 | `boundary_margin` | Minimum distance kept from field boundaries, m |
-| `max_linear_command` | Cap on the forward command as a fraction of full stick, 0..1: the m/s output is clamped to `[-max_linear_command * k_rev, max_linear_command * k_fwd]` after the hazard barrier. Unset is no limit |
+| `max_linear_speed_mps` | Cap on the magnitude of the forward command (m/s), applied after the hazard barrier. Unset is no limit beyond the plant's top speed |
 | `wall_reverse_distance_m` | Distance to any wall at which `linear_x` is reversed to back away. Unset turns it off |
-| `wall_reverse_min_speed` | Minimum reverse speed (normalized) when wall reverse engages |
+| `wall_reverse_min_speed_mps` | Minimum reverse speed (m/s) when wall reverse engages |
 | `hazard_tangent_enable` | Steer at a tangent point on a blocking hazard's rim instead of at the true goal. The controller only chases a `Pose2D`, so this costs nothing in navigation |
 | `hazard_tangent_max_iterations` | Times to re-test the substituted waypoint against the remaining hazards. A greedy one-hazard-at-a-time step, not a planner. When it does not converge, the speed cap and the reverse backstop cover it |
 | `hazard_waypoint_clearance_m` | Clearance the tangent waypoint leaves beyond the keep-out radius. Aiming exactly at the rim arrives with zero clearance and grinds along the edge; the extra makes the run from the waypoint to the goal unblocked, so the true goal returns instead of the robot orbiting |

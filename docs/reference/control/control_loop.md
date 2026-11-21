@@ -12,7 +12,7 @@
 ## ControlOutput
 
 - `command_feedback`: what the transmitter read back this cycle, in normalized stick units. On OpenTX it is the decoded position of the drive channels, so it reflects the mixed stick plus trainer output rather than what navigation asked for.
-- `command_feedback.stick_commands` holds `StickCommand`, in normalized [-1, 1] stick space: the space the command was sent in, read back after mixing, deadzones, and saturation. Physical units never appear there. Every consumer converts to m/s and rad/s with the fitted `[plant]` gains at the point of use (`plant_stick_to_body_velocity`, or `JigPlantModel` for the EKF), so drivetrain scaling is defined once and a refit moves the estimator and the controller together. `VelocityCommand` is the physical-unit type.
+- `command_feedback.stick_commands` holds `StickCommand`, in normalized [-1, 1] stick space: the space the command was sent in, read back after mixing, deadzones, and saturation. Physical units never appear there. The EKF reads them through `JigPlantModel`, which applies the fitted `[plant]` gains. Navigation outputs `VelocityCommand` in m/s and rad/s, and `PlantCommandShaper` turns it into the stick that is sent, with the same `[plant]` table, so a refit moves the estimator and the controller together.
 - `manual_target`: `target` is the dashboard's held point, not the selector's pick.
 
 ## TransmitterStatus

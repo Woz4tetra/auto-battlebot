@@ -440,9 +440,10 @@ stopped along the approach (`stop_along`, negative is short), how far past it go
 when it arrived, and how often it left the stop circle again. The per-arm summary counts stops
 within `--stop-distance` (0.15 m). The distilled arm should stop on target more often and with a
 smaller mean miss than the current one. `FLIPPED` means the punch flipped the robot; lower
-`--max-linear-command` rather than blaming the table. On the 2026-10-15 fit every arm flips at
-the default 0.8, every arm stops within 2 cm at 0.3, and 0.5 separates them: 2/6 on target for
-the placeholder table, 5/6 for the distilled one.
+`--max-linear-speed-mps` rather than blaming the table. On the 2026-10-15 fit (Mr Stabs Mk2,
+`k_fwd` 5.73 m/s) every arm flips at the default 4.58 m/s, every arm stops within 2 cm at 1.7 m/s,
+and 2.9 m/s separates them: 2/6 on target for the placeholder table, 5/6 for the distilled one.
+Those runs predate the m/s config and used 0.8, 0.3 and 0.5 of full stick.
 
 ### 10. On the robot
 

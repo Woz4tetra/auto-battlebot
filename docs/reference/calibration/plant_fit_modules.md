@@ -175,7 +175,7 @@ Each run is the real binary (`build/auto_battlebot`) against `kinematic_sim_serv
 - `peak_along_m`: furthest past the goal it got on the way.
 - `arrive_s`: first time inside `stop_distance`. `settle_s`: from then until speed stays under 0.05 m/s.
 - `reentries`: times it left the stop circle after arriving.
-- `flipped`: pitch left its rest value by more than 60 deg. A flipping arm needs a lower `--max-linear-command`, not a better table.
+- `flipped`: pitch left its rest value by more than 60 deg. A flipping arm needs a lower `--max-linear-speed-mps`, not a better table.
 
 ```
 python -m auto_battlebot.calibration.sim_stop_test \

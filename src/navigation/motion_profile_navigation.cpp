@@ -9,7 +9,6 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "enums/frame_id.hpp"
 #include "hazards/hazard_geometry.hpp"
-#include "plant/plant_params.hpp"
 #include "transform_utils.hpp"
 
 namespace {
@@ -39,13 +38,6 @@ static double logical_dt_since(double previous_timestamp, double now_s) {
     return (d > 0.0 && d < 0.5) ? d : 0.0;
 }
 
-static double inverse_deadzone(double u, double deadzone) {
-    if (deadzone > 0.0 && std::abs(u) > 1e-6) {
-        return std::copysign(std::abs(u) * (1.0 - deadzone) + deadzone, u);
-    }
-    return u;
-}
-
 MotionProfileNavigation::MotionProfileNavigation(const MotionProfileNavigationConfiguration &config,
                                                  std::shared_ptr<ClockInterface> clock)
     : max_linear_speed_fwd_(config.plant.k_fwd),
@@ -53,14 +45,11 @@ MotionProfileNavigation::MotionProfileNavigation(const MotionProfileNavigationCo
       tau_accel_(config.plant.tau_lin_a),
       tau_decel_(config.plant.tau_lin_d),
       latency_(config.plant.delay_s),
-      deadzone_(config.deadzone),
       accel_limit_(config.accel_limit),
       steer_brake_coeff_(config.plant.c_sb),
       steer_brake_floor_(config.steer_brake_floor),
-      angular_deadzone_left_(config.plant.dz_ang_l),
-      angular_deadzone_right_(config.plant.dz_ang_r),
-      attack_terminal_speed_fraction_(config.attack_terminal_speed_fraction),
-      run_away_terminal_speed_fraction_(config.run_away_terminal_speed_fraction),
+      attack_terminal_speed_mps_(config.attack_terminal_speed_mps),
+      run_away_terminal_speed_mps_(config.run_away_terminal_speed_mps),
       stop_distance_m_(config.stop_distance_m),
       hazards_(hazard_settings_from(config)),
       speed_kp_(config.speed_kp),
@@ -74,17 +63,15 @@ MotionProfileNavigation::MotionProfileNavigation(const MotionProfileNavigationCo
       angular_kd_(config.angular_kd),
       angle_threshold_(config.angle_threshold),
       max_yaw_rate_(config.max_yaw_rate),
-      max_angular_command_(config.max_angular_command),
       enable_hysteresis_(config.enable_hysteresis),
       boundary_margin_(config.boundary_margin),
       hazard_push_out_max_passes_(config.hazard_push_out_max_passes),
-      max_linear_command_(config.max_linear_command),
+      max_linear_speed_mps_(config.max_linear_speed_mps),
       wall_reverse_distance_m_(config.wall_reverse_distance_m),
-      wall_reverse_min_speed_(config.wall_reverse_min_speed),
+      wall_reverse_min_speed_mps_(config.wall_reverse_min_speed_mps),
       wall_heading_threshold_rad_(config.wall_heading_threshold_rad),
       logger_(DiagnosticsLogger::get_logger("motion_profile_nav")),
-      clock_(std::move(clock)),
-      plant_(config.plant) {}
+      clock_(std::move(clock)) {}
 
 void MotionProfileNavigation::reset_trajectory_state() {
     hazards_.reset();
@@ -108,9 +95,9 @@ void MotionProfileNavigation::reset_state() {
 }
 
 double MotionProfileNavigation::terminal_velocity_for(BehaviorMode mode) const {
-    const double configured = (mode == BehaviorMode::RUN_AWAY) ? run_away_terminal_speed_fraction_
-                                                               : attack_terminal_speed_fraction_;
-    return std::clamp(configured, 0.0, 1.0) * max_linear_speed_fwd_;
+    const double configured = (mode == BehaviorMode::RUN_AWAY) ? run_away_terminal_speed_mps_
+                                                               : attack_terminal_speed_mps_;
+    return std::clamp(configured, 0.0, max_linear_speed_fwd_);
 }
 
 bool MotionProfileNavigation::initialize() {
@@ -227,29 +214,25 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     const double v_ref = compute_reference_speed(distance, dt, terminal_velocity);
     const double dvdt = (dt > 0.0) ? (v_ref - prev_v_ref_) / dt : 0.0;
 
-    StickCommand stick{};
+    VelocityCommand cmd{0.0, 0.0, 0.0};
     const double w_ref = compute_yaw_reference(angle_error, now_s);
-    stick.yaw = compute_angular_command(w_ref, dt);
-    if (max_angular_command_) {
-        stick.yaw = std::clamp(stick.yaw, -*max_angular_command_, *max_angular_command_);
-    }
+    cmd.yaw_rate_radps = compute_angular_command(w_ref, dt);
     prev_w_ref_ = w_ref;
 
     if (std::abs(angle_error) < angle_threshold_) {
-        stick.forward = compute_linear_command(v_ref, dvdt, v_actual, dt, speed_is_measured);
+        cmd.forward_mps = compute_linear_command(v_ref, dvdt, v_actual, dt, speed_is_measured);
         prev_v_ref_ = v_ref;
     } else {
         prev_v_ref_ = 0.0;
         speed_integral_ = 0.0;
     }
 
-    override_linear_with_wall_reverse(our_body, field, stick);
-    VelocityCommand cmd = plant_stick_to_body_velocity(stick, plant_);
+    override_linear_with_wall_reverse(our_body, field, cmd);
     const auto barrier = hazards_.limit_command(our_body, field, v_actual, cmd);
 
-    if (max_linear_command_) {
-        cmd.forward_mps = std::clamp(cmd.forward_mps, -*max_linear_command_ * plant_.k_rev,
-                                     *max_linear_command_ * plant_.k_fwd);
+    if (max_linear_speed_mps_) {
+        cmd.forward_mps =
+            std::clamp(cmd.forward_mps, -*max_linear_speed_mps_, *max_linear_speed_mps_);
     }
 
     logger_->debug("profile",
@@ -304,35 +287,21 @@ double MotionProfileNavigation::compute_reference_speed(double distance, double 
 double MotionProfileNavigation::compute_linear_command(double v_ref, double dvdt, double v_actual,
                                                        double dt, bool speed_is_measured) {
     if (max_linear_speed_fwd_ <= 1e-6) return 0.0;
-
     const double tau = (dvdt >= 0.0) ? tau_accel_ : tau_decel_;
-    const double u_ff = (v_ref + tau * dvdt) / max_linear_speed_fwd_;
-
-    double u_fb = 0.0;
+    double v = v_ref + tau * dvdt;
     if (speed_is_measured) {
         const double err = v_ref - v_actual;
         if (speed_ki_ > 0.0) {
             speed_integral_ += err * dt;
-            const double limit = 1.0 / speed_ki_;
+            const double limit = max_linear_speed_fwd_ / speed_ki_;
             speed_integral_ = std::clamp(speed_integral_, -limit, limit);
         }
-        u_fb = speed_kp_ * err + speed_ki_ * speed_integral_;
+        v += speed_kp_ * err + speed_ki_ * speed_integral_;
     }
-
-    double u = u_ff + u_fb;
-
-    if (u < 0.0 && max_linear_speed_rev_ > 1e-6) {
-        u *= max_linear_speed_fwd_ / max_linear_speed_rev_;
-    }
-
-    prev_linear_uncompensated_ = std::clamp(u, -1.0, 1.0);
-
-    const double u_ang_eff = plant_effective_command(
-        prev_angular_uncompensated_, angular_deadzone_left_, angular_deadzone_right_);
-    u = compensate_coupling(u, u_ang_eff, steer_brake_coeff_, steer_brake_floor_);
-
-    u = inverse_deadzone(u, deadzone_);
-    return std::clamp(u, -1.0, 1.0);
+    prev_linear_uncompensated_ = std::clamp(v, -max_linear_speed_rev_, max_linear_speed_fwd_);
+    v = compensate_coupling(v, yaw_rate_fraction(prev_angular_uncompensated_), steer_brake_coeff_,
+                            steer_brake_floor_);
+    return std::clamp(v, -max_linear_speed_rev_, max_linear_speed_fwd_);
 }
 
 double MotionProfileNavigation::apply_hysteresis(double angle_error) {
@@ -376,23 +345,28 @@ double MotionProfileNavigation::compute_yaw_reference(double angle_error, double
 
 double MotionProfileNavigation::compute_angular_command(double w_ref, double dt) {
     if (max_angular_speed_ <= 1e-6) return 0.0;
-
     const double dwdt = (dt > 0.0) ? (w_ref - prev_w_ref_) / dt : 0.0;
     const double tau =
         (std::abs(w_ref) > std::abs(prev_w_ref_)) ? tau_angular_accel_ : tau_angular_decel_;
-    double u = (w_ref + tau * dwdt) / max_angular_speed_;
-    prev_angular_uncompensated_ = std::clamp(u, -1.0, 1.0);
+    double w = w_ref + tau * dwdt;
+    prev_angular_uncompensated_ = std::clamp(w, -max_angular_speed_, max_angular_speed_);
+    w = compensate_coupling(w, linear_speed_fraction(prev_linear_uncompensated_),
+                            angular_droop_coeff_, angular_droop_floor_);
+    return std::clamp(w, -max_angular_speed_, max_angular_speed_);
+}
 
-    const double u_lin_eff =
-        plant_effective_command(prev_linear_uncompensated_, deadzone_, deadzone_);
-    u = compensate_coupling(u, u_lin_eff, angular_droop_coeff_, angular_droop_floor_);
+double MotionProfileNavigation::linear_speed_fraction(double v_mps) const {
+    const double top_speed = v_mps >= 0.0 ? max_linear_speed_fwd_ : max_linear_speed_rev_;
+    return top_speed > 1e-6 ? std::clamp(v_mps / top_speed, -1.0, 1.0) : 0.0;
+}
 
-    return std::clamp(u, -1.0, 1.0);
+double MotionProfileNavigation::yaw_rate_fraction(double w_radps) const {
+    return max_angular_speed_ > 1e-6 ? std::clamp(w_radps / max_angular_speed_, -1.0, 1.0) : 0.0;
 }
 
 void MotionProfileNavigation::override_linear_with_wall_reverse(const Pose2D &our_pose,
                                                                 const FieldDescription &field,
-                                                                StickCommand &stick) const {
+                                                                VelocityCommand &cmd) const {
     if (!wall_reverse_distance_m_) return;
 
     const double wall_dist = distance_to_nearest_wall(our_pose, field);
@@ -402,7 +376,7 @@ void MotionProfileNavigation::override_linear_with_wall_reverse(const Pose2D &ou
     const double heading_err = std::abs(normalize_angle(angle_to_wall - our_pose.yaw));
     if (heading_err >= wall_heading_threshold_rad_) return;
 
-    stick.forward = -std::max(std::abs(stick.forward), wall_reverse_min_speed_);
+    cmd.forward_mps = -std::max(std::abs(cmd.forward_mps), wall_reverse_min_speed_mps_);
     logger_->debug("wall_reverse", {{"wall_dist", wall_dist},
                                     {"angle_to_wall_deg", angle_to_wall * 180.0 / M_PI},
                                     {"heading_err_deg", heading_err * 180.0 / M_PI}});

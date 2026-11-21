@@ -41,6 +41,14 @@ struct SpeedAndYawRate {
     double yaw_rate;
 };
 
+VelocityCommand policy_action_to_body_velocity(const rl_policy::ActionCommand &action,
+                                               const JigPlantParams &plant) {
+    const double top_speed = action.linear >= 0.0 ? plant.k_fwd : plant.k_rev;
+    return {.forward_mps = action.linear * top_speed,
+            .lateral_mps = 0.0,
+            .yaw_rate_radps = action.angular * plant.k_ang};
+}
+
 SpeedAndYawRate measured_speed_and_yaw_rate(const RobotDescription &our_robot) {
     const double yaw = pose_to_pose2d(our_robot.pose).yaw;
     const double speed =
@@ -214,8 +222,7 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
     }
     --ticks_until_policy_step_;
 
-    VelocityCommand command = plant_stick_to_body_velocity(
-        {.forward = action_.linear, .lateral = 0.0, .yaw = action_.angular}, config_.plant);
+    VelocityCommand command = policy_action_to_body_velocity(action_, config_.plant);
     const Pose2D our_pose = pose_to_pose2d(our_robot->pose);
     if (hazards_) {
         const double v_actual = measured_speed_and_yaw_rate(*our_robot).speed;
