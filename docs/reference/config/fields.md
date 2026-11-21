@@ -264,14 +264,6 @@ The lockstep sim's keypoint model. Design: `docs/reference/perception/robot_filt
 | `holding_dir_max_size_gb` | Oldest recordings in the output directory are evicted to stay under this. 0 disables the limit |
 | `recordings_dir` | Directory MCAP recordings are written to and evicted from. Relative paths resolve against the working directory. Tests set it to a temp directory |
 
-## `[battery]`
-
-| Field | Meaning |
-| --- | --- |
-| `source` | What the monitor reads: `NONE` or `WAVESHARE_UPS`. `NONE` runs no monitor and never publishes `/status/battery` |
-| `ocv_table_file_path` | Open-circuit-voltage table. Empty uses `data/battery_ocv_table.toml` |
-| `state_file_path` | Persisted state of charge. Empty uses `$HOME/.local/state/auto_battlebot/battery_soc_state.txt`. It lives under `$HOME`, not `data/`, because a deploy overwrites the repo tree |
-
 ## `[control_loop]`
 
 An absent `[control_loop]` section selects `SteppedControlLoop` with `rate_hz = 0`.

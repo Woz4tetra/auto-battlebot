@@ -2,7 +2,6 @@
 
 #include "enums/action_decoder_kind.hpp"
 #include "enums/anti_banding.hpp"
-#include "enums/battery_source.hpp"
 #include "enums/camera_profile_action.hpp"
 #include "enums/depth_mode.hpp"
 #include "enums/empty_circle_constraint.hpp"

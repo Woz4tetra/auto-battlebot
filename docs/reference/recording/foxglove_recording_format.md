@@ -556,7 +556,7 @@ A recording that carries only `/camera/image` opens fine and then produces nothi
 
 ### Status bus
 
-`StatusBus` publishes the status topics in `RemoteTopics::status` to the relay and the MCAP recorder. Every status channel is advertised at construction, so a client sees the full list before the first message. Throttling is UI pacing on `std::chrono::steady_clock` and never feeds control, so it does not follow the playback clock. `/status/app` repeats every 5 s so a relay that connects late still gets it. `/status/network` is paced by `HostServices` (after each change and every 5 s) and `/status/battery` by `BatteryMonitor` (once a second), so the bus does not throttle either.
+`StatusBus` publishes the status topics in `RemoteTopics::status` to the relay and the MCAP recorder. Every status channel is advertised at construction, so a client sees the full list before the first message. Throttling is UI pacing on `std::chrono::steady_clock` and never feeds control, so it does not follow the playback clock. `/status/app` repeats every 5 s so a relay that connects late still gets it. `/status/network` is paced by `HostServices` (after each change and every 5 s), so the bus does not throttle it.
 
 ### JPEG preview encoding
 

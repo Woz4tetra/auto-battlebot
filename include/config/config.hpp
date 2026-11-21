@@ -9,7 +9,6 @@
 #include <string>
 #include <vector>
 
-#include "battery/config.hpp"
 #include "config/config_parser.hpp"
 #include "config/config_provenance.hpp"
 #include "control_loop/config.hpp"
@@ -59,7 +58,6 @@ struct ClassConfiguration {
     std::unique_ptr<PublisherConfiguration> publisher;
     RunnerConfiguration runner;
     HealthConfiguration health;
-    BatteryConfiguration battery;
     std::unique_ptr<UiConfiguration> ui;
     McapRecorderConfig mcap_recorder;
     std::unique_ptr<ClockConfiguration> clock;

@@ -10,7 +10,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include "battery/battery_monitor.hpp"
 #include "config/camera_profile_store.hpp"
 #include "config/config.hpp"
 #include "config/profile_selection.hpp"
@@ -116,7 +115,6 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     remote.camera_profiles =
         std::make_shared<CameraProfileStore>(expand_home(CameraProfileStore::kDefaultPath));
     remote.camera_profiles->load();
-    auto battery_monitor = make_battery_monitor(class_config.battery, remote.status);
     remote.app_info.available_profiles = available_profiles;
     remote.app_info.current_profile = active_profile;
     remote.app_info.max_loop_rate_hz = class_config.runner.max_loop_rate_hz;

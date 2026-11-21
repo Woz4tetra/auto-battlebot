@@ -36,7 +36,7 @@ The reorg left two things broken at `238a7b0a`. Step 1 fixes both:
 | `YoloBboxRobotBlobModel`, the blob merge in `RobotFrontBackFilter` | ~580 | Nothing: every config sets `NoopRobotBlobModel` | `measurement_chain_simplification_plan.md` step 1 |
 | `DeadReckoningMotionEstimator`, `RobotTemporalMotionFilter` | 183 | `config/playback/mr_stabs_mk2_playback.toml` | `measurement_chain_simplification_plan.md` step 2 |
 | `PursuitNavigation` | 388 | `playback/mr_stabs_mk2_playback`, `simulation/kinematic_sim`, `simulation/mr_stabs_mk2_kinematic_sim`, `simulation/mr_stabs_mk2_kinematic_sim_sensing` | 3 |
-| Battery (`src/battery/`, `include/battery/`, `BatterySource`, `/status/battery`) | 802 | `_jetson.toml` only, which no profile extends | 4 |
+| Battery backend (`src/battery/`, `include/battery/`, `BatterySource`) | 802 | `_jetson.toml` only, which no profile extends | 4 |
 
 The blob path and the dead-reckoning estimator are already steps 1 and 2 of `docs/plans/measurement_chain_simplification_plan.md`, so this plan only orders around them.
 
@@ -137,20 +137,19 @@ Checks:
 - Replay one Mr Stabs SVO on `playback/mr_stabs_mk2_playback` before and after, and compare the transmitted sticks and the hazard incursions.
 - Run `./scripts/run_simulation.sh simulation/sim_mr_stabs_mk2.toml` and `sim_stop_test.py` on the new `mr_stabs_mk2_kinematic_sim`.
 
-### 4. Delete the host battery monitor
+### 4. Delete the host battery monitor backend
+
+The battery comes back through an OpenUPS reader, so the topic and the front end stay: `BatteryMessage`, the `/status/battery` row in `include/remote/protocol.hpp`, the web battery display, and the `Battery` message docs. Only the Waveshare backend goes.
 
 - `src/battery/`, `include/battery/`, `include/enums/battery_source.hpp` and its line in `include/enums.hpp`
 - `BatteryConfiguration battery` in `include/config/config.hpp`, `load_battery_from_toml` in `src/config/config.cpp`, `make_battery_monitor` in `src/main.cpp`
-- `BatteryMessage` in `include/remote/messages.hpp` and the `/status/battery` row in `include/remote/protocol.hpp`. `./scripts/lint` regenerates `web/src/generated/protocol.ts`
-- `web/src/components/StatusBar.svelte`: the battery block. `web/src/lib/status.svelte.ts`: the `battery` state and its subscription
 - `tests/battery/`
 - Docs:
-  - the `[battery]` rows in `docs/reference/config/fields.md`
-  - the `Battery` message in `docs/plans/protobuf_messaging_plan.md`
+  - the `[battery]` section in `docs/reference/config/fields.md`
+  - the `BatteryMonitor` pacing note in `docs/reference/recording/foxglove_recording_format.md`
   - the battery clause of the `ScopedSignalQuit` check in `docs/plans/hardware_checks.md`
-  - check the `2026-11-15_battery_monitor_threading.md` reference in `docs/plans/workaround_ledger.md`: if the row it supports was only about the battery monitor, close it
 
-The robot-pack voltage from CRSF telemetry stays.
+Nothing publishes `/status/battery` until the OpenUPS backend lands, so the web page hides the battery cell. The robot-pack voltage from CRSF telemetry stays.
 
 ## Next steps
 
