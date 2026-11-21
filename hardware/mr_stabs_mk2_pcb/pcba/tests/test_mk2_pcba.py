@@ -89,6 +89,7 @@ def test_design_netlist_builds_with_skidl_nc_from_builtins(netlist):
     assert "NC" in (netlist / "design.py").read_text()
 
 
+@pytest.mark.slow
 def test_courtyard_overrides_are_only_nano_rx_and_boot(info):
     _gen(info)
     overrides = json.loads((info / "placement.json").read_text())["courtyard_overrides"]
@@ -115,6 +116,7 @@ INTRUDER_SEGMENT = (
 )
 
 
+@pytest.mark.slow
 def test_gen_placement_keeps_signals_out_of_vbatt_neck(info):
     _gen(info)
     zones = json.loads((info / "placement.json").read_text())["zones"]

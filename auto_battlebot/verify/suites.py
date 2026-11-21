@@ -15,6 +15,18 @@ from pathlib import Path
 from auto_battlebot.verify.selection import Selection, gtest_filter
 
 PYTEST_ARGS = ("-q", "--no-header", "-p", "no:cacheprovider")
+PYTEST_WORKERS = 8
+PYTEST_THREADS_PER_WORKER = "4"
+PYTEST_THREAD_ENV = {
+    name: PYTEST_THREADS_PER_WORKER
+    for name in (
+        "OMP_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+    )
+}
+PYTEST_FAST_ARGS = ("-m", "not slow")
 GTEST_BUILD_DIR = "build-test"
 GTEST_TARGET = "auto_battlebot_test"
 FIRMWARE_DIR = "firmware/mr_stabs_mk2"
@@ -129,11 +141,27 @@ def gtest_group(root: Path, selection: Selection) -> Group:
     return Group("gtest", steps)
 
 
-def pytest_group(root: Path, selection: Selection) -> Group:
+def pytest_workers(targets: list[str]) -> list[str]:
+    """xdist arguments: whole files per worker, and no workers for a single file."""
+    if len(targets) == 1:
+        return []
+    return ["-n", str(PYTEST_WORKERS), "--dist", "loadfile"]
+
+
+def pytest_group(root: Path, selection: Selection, fast: bool = False) -> Group:
     scope = selection.scopes["pytest"]
     targets = [] if scope.everything else sorted(scope.items)
-    command = [python_bin(root), "-m", "pytest", *PYTEST_ARGS, *targets]
-    return Group("pytest", [Step("pytest", command, root)])
+    command = [
+        python_bin(root),
+        "-m",
+        "pytest",
+        *PYTEST_ARGS,
+        *pytest_workers(targets),
+        *(PYTEST_FAST_ARGS if fast else ()),
+        *targets,
+    ]
+    env = PYTEST_THREAD_ENV if pytest_workers(targets) else {}
+    return Group("pytest", [Step("pytest", command, root, env)])
 
 
 def synthetic_group(root: Path) -> Group:
@@ -161,11 +189,11 @@ def lint_step(root: Path) -> Step:
     return Step("lint --quick", [str(root / "scripts" / "lint"), "--quick"], root)
 
 
-def plan(root: Path, selection: Selection) -> list[Group]:
+def plan(root: Path, selection: Selection, fast: bool = False) -> list[Group]:
     """The suite groups a selection runs, in a fixed order."""
     builders: dict[str, Callable[[], Group]] = {
         "gtest": lambda: gtest_group(root, selection),
-        "pytest": lambda: pytest_group(root, selection),
+        "pytest": lambda: pytest_group(root, selection, fast),
         "synthetic": lambda: synthetic_group(root),
         "firmware": lambda: firmware_group(root),
         "web": lambda: web_group(root),

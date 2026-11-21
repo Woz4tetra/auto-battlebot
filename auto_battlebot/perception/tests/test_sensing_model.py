@@ -175,6 +175,7 @@ def test_capture_spacing_is_exact_when_period_is_a_whole_number_of_steps() -> No
     assert np.abs(np.diff(stamps) - 0.004).max() < 1e-9
 
 
+@pytest.mark.slow
 def test_measured_fraction_matches_tables() -> None:
     model = MeasurementModel(_spec(), ["opponent"], worlds=256, seed=4, randomize=False)
     model.reset(torch.ones(256, dtype=torch.bool), 0.0)

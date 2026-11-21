@@ -11,9 +11,9 @@ import pytest
 
 from auto_battlebot.compat import tomllib
 from auto_battlebot.paths import REPO_ROOT
-from auto_battlebot.verify import hooks, selection, state
+from auto_battlebot.verify import hooks, selection, state, suites
 from auto_battlebot.verify.cli import Outcome, file_list, parse_args, working_changes
-from auto_battlebot.verify.selection import Selection, select
+from auto_battlebot.verify.selection import Scope, Selection, select
 from auto_battlebot.verify.suites import StepResult
 
 SESSION = "session-1"
@@ -249,6 +249,43 @@ def test_stop_reruns_after_the_change_moves(repo: Path) -> None:
     hooks.stop(event, repo, failing)
     write(repo, "scripts/a.py", "fixed\n")
     assert hooks.stop(event, repo, failing)[0] == 2
+
+
+def test_a_verifier_suite_pass_is_reused_by_the_stop_hook(repo: Path) -> None:
+    touch_files(repo, "docs/a.md")
+    calls = []
+
+    def passing(root: Path, files: list[str]) -> Outcome:
+        calls.append(files)
+        return outcome(True)
+
+    assert hooks.run_suites(repo, SESSION, passing)[0]
+    assert hooks.run_suites(repo, SESSION, passing)[0]
+    assert hooks.stop({"session_id": SESSION}, repo, passing) == (0, "")
+    assert calls == [["docs/a.md"]]
+
+
+def test_a_failing_suite_run_records_no_pass(repo: Path) -> None:
+    touch_files(repo, "docs/a.md")
+    ok, message = hooks.run_suites(repo, SESSION, lambda r, f: outcome(False))
+    assert not ok and "failed" in message
+    change = state.content_hash(repo, state.read_touched(repo, SESSION))
+    assert not state.pass_marker(repo, change).exists()
+
+
+def test_fast_pytest_runs_on_workers_without_slow_tests() -> None:
+    scope = Scope(run=True, items={"a/tests/test_x.py", "b/tests/test_y.py"})
+    command = suites.pytest_group(REPO_ROOT, Selection({"pytest": scope}), fast=True).steps[0]
+    assert command.command[-2:] == ["a/tests/test_x.py", "b/tests/test_y.py"]
+    assert "-n" in command.command and "not slow" in command.command
+    assert command.env["OMP_NUM_THREADS"] == suites.PYTEST_THREADS_PER_WORKER
+
+
+def test_full_pytest_keeps_slow_tests_and_one_file_runs_in_process() -> None:
+    scope = Scope(run=True, items={"a/tests/test_x.py"})
+    command = suites.pytest_group(REPO_ROOT, Selection({"pytest": scope}), fast=False).steps[0]
+    assert "-n" not in command.command and "not slow" not in command.command
+    assert command.env == {}
 
 
 def test_stop_caches_a_pass_by_change_hash(repo: Path) -> None:

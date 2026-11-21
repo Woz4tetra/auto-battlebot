@@ -111,7 +111,7 @@ def verify(
             print(f"{mark} {result.name} ({result.seconds:.0f} s)", flush=True)
 
     results = suites.run(
-        suites.plan(root, selection),
+        suites.plan(root, selection, fast),
         log_dir or root / STATE_DIR / "verify-logs",
         before,
         report,

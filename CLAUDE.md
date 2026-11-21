@@ -259,7 +259,7 @@ firmware native (`pio test -e native`), and the web check and vitest. Details an
 map: `docs/reference/tools/verify.md`.
 
 ```bash
-scripts/verify                        # every suite (about 6 min, pytest dominates)
+scripts/verify                        # every suite, slow tests included (about 2 min)
 scripts/verify --changed a.cpp b.py   # only what these paths affect
 scripts/verify --changed --list       # print what the working changes select
 ```

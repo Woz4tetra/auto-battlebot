@@ -66,6 +66,7 @@ class TwoStateEnv:
         return Step(obs, priv, reward, done, torch.zeros_like(done), final_obs, final_priv)
 
 
+@pytest.mark.slow
 def test_ppo_learns_two_state_toy() -> None:
     torch.manual_seed(0)
     env = TwoStateEnv()
@@ -271,6 +272,7 @@ class SmoothTwoStateEnv(TwoStateEnv):
         return Step(obs, priv, reward, done, torch.zeros_like(done), final_obs, final_priv)
 
 
+@pytest.mark.slow
 def test_fasttd3_learns_smooth_two_state_toy() -> None:
     from auto_battlebot.rl.learners.fasttd3 import FastTd3, FastTd3Config
 
@@ -288,6 +290,7 @@ def test_fasttd3_learns_smooth_two_state_toy() -> None:
     assert action[1, 0] == pytest.approx(-0.6, abs=0.1)
 
 
+@pytest.mark.slow
 def test_toy_sensing_ekf_leaves_gaps() -> None:
     """The our-robot EKF error model is fed delivery time, so fresh measurements read as fresh."""
     from auto_battlebot.rl.envs.toy import ToyConfig, ToyEnv

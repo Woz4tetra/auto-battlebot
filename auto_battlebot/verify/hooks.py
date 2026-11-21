@@ -37,7 +37,10 @@ Verifier = Callable[[Path, list[str]], Outcome]
 
 
 def run_fast(root: Path, files: list[str]) -> Outcome:
-    return verify(root, files, fast=True, log_dir=state.state_dir(root) / "verify-logs")
+    """The fast suites over files, logged under a directory of their own per change."""
+    log_dir = state.state_dir(root) / "verify-logs" / state.content_hash(root, files)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return verify(root, files, fast=True, log_dir=log_dir)
 
 
 def read_input(stream: Any = None) -> dict[str, Any]:
@@ -312,6 +315,22 @@ def change_report(root: Path, session: str) -> str:
     return "\n".join(lines)
 
 
+def run_suites(root: Path, session: str, runner: Verifier = run_fast) -> tuple[bool, str]:
+    """Run the fast suites on the session's change once per hash, recording a pass for the hook."""
+    touched = state.read_touched(root, session)
+    if not touched:
+        return True, "no touched files recorded for this session"
+    change = state.content_hash(root, touched)
+    if state.pass_marker(root, change).exists():
+        return True, f"suites: passed for this hash ({change}), not re-run"
+    outcome = runner(root, touched)
+    if not outcome.ok:
+        return False, "scripts/verify --fast failed:\n" + outcome.summary()
+    if state.content_hash(root, touched) == change:
+        state.pass_marker(root, change).touch()
+    return True, f"suites: passed for {change}"
+
+
 def suites_line(root: Path, change: str) -> str:
     if state.pass_marker(root, change).exists():
         return "suites: passed for this hash (Stop hook, scripts/verify --fast --changed)"
@@ -379,6 +398,7 @@ def main(argv: list[str] | None = None) -> int:
     for name, text in (
         ("change", "Print the change hash, touched files, and diff"),
         ("mutant", "Make a worktree with the change's non-test files reverted"),
+        ("suites", "Run scripts/verify --fast on the change once per hash"),
     ):
         command = sub.add_parser(name, help=text)
         command.add_argument("--session", required=True)
@@ -397,6 +417,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "change":
         print(change_report(root, args.session))
         return 0
+    if args.command == "suites":
+        ok, message = run_suites(root, args.session)
+        print(message)
+        return 0 if ok else 1
     print(make_mutant(root, args.session))
     return 0
 

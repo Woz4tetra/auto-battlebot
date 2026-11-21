@@ -9,7 +9,7 @@ verifier verdict for code changes. The code is `auto_battlebot/verify/`; tests a
 
 ```bash
 scripts/verify                          # every suite, in full
-scripts/verify --fast                   # lint --quick first, then every suite
+scripts/verify --fast                   # lint --quick first, then every suite without slow tests
 scripts/verify --changed                # suites the git working changes affect
 scripts/verify --changed a.cpp b.py     # suites these paths affect
 scripts/verify --changed --files-from list.txt
@@ -20,7 +20,8 @@ scripts/verify --changed --list src/crsf/crsf_parser.cpp   # print the selection
 Exit code 0 is pass, 1 is a failing step, 2 is a usage error. `--playback`, `--realtime`, `--sim`,
 and `--hil` exit 2 until phases 3 and 6 of `docs/plans/verification_plan.md` land.
 
-Step logs go to `.claude/state/verify-logs/<step>.log` (gitignored), or `--log-dir`. A failing step
+Step logs go to `.claude/state/verify-logs/<step>.log` (gitignored), or `--log-dir`. The Stop hook
+and `hooks suites` log to `.claude/state/verify-logs/<change hash>/`, so two runs never share a log. A failing step
 prints its last 40 lines.
 
 ## Suites
@@ -28,7 +29,7 @@ prints its last 40 lines.
 | Suite | Steps | Full run on the dev box (2026-11-20) |
 | --- | --- | --- |
 | `gtest` | `cmake` if `build-test/Makefile` is missing, memory-capped `make -j6 auto_battlebot_test`, then the binary with `--gtest_brief=1` | 68 s for 1,013 tests, plus the build |
-| `pytest` | `venv/bin/python -m pytest` (the `testpaths` in `pyproject.toml`) | 329 s for 1,021 tests (2026-11-20, before the tests moved beside their sources) |
+| `pytest` | `venv/bin/python -m pytest -n 8 --dist loadfile` (the `testpaths` in `pyproject.toml`); `--fast` adds `-m "not slow"` | 110 s for 1,089 tests with every slow test (2026-11-21) |
 | `synthetic` | `pytest training/synthetic` | 2 s for 458 tests |
 | `firmware` | `pio test -e native` in `firmware/mr_stabs_mk2` | 22 s for 216 cases |
 | `web` | `npm run check`, then `npm test` (vitest) in `web/` | under 30 s |
@@ -39,9 +40,22 @@ parallel, one thread per suite; steps within a suite run in order and stop at th
 The build runs under `systemd-run --user --scope -p MemoryMax=16G` when user systemd is present
 (the box crashed on an uncapped `make -j32`). `VERIFY_JOBS` overrides the job count.
 
-The slowest pytest cases: `test_warp_workarounds.py::test_env_stays_finite_with_zero_floor_friction`
-at 78 s, two `test_sysid_coverage.py` cases at 33 s and 21 s, two `test_mk2_pcba.py` cases at 18 s
-each. pytest-xdist is not installed, so the full pytest suite runs serially.
+pytest runs on 8 xdist workers, whole files per worker, with `OMP_NUM_THREADS` and the BLAS thread
+counts set to 4. Without the thread cap each worker's torch takes every core and the run is slower
+than serial: FastTD3 went from 20 s to 700 s. A single test file runs in-process with no workers.
+
+Tests over 5 s carry `@pytest.mark.slow`, and `--fast` (the Stop hook) leaves them out. The full
+`scripts/verify` still runs them. The slow set: the warp zero-friction rollout (85 s), three
+`test_sysid_coverage.py` cases, two `test_mk2_pcba.py` cases, the FastTD3, PPO and toy EKF cases in
+`test_rl_core.py`, and `test_sensing_model.py::test_measured_fraction_matches_tables`. The Stop
+hook's pytest set for a filter-and-RL change dropped from about 250 s to 17 s.
+
+### One suite run per change
+
+`venv/bin/python -m auto_battlebot.verify.hooks suites --session <id>` runs the fast suites on the
+session's change and records `verify-pass-<hash>`. The verifier runs it instead of
+`scripts/verify`, and the Stop hook skips its own run when the marker exists, so the suites run
+once per change hash whichever of the two gets there first.
 
 ## Selection
 

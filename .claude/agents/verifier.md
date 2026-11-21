@@ -73,9 +73,10 @@ Report each failed check as a finding.
    stored baseline (`tests/fixtures/`, `*/tests/data/`, `*golden*`) that tests the same code,
    FAIL unless the request or the code change explains why the expected output had to move and you
    agree with it.
-5. **Suites pass.** If the `change` output says `suites: passed for this hash`, the Stop hook
-   already ran `scripts/verify --fast --changed` on exactly this change: cite that and skip this
-   check. Otherwise run `scripts/verify --changed <touched files>` once and report any failure.
+5. **Suites pass.** Run `venv/bin/python -m auto_battlebot.verify.hooks suites --session <session id>`
+   once and report any failure. It runs `scripts/verify --fast --changed` on the change, skips it
+   when the Stop hook already passed this hash, and records a pass the Stop hook then reuses, so
+   the suites run once per change. Do not run `scripts/verify` yourself.
    Never run the full pytest suite yourself.
 
 ## Verdict

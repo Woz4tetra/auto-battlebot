@@ -59,6 +59,7 @@ def test_truth_snapshot_survives_the_next_step() -> None:
         assert torch.equal(held[key], before[key])
 
 
+@pytest.mark.slow
 @needs_cuda
 def test_env_stays_finite_with_zero_floor_friction() -> None:
     from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv

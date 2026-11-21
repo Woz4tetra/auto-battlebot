@@ -144,6 +144,7 @@ def _feed(session: CoverageSession, sim: synthetic.Session) -> None:
     session.advance()
 
 
+@pytest.mark.slow
 def test_session_gates_and_converges(profile: Any) -> None:
     sim = synthetic.simulate_session(profile, seconds=75.0, seed=2, loop_on_from_s=40.0)
     session = CoverageSession(profile, InlineEngine())
@@ -332,6 +333,7 @@ def _ring_delivery(
     return out
 
 
+@pytest.mark.slow
 def test_ring_backfill_matches_live_delivery(profile: Any) -> None:
     sim = synthetic.simulate_session(profile, seconds=60.0, seed=3, loop_on_from_s=30.0)
     direct = CoverageSession(profile, InlineEngine())
@@ -435,6 +437,7 @@ def test_gyro_interpolated_commands_held(profile: Any) -> None:
     assert row.a == 0.0
 
 
+@pytest.mark.slow
 def test_windows_closed_during_refit_count_toward_fisher_new(profile: Any) -> None:
     class Recording(InlineEngine):
         replies: list[Any] = []
