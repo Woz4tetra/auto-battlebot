@@ -118,18 +118,6 @@ Selects field pixels with classical heuristics instead of a segmentation model, 
 - Center ROI: a centered rectangle covering `roi_fraction` of the frame (1.0 is the full frame).
 - Seeded color match: the median Lab color of a small center patch is the reference and the whole frame is thresholded per channel against it. Lighting gradients and shadows mostly move L, so `tolerance_l` is set very loose while `tolerance_ab` stays tighter. Downstream RANSAC rejects same-colored non-plane pixels, so the mask only needs to be roughly right.
 
-## Static detection gate
-
-Suppresses robot-blob detections that hold the same field position for seconds on end. Arena floor graphics are fixed in the field frame; robots are not. Detections are tracked in field coordinates, so camera motion does not make scenery look mobile, and the ones that never move are dropped. Measurements: `docs/experiments/perception/2026-08-29_static_detection_gate.md`.
-
-- Known cost: an immobilised opponent that stops for `min_dwell_seconds` looks like scenery and is suppressed. That is what `min_dwell_seconds` trades.
-- A cluster loses its static verdict the moment an observation lands outside `static_radius_meters` of its running mean, so a robot that stops and then moves again is picked straight back up.
-- A robot driving onto an already suppressed graphic widens the cluster past `static_radius_meters` and lifts suppression, so it never stays invisible. When it leaves, the graphic is suppressed again without a restart.
-- The runner tick does not call it, because no model produces robot blobs. `[keypoint_filter.static] enable` has no effect on any profile.
-- The cluster statistic is the running mean distance from the cluster mean, not the maximum. Both statistics stop averaging past `responsiveness_window` and start tracking, so a robot parking on a logo can still move the verdict after thousands of frames.
-- The averaging weight is capped so both statistics keep tracking instead of going numb. Below `responsiveness_window` the statistic is an exact running mean, above it an exponential one with that time constant.
-- A group's field position is the centroid of its `model_results` projected onto the plane. Where the height gate supplied a measured height, the projection uses it, so a tall robot's footprint is not pushed outward by the flat-plane assumption.
-
 ## Keypoint heights
 
 Keypoint heights correct the radial bias of flat-plane projection. Heights are per robot label with a shared default for labels without an entry. A height of 0.0 disables the correction.

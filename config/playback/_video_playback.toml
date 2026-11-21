@@ -12,9 +12,6 @@ type = "FiducialFieldFilter"
 [keypoint_filter.height]
 reject_enable = false
 
-[keypoint_filter.static]
-enable = true
-
 [clock]
 type = "CameraFollowingClock"
 

@@ -194,15 +194,6 @@ Board geometry defaults match the manufactured board.
 | `min_valid_samples` | Minimum valid depth samples, in the circle and in the ring separately, before a reading is trusted. Below this the gate abstains for that detection |
 | `max_circle_samples` | Cap on depth samples per detection. Larger boxes stride to stay under it, which bounds the per-frame cost regardless of how close a robot is |
 
-## `[keypoint_filter.static]`
-
-| Field | Meaning |
-| --- | --- |
-| `min_dwell_seconds` | How long a cluster must hold still before its detections are suppressed |
-| `min_observations` | Observations required over that dwell, so a stale track cannot qualify on two hits |
-| `responsiveness_window` | Observation count at which the running mean and deviation stop averaging and start tracking. Without it the statistics go numb after a few thousand frames and a robot parking on a logo could never move the verdict. 60 is about 2 s at 30 Hz |
-| `forget_seconds` | Clusters unseen for this long are forgotten |
-
 ## `[keypoint_model]`
 
 `type` selects the implementation; the rest are per type.

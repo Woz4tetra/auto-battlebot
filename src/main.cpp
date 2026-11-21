@@ -21,7 +21,6 @@
 #include "host/host_services.hpp"
 #include "host/system_actions.hpp"
 #include "keypoint_filter/height_gate.hpp"
-#include "keypoint_filter/static_gate.hpp"
 #include "logging/logging.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
 #include "publisher/config.hpp"
@@ -95,8 +94,6 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     auto transmitter = make_transmitter(*class_config.transmitter, clock, viz_sink, mcap_recorder);
     auto health_logger = std::make_shared<HealthLogger>(class_config.health);
     auto height_gate = std::make_shared<KeypointHeightGate>(class_config.keypoint_filter.height);
-    auto static_gate =
-        std::make_shared<StaticDetectionGate>(class_config.keypoint_filter.static_gate);
 
     auto hazard_assembler = make_hazard_assembler(*class_config.field_filter, clock);
     auto control_loop_body = std::make_shared<ControlLoop>(
@@ -133,7 +130,7 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
 
     Runner runner(
         class_config.runner, camera, health_logger, field_model, field_filter, keypoint_model,
-        height_gate, static_gate, control_loop, publisher,
+        height_gate, control_loop, publisher,
         [&pending_system_action](SystemAction action) { pending_system_action = action; },
         [profile_selector](const std::string& name) {
             write_selection_file(profile_selector, name);

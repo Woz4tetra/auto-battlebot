@@ -74,10 +74,7 @@ playback transmitter's field init on match state.
   measured 0.046-0.048 m. Mrs Buff Mk3: the footprint centre, where the sim and the RL environment
   centre her box.
 
-### Keypoint filter gates
-
-The static gate runs first and sees every detection; the height gate runs after and annotates what
-survives.
+### Keypoint filter gate
 
 - `[keypoint_filter.height]` measures relief against the floor around each detection: the 90th
   percentile of depth inside the box's inscribed circle minus the 25th percentile of a ring around
@@ -85,12 +82,6 @@ survives.
   `docs/experiments/perception/2026-08-29_height_gate_local_relief.md`. Survivors carry their
   measured height, which replaces `robot_filter.keypoint_height_meters` when projecting them onto
   the field.
-- `[keypoint_filter.static]` is off on ZED 2i profiles: on the 2026-08-29 MassD recording it is a
-  worse trade than the height gate at every setting and stacks badly on top of it
-  (`docs/experiments/perception/2026-08-29_static_detection_gate.md`). `static_radius_meters` is
-  compared against a cluster's mean deviation, not its worst frame. The gate cannot tell an
-  immobilised robot from a painted one; a robot driving into a suppressed cluster raises its spread
-  and switches suppression off there until it leaves.
 
 ### Robot filter
 
@@ -145,8 +136,8 @@ The ZED X One S is monocular: no depth, no visual odometry. Everything that read
 it:
 
 - the field filter solves off the fiducial board instead of fitting the point cloud
-- the height gate abstains on the empty depth image (`reject_enable = false` says so). The static
-  gate is enabled, but the runner tick does not call it
+- the height gate abstains on the empty depth image (`reject_enable = false` says so), so the
+  ZED Box runs with no detection gate
 - `/field_points` stops publishing
 
 The camera runs the full sensor; `RES_960x600` bins it for up to 120 fps. The SVO bitrate is the ZED

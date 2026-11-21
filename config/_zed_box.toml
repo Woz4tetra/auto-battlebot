@@ -14,9 +14,6 @@ field_size_y = 2.35
 [keypoint_filter.height]
 reject_enable = false
 
-[keypoint_filter.static]
-enable = true
-
 [field_model]
 type = "DeepLabMaskModel"
 

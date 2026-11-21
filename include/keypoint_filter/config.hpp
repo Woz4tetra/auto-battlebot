@@ -20,19 +20,8 @@ struct KeypointHeightGateConfiguration {
     int max_circle_samples = 1024;
 };
 
-struct StaticDetectionGateConfiguration {
-    bool enable = false;
-    double match_radius_meters = 0.20;
-    double static_radius_meters = 0.080;
-    double min_dwell_seconds = 4.0;
-    int min_observations = 30;
-    int responsiveness_window = 60;
-    double forget_seconds = 2.0;
-};
-
 struct KeypointFilterConfiguration {
     KeypointHeightGateConfiguration height;
-    StaticDetectionGateConfiguration static_gate;
 };
 
 KeypointFilterConfiguration load_keypoint_filter_from_toml(

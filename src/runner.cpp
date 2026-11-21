@@ -18,7 +18,6 @@ Runner::Runner(
     std::shared_ptr<FieldFilterInterface> field_filter,
     std::shared_ptr<KeypointModelInterface> keypoint_model,
     std::shared_ptr<KeypointHeightGate> height_gate,
-    std::shared_ptr<StaticDetectionGate> static_gate,
     std::shared_ptr<ControlLoopInterface> control_loop,
     std::shared_ptr<PublisherInterface> publisher, SystemActionCallback system_action_callback,
     ProfileSelectCallback profile_select_callback, std::shared_ptr<McapRecorder> mcap_recorder,
@@ -29,7 +28,6 @@ Runner::Runner(
       field_filter_(field_filter),
       keypoint_model_(keypoint_model),
       height_gate_(std::move(height_gate)),
-      static_gate_(std::move(static_gate)),
       control_loop_(std::move(control_loop)),
       publisher_(publisher),
       mcap_recorder_(std::move(mcap_recorder)),
@@ -532,7 +530,6 @@ void Runner::initialize_field(const CameraData &camera_data) {
     publisher_->publish_initial_field_description(*initial_field_description_);
 
     control_loop_->request_filter_reinit(runtime_opponent_count_);
-    static_gate_->reset();
     initialized_ = true;
     field_init_attempts_remaining_ = 0;
     spdlog::info("Field initialized");

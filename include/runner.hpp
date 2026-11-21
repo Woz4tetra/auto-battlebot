@@ -24,7 +24,6 @@
 #include "health/health_logger.hpp"
 #include "host/host_services.hpp"
 #include "keypoint_filter/height_gate.hpp"
-#include "keypoint_filter/static_gate.hpp"
 #include "keypoint_model/keypoint_model_interface.hpp"
 #include "mask_model/mask_model_interface.hpp"
 #include "mcap_recorder/mcap_recorder.hpp"
@@ -62,7 +61,6 @@ class Runner : public Quittable {
            std::shared_ptr<FieldFilterInterface> field_filter,
            std::shared_ptr<KeypointModelInterface> keypoint_model,
            std::shared_ptr<KeypointHeightGate> height_gate,
-           std::shared_ptr<StaticDetectionGate> static_gate,
            std::shared_ptr<ControlLoopInterface> control_loop,
            std::shared_ptr<PublisherInterface> publisher,
            SystemActionCallback system_action_callback,
@@ -109,7 +107,6 @@ class Runner : public Quittable {
     std::shared_ptr<FieldFilterInterface> field_filter_;
     std::shared_ptr<KeypointModelInterface> keypoint_model_;
     std::shared_ptr<KeypointHeightGate> height_gate_;
-    std::shared_ptr<StaticDetectionGate> static_gate_;
     std::shared_ptr<ControlLoopInterface> control_loop_;
     std::shared_ptr<PublisherInterface> publisher_;
     std::shared_ptr<McapRecorder> mcap_recorder_;

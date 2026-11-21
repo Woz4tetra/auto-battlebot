@@ -131,7 +131,6 @@ class RunnerCommandsTest : public ::testing::Test {
             RunnerConfiguration{}, camera_, std::make_shared<HealthLogger>(HealthConfiguration{}),
             std::make_shared<NoopMaskModel>(), std::make_shared<NoopFieldFilter>(), keypoint_model,
             std::make_shared<KeypointHeightGate>(KeypointHeightGateConfiguration{}),
-            std::make_shared<StaticDetectionGate>(StaticDetectionGateConfiguration{}),
             std::make_shared<SteppedControlLoop>(loop, 0.0), std::make_shared<NoopPublisher>(),
             [this](SystemAction action) { system_action_ = action; },
             [this](const std::string &name) { profile_ = name; }, nullptr, nullptr,
@@ -272,7 +271,6 @@ TEST_F(RunnerCommandsTest, RunnerRemoteWithoutACommandQueueIsRejected) {
             RunnerConfiguration{}, camera_, std::make_shared<HealthLogger>(HealthConfiguration{}),
             std::make_shared<NoopMaskModel>(), std::make_shared<NoopFieldFilter>(), keypoint_model,
             std::make_shared<KeypointHeightGate>(KeypointHeightGateConfiguration{}),
-            std::make_shared<StaticDetectionGate>(StaticDetectionGateConfiguration{}),
             std::make_shared<SteppedControlLoop>(loop_, 0.0), std::make_shared<NoopPublisher>(),
             [](SystemAction) {}, [](const std::string &) {}, nullptr, nullptr, std::move(remote)),
         std::invalid_argument);
@@ -416,7 +414,6 @@ class CameraSettingsCommandsTest : public ::testing::Test {
             RunnerConfiguration{}, camera_, std::make_shared<HealthLogger>(HealthConfiguration{}),
             std::make_shared<NoopMaskModel>(), std::make_shared<NoopFieldFilter>(), keypoint_model,
             std::make_shared<KeypointHeightGate>(KeypointHeightGateConfiguration{}),
-            std::make_shared<StaticDetectionGate>(StaticDetectionGateConfiguration{}),
             std::make_shared<SteppedControlLoop>(loop, 0.0), std::make_shared<NoopPublisher>(),
             [](SystemAction) {}, [](const std::string &) {}, nullptr, nullptr, std::move(remote));
     }
@@ -552,7 +549,6 @@ class RunnerRecordingOrderTest : public ::testing::Test {
             RunnerConfiguration{}, camera_, std::make_shared<HealthLogger>(HealthConfiguration{}),
             std::make_shared<NoopMaskModel>(), std::make_shared<NoopFieldFilter>(), keypoint_model,
             std::make_shared<KeypointHeightGate>(KeypointHeightGateConfiguration{}),
-            std::make_shared<StaticDetectionGate>(StaticDetectionGateConfiguration{}),
             std::make_shared<SteppedControlLoop>(loop, 0.0), publisher_, [](SystemAction) {},
             nullptr, recorder_, nullptr, std::move(remote));
     }
@@ -685,7 +681,6 @@ TEST_F(RunnerCommandsTest, StalledControlLoopCutsAutonomyAndLogsOnce) {
         RunnerConfiguration{}, camera_, std::make_shared<HealthLogger>(HealthConfiguration{}),
         std::make_shared<NoopMaskModel>(), std::make_shared<NoopFieldFilter>(), keypoint_model,
         std::make_shared<KeypointHeightGate>(KeypointHeightGateConfiguration{}),
-        std::make_shared<StaticDetectionGate>(StaticDetectionGateConfiguration{}),
         std::make_shared<StalledControlLoop>(loop, 0.0), std::make_shared<NoopPublisher>(),
         [](SystemAction) {}, nullptr, nullptr, nullptr, RunnerRemote{});
 

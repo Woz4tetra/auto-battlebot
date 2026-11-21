@@ -59,46 +59,6 @@ void parse_height(const toml::table &section, KeypointHeightGateConfiguration &c
     }
 }
 
-void parse_static(const toml::table &section, StaticDetectionGateConfiguration &config) {
-    ConfigParser parser(section, "keypoint_filter.static");
-    config.enable = parser.get_optional_bool("enable", config.enable);
-    config.match_radius_meters =
-        parser.get_optional_double("match_radius_meters", config.match_radius_meters);
-    config.static_radius_meters =
-        parser.get_optional_double("static_radius_meters", config.static_radius_meters);
-    config.min_dwell_seconds =
-        parser.get_optional_double("min_dwell_seconds", config.min_dwell_seconds);
-    config.min_observations = static_cast<int>(
-        parser.get_optional_int("min_observations", static_cast<int64_t>(config.min_observations)));
-    config.responsiveness_window = static_cast<int>(parser.get_optional_int(
-        "responsiveness_window", static_cast<int64_t>(config.responsiveness_window)));
-    config.forget_seconds = parser.get_optional_double("forget_seconds", config.forget_seconds);
-    parser.validate_no_extra_fields();
-
-    if (config.match_radius_meters <= 0.0) {
-        throw ConfigValidationError("keypoint_filter.static.match_radius_meters must be > 0");
-    }
-    if (config.static_radius_meters <= 0.0) {
-        throw ConfigValidationError("keypoint_filter.static.static_radius_meters must be > 0");
-    }
-    if (config.static_radius_meters > config.match_radius_meters) {
-        throw ConfigValidationError(
-            "keypoint_filter.static.static_radius_meters must be <= match_radius_meters");
-    }
-    if (config.min_dwell_seconds <= 0.0) {
-        throw ConfigValidationError("keypoint_filter.static.min_dwell_seconds must be > 0");
-    }
-    if (config.min_observations < 1) {
-        throw ConfigValidationError("keypoint_filter.static.min_observations must be >= 1");
-    }
-    if (config.responsiveness_window < 1) {
-        throw ConfigValidationError("keypoint_filter.static.responsiveness_window must be >= 1");
-    }
-    if (config.forget_seconds <= 0.0) {
-        throw ConfigValidationError("keypoint_filter.static.forget_seconds must be > 0");
-    }
-}
-
 }  // namespace
 
 KeypointFilterConfiguration load_keypoint_filter_from_toml(
@@ -111,9 +71,6 @@ KeypointFilterConfiguration load_keypoint_filter_from_toml(
     ConfigParser parser(*section, "keypoint_filter");
     if (const toml::table *height = parser.get_table("height")) {
         parse_height(*height, config.height);
-    }
-    if (const toml::table *static_section = parser.get_table("static")) {
-        parse_static(*static_section, config.static_gate);
     }
     parser.validate_no_extra_fields();
 
