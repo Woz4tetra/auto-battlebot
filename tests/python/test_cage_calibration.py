@@ -255,17 +255,3 @@ def test_pixel_above_horizon_misses_the_field_plane(near_wall_camera: np.ndarray
     tf = camera_from_world(near_wall_camera)
     sky = pixels_to_field_plane(np.array([[960.0, -5000.0]]), tf, K)
     assert np.isnan(sky).all()
-
-
-def test_saved_toml_keys_match_cpp_reader(tmp_path: Path, near_wall_camera: np.ndarray) -> None:
-    import re
-
-    reader = (Path(__file__).parents[2] / "src/field_filter/cage_calibration.cpp").read_text()
-    cpp_keys = set(re.findall(r'data\["(\w+)"\]', reader))
-    cpp_keys |= set(re.findall(r'required_array\(data, "(\w+)"', reader))
-    path = tmp_path / "cage.toml"
-    save_cage_calibration(
-        path, CageCalibration("k", 2.35, 2.30, camera_from_world(near_wall_camera))
-    )
-    written = {line.split(" = ")[0] for line in path.read_text().splitlines() if " = " in line}
-    assert written == cpp_keys

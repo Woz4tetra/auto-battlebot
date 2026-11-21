@@ -260,7 +260,7 @@ Robot telemetry for the sysid monitor: the frame schema, the plant inputs, the r
 
 `/robot/espnow_telemetry` is the source. The column list is read from the JSON schema the recorder writes (`mcap_write.ESPNOW_TELEMETRY_JSON_SCHEMA`). Integers load as nullable `Int64` (`telemetry_seq` is `<NA>` in older recordings), numbers as float with NaN for null, booleans as bool.
 
-Without ESP-NOW telemetry the source is `/robot/esp32_diagnostics`, the robot's telemetry ring polled over WiFi (older recordings: its event stream). `from_diagnostics` renames its `seq` to `telemetry_seq`; the columns it lacks (`espnow_active`, `autonomy_enabled`) read as False. Its `backfill` rows waited in the ring, so the live clock skips them.
+Without ESP-NOW telemetry the source is `/robot/esp32_diagnostics`, which only recordings before 2026-11-20 carry: the robot's telemetry ring polled over WiFi (older recordings: its event stream). `from_diagnostics` renames its `seq` to `telemetry_seq`; the columns it lacks (`espnow_active`, `autonomy_enabled`) read as False. Its `backfill` rows waited in the ring, so the live clock skips them.
 
 Plant inputs:
 

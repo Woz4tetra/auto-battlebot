@@ -67,7 +67,7 @@ malformed `DATASHEET:` line fails regardless of budget.
 
 - Workaround reasons: a "Workarounds" section in the reference or setup doc for that subsystem
   (for example `docs/reference/recording/video_recording.md`, `docs/setup/zed_box_mini.md`,
-  `docs/reference/robot_link/esp32_wifi_telemetry.md`). The open workarounds and their root-cause
+  `docs/reference/robot_link/firmware_telemetry.md`). The open workarounds and their root-cause
   fixes are listed in `docs/plans/comment_purge_hack_ledger.md`.
 - Config field meanings: `docs/reference/config/fields.md` and the per-tool config docs.
 - Measurements and fitted-value provenance: dated docs under `docs/experiments/`.

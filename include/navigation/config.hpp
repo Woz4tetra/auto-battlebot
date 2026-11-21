@@ -93,22 +93,6 @@ struct PursuitNavigationConfiguration : public NavigationConfiguration {
     // clang-format on
 };
 
-struct FixedVelocityNavigationConfiguration : public NavigationConfiguration {
-    double linear_x = 0.0;
-    double linear_y = 0.0;
-    double angular_z = 0.0;
-
-    FixedVelocityNavigationConfiguration() { type = "FixedVelocityNavigation"; }
-
-    // clang-format off
-    PARSE_CONFIG_FIELDS(
-        PARSE_FIELD_DOUBLE(linear_x)
-        PARSE_FIELD_DOUBLE(linear_y)
-        PARSE_FIELD_DOUBLE(angular_z)
-    )
-    // clang-format on
-};
-
 struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
     JigPlantParams plant;
     double deadzone = 0.0;

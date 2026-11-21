@@ -9,7 +9,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 APP_JS = (ROOT / "firmware/mr_stabs_mk2/web/app.js").read_text()
 MOTOR_GUARD_H = (ROOT / "firmware/mr_stabs_mk2/lib/motor_guard/motor_guard.h").read_text()
-DIAG_EVENT_HPP = (ROOT / "include/esp32_diagnostics/esp32_diagnostics_event.hpp").read_text()
 TWITCH_PY = (ROOT / "firmware/mr_stabs_mk2/scripts/log_drive_twitch.py").read_text()
 
 
@@ -45,14 +44,6 @@ def motor_guard_default(name: str) -> float:
 
 def test_events_csv_header_matches_jetson_logger_columns() -> None:
     assert js_header() == twitch_columns()
-
-
-def test_events_csv_header_ends_with_seq_and_matches_jetson_parser_width() -> None:
-    match = re.search(r"kEsp32DiagnosticsFieldsWithGuard = (\d+);", DIAG_EVENT_HPP)
-    assert match
-    header = js_header()
-    assert header[-1] == "seq"
-    assert len(header) == int(match.group(1))
 
 
 def test_heat_panel_bands_match_motor_guard_defaults() -> None:

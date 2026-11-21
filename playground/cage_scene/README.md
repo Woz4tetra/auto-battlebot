@@ -98,7 +98,7 @@ Written once in `auto_battlebot/perception/cage_calibration.py`. The fit solves 
 homography ("hfield") frame, mat centre, z up, with the corner winding of the C++
 `field_pose.cpp`; the Blender world W is that frame yawed by -90 deg so +y points away from
 the camera. Poses are stored as `tf_camera_from_fieldcenter` in the `config/cages/*.toml`
-format, so `CalibratedFieldFilter` can read them unchanged.
+format that `auto_battlebot.perception.cage_calibration` reads.
 
 ## Grading
 

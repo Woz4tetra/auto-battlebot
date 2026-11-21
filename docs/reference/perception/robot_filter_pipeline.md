@@ -128,12 +128,6 @@ This helps the common short dropouts and drifts on rare long ones.
 
 ## Field filters
 
-### Calibrated filter
-
-The match-day path. Fitting the mat outline at match time depends on segmenting a floor that has a robot on it and on the near corners being in frame, which at a cage mount they may not be. A cage measured beforehand has neither problem.
-
-The line fit still runs at every startup, against the same frame, purely as a seating check. Nothing else can notice that the fixture did not seat or that the cage got bumped: a clamped camera has no visual odometry to disagree with. Above `max_seating_error_px` it warns and publishes the stored calibration anyway, which is the answer we trust.
-
 ### Fiducial filter
 
 - Mode for a venue nobody has surveyed. It depends on nothing we have to segment and on no assumed mat size, so a clipped, cluttered or badly segmented outline costs it nothing.

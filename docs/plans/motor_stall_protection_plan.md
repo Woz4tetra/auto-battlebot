@@ -652,10 +652,9 @@ add a hold input to `YawController::update` gated on `guard.state() == LIMITING`
   (8 floats, 3 bytes, one uint16). 118 B grows to 155 B before padding, under `AIR_MAX_PAYLOAD`
   (245 B). Update the `static_assert(sizeof(TelemetryPayload) == ...)` and bump
   `TELEMETRY_BATCH_VERSION` to 2.
-- Jetson decoder `src/esp32_diagnostics/esp32_telemetry_batch.cpp` rejects any `record_size`
-  mismatch, so update it in the same commit: copy the new fields into its entry struct and whatever
-  Foxglove channel it writes. Update `tests/esp32_diagnostics/test_esp32_wifi_telemetry.cpp` and
-  `tests/test_espnow_transmitter.cpp` fixtures.
+- `EspNowTransmitter` drops any telemetry frame whose length is not `sizeof(TelemetryPayload)`,
+  so update `to_espnow_telemetry_json` and the `tests/test_espnow_transmitter.cpp` fixture in the
+  same commit.
 - `web/app.js` and `web/index.html`: a motor heat panel showing both rises against `rise_max_c`,
   each motor's speed and `I_hat`, a `STALL` badge per wheel, the scale as a percent, `g`, the
   state, and the sensor mode. Anything other than `FUSED` shows in amber, and `OFF` in red.

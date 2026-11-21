@@ -110,23 +110,6 @@ struct HomographyFieldFilterConfiguration : public FieldOutlineFieldFilterConfig
     PARSE_CONFIG_FIELDS(parse_outline_fields(parser);)
 };
 
-struct CalibratedFieldFilterConfiguration : public FieldOutlineFieldFilterConfiguration {
-    std::string calibration_file;
-    bool seating_check = true;
-    double max_seating_error_px = 5.0;
-
-    CalibratedFieldFilterConfiguration() { type = "CalibratedFieldFilter"; }
-
-    // clang-format off
-    PARSE_CONFIG_FIELDS(
-        parse_outline_fields(parser);
-        PARSE_FIELD_STRING(calibration_file)
-        PARSE_FIELD_BOOL(seating_check)
-        PARSE_FIELD_DOUBLE(max_seating_error_px)
-    )
-    // clang-format on
-};
-
 struct FiducialFieldFilterConfiguration : public FieldFilterConfiguration {
     int board_cols = 3;
     int board_rows = 5;

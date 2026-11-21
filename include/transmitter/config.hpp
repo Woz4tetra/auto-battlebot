@@ -1,7 +1,5 @@
 #pragma once
 
-#include <arpa/inet.h>
-
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -99,32 +97,6 @@ struct OpenTxTransmitterConfiguration : public TransmitterConfiguration {
     }
 };
 
-struct Esp32DiagnosticsOpenTxTransmitterConfiguration : public OpenTxTransmitterConfiguration {
-    std::string esp32_host = "192.168.4.1";
-    int esp32_port = 80;
-    double reconnect_period_s = 1.0;
-
-    Esp32DiagnosticsOpenTxTransmitterConfiguration() { type = "Esp32DiagnosticsOpenTxTransmitter"; }
-
-    void parse_fields(ConfigParser &parser) override {
-        OpenTxTransmitterConfiguration::parse_fields(parser);
-        esp32_host = parser.get_optional_string("esp32_host", esp32_host);
-        esp32_port = static_cast<int>(parser.get_optional_int("esp32_port", esp32_port));
-        reconnect_period_s = parser.get_optional_double("reconnect_period_s", reconnect_period_s);
-        in_addr address{};
-        if (inet_pton(AF_INET, esp32_host.c_str(), &address) != 1) {
-            throw ConfigValidationError(
-                "esp32_host must be an IPv4 address literal in section [transmitter]");
-        }
-        if (esp32_port <= 0 || esp32_port > 65535) {
-            throw ConfigValidationError("esp32_port must be in 1..65535 in section [transmitter]");
-        }
-        if (reconnect_period_s <= 0.0) {
-            throw ConfigValidationError("reconnect_period_s must be > 0 in section [transmitter]");
-        }
-    }
-};
-
 struct EspNowTransmitterConfiguration : public TransmitterConfiguration {
     std::string dongle_serial_path = "/dev/espnow_dongle";
 
@@ -159,15 +131,6 @@ struct EspNowTransmitterConfiguration : public TransmitterConfiguration {
         max_motor_rpm_per_s =
             parser.get_nullable_double("max_motor_rpm_per_s", max_motor_rpm_per_s);
     }
-};
-
-struct CompositeTransmitterConfiguration : public TransmitterConfiguration {
-    std::vector<std::unique_ptr<TransmitterConfiguration>> children;
-    std::vector<double> transmit_rate_hz;
-
-    CompositeTransmitterConfiguration() { type = "CompositeTransmitter"; }
-
-    void parse_fields(ConfigParser &parser) override;
 };
 
 struct SimTransmitterConfiguration : public TransmitterConfiguration {

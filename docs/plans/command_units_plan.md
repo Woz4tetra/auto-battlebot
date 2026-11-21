@@ -11,7 +11,6 @@ Navigation outputs body velocity in m/s and rad/s. A new command shaping stage b
 | `MotionProfileNavigation` | Divides by the plant: `u_ff = (v_ref + tau * dvdt) / k_fwd`, plus a PI term in stick units |
 | `PursuitNavigation` | PD heading loop in stick units (`angular_kp = 3.0`), `max_linear_command` as a stick limit |
 | `RlPolicyNavigation` | Writes the policy action straight in: `VelocityCommand{action_.linear, 0.0, action_.angular}` |
-| `FixedVelocityNavigation` | Config values passed through |
 | `HazardAvoidance::limit_command` | Converts its m/s bound to sticks with `k_fwd` / `k_rev`, then clamps `forward_mps` |
 | Transmitters, drive processors | `saturate_velocity` clamps to [-1, 1], then mixes as sticks (`src/transmitter/drive_mixing.cpp`) |
 
@@ -34,7 +33,6 @@ Per navigator:
 - **`MotionProfileNavigation`** outputs `v_ref + tau * dvdt` plus the PI term scaled by `k_fwd`. The output stays the same once the shaper divides by `k_fwd`.
 - **`RlPolicyNavigation`** scales the action by the plant (`k_fwd` or `k_rev`, `k_ang`). The policy was trained on sticks, so the round trip through the shaper has to be exact. A test pins that.
 - **`PursuitNavigation`** gets its gains converted: `angular_kp` is multiplied by `k_ang`, and `max_linear_command` becomes `max_linear_speed_mps`. The values change in every pursuit profile.
-- **`FixedVelocityNavigation`** config values become m/s and rad/s.
 - **`NoopNavigation`** outputs zero.
 
 ## Decisions
@@ -48,6 +46,6 @@ Each step is one commit, with C++ tests passing in `build-test/` and `build/`.
 
 1. Add `StickCommand` to the transmitter and drive processor interfaces, and move `saturate_velocity` into a `CommandShaper` that is an identity for now. No behaviour change.
 2. Make the shaper plant-backed and require `[plant]` in every profile.
-3. Convert the navigators one at a time, each with a test that the old stick output equals the new real-units output after the shaper: `MotionProfileNavigation`, `RlPolicyNavigation`, `FixedVelocityNavigation`, `PursuitNavigation`.
+3. Convert the navigators one at a time, each with a test that the old stick output equals the new real-units output after the shaper: `MotionProfileNavigation`, `RlPolicyNavigation`, `PursuitNavigation`.
 4. Move `HazardAvoidance` to m/s.
 5. Replay `config/playback/mr_stabs_mk2_playback.toml` and run the kinematic sim before and after, and compare the transmitted sticks.

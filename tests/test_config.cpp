@@ -1867,63 +1867,6 @@ behavior_mode = "RUN_AWAY"
     EXPECT_ANY_THROW(load_classes_from_config(temp_config_file.string()));
 }
 
-TEST_F(ConfigTest, Esp32DiagnosticsTransmitterParsesItsFieldsAndTheRadioOnes) {
-    write_config_file(config_with_transmitter(R"(
-[transmitter]
-type = "Esp32DiagnosticsOpenTxTransmitter"
-drive_processor = "DifferentialDriveProcessor"
-reverse_angular_channel = true
-esp32_host = "192.168.4.2"
-esp32_port = 8080
-reconnect_period_s = 0.5
-)"));
-
-    auto config = load_classes_from_config(temp_config_file.string());
-    auto *transmitter_config =
-        dynamic_cast<Esp32DiagnosticsOpenTxTransmitterConfiguration *>(config.transmitter.get());
-    ASSERT_NE(transmitter_config, nullptr);
-    EXPECT_EQ(transmitter_config->esp32_host, "192.168.4.2");
-    EXPECT_EQ(transmitter_config->esp32_port, 8080);
-    EXPECT_DOUBLE_EQ(transmitter_config->reconnect_period_s, 0.5);
-    EXPECT_EQ(transmitter_config->drive_processor, "DifferentialDriveProcessor");
-    EXPECT_TRUE(transmitter_config->reverse_angular_channel);
-}
-
-TEST_F(ConfigTest, Esp32DiagnosticsTransmitterDefaults) {
-    write_config_file(config_with_transmitter(R"(
-[transmitter]
-type = "Esp32DiagnosticsOpenTxTransmitter"
-)"));
-
-    auto config = load_classes_from_config(temp_config_file.string());
-    auto *transmitter_config =
-        dynamic_cast<Esp32DiagnosticsOpenTxTransmitterConfiguration *>(config.transmitter.get());
-    ASSERT_NE(transmitter_config, nullptr);
-    EXPECT_EQ(transmitter_config->esp32_host, "192.168.4.1");
-    EXPECT_EQ(transmitter_config->esp32_port, 80);
-    EXPECT_DOUBLE_EQ(transmitter_config->reconnect_period_s, 1.0);
-}
-
-TEST_F(ConfigTest, Esp32DiagnosticsTransmitterRejectsHostnameInHostField) {
-    write_config_file(config_with_transmitter(R"(
-[transmitter]
-type = "Esp32DiagnosticsOpenTxTransmitter"
-esp32_host = "robot.local"
-)"));
-
-    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
-}
-
-TEST_F(ConfigTest, Esp32DiagnosticsTransmitterRejectsUnknownField) {
-    write_config_file(config_with_transmitter(R"(
-[transmitter]
-type = "Esp32DiagnosticsOpenTxTransmitter"
-esp32_hostname = "robot"
-)"));
-
-    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
-}
-
 namespace {
 std::string config_with_keypoint_model(const std::string &keypoint_model_toml) {
     return R"(

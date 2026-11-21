@@ -1,6 +1,6 @@
 # Cage calibration
 
-`CageCalibration` is a cage measured once, so match day does not have to fit anything. `playground/field_transform/calibrate_cage.py` writes it from a clean empty-cage frame and it is loaded unchanged at startup. Everything in it is a measurement of one physical cage with the camera fixture seated, so it travels with the venue rather than with the build. Seating check and match-day behavior: `docs/reference/perception/robot_filter_pipeline.md`.
+`CageCalibration` is a cage measured once. `playground/field_transform/calibrate_cage.py` writes it from a clean empty-cage frame, and `playground/cage_scene/` reads it to place render cameras. No runtime field filter loads it. Everything in it is a measurement of one physical cage with the camera fixture seated, so it travels with the venue rather than with the build.
 
 ## Camera intrinsics
 
@@ -29,8 +29,6 @@ The chain from a fitted pose to a BlenderProc camera:
 
     T_W<-cam_cv       = WORLD_FROM_HFIELD @ inv(T_cvcam<-hfield)
     cam2world_blender = T_W<-cam_cv @ OPENCV_TO_BLENDER_CAMERA
-
-The Python writer `save_cage_calibration` emits exactly the keys `src/field_filter/cage_calibration.cpp` parses, so a pose fitted in Python is what `CalibratedFieldFilter` loads at match time. `tests/python/test_cage_calibration.py::test_saved_toml_keys_match_cpp_reader` pins the key set.
 
 ## Pose summary
 

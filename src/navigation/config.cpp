@@ -4,7 +4,6 @@
 #include <toml++/toml.h>
 
 #include "config/config_parser.hpp"
-#include "navigation/fixed_velocity_navigation.hpp"
 #include "navigation/motion_profile_navigation.hpp"
 #include "navigation/noop_navigation.hpp"
 #include "navigation/pursuit_navigation.hpp"
@@ -16,8 +15,6 @@ REGISTER_CONFIG(NavigationConfiguration, NoopNavigationConfiguration, "NoopNavig
 REGISTER_CONFIG(NavigationConfiguration, PursuitNavigationConfiguration, "PursuitNavigation")
 REGISTER_CONFIG(NavigationConfiguration, MotionProfileNavigationConfiguration,
                 "MotionProfileNavigation")
-REGISTER_CONFIG(NavigationConfiguration, FixedVelocityNavigationConfiguration,
-                "FixedVelocityNavigation")
 REGISTER_CONFIG(NavigationConfiguration, RlPolicyNavigationConfiguration, "RlPolicyNavigation")
 
 void RlPolicyNavigationConfiguration::apply_robot_filter(
@@ -65,10 +62,6 @@ std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfigurati
     if (config.type == "MotionProfileNavigation") {
         const auto &mp_config = dynamic_cast<const MotionProfileNavigationConfiguration &>(config);
         return std::make_shared<MotionProfileNavigation>(mp_config, std::move(clock));
-    }
-    if (config.type == "FixedVelocityNavigation") {
-        const auto &fv_config = dynamic_cast<const FixedVelocityNavigationConfiguration &>(config);
-        return std::make_shared<FixedVelocityNavigation>(fv_config);
     }
     if (config.type == "RlPolicyNavigation") {
         const auto &rl_config = dynamic_cast<const RlPolicyNavigationConfiguration &>(config);

@@ -18,10 +18,6 @@ processor; `SimTransmitter` applies the same saturation itself.
 | `lifted_deadzone_percent` | Smallest non-zero output magnitude once the zero deadzone is exceeded |
 | `max_motor_rpm`, `max_motor_rpm_per_s` | Linear slew limit: the normalized linear command changes by at most `max_motor_rpm_per_s / max_motor_rpm` per second. The limit applies only while the autonomy switch (SA) is on; with SA off the command passes through, so the robot never lags the sticks. The ramp baseline is the last tick SA was off; on ESP-NOW, enabling autonomy while SA is already on also starts the ramp from standstill. Unset means no limit |
 
-Under `CompositeTransmitter`, an ESP-NOW child's drive processor fields (`drive_processor`,
-`velocity_saturation_limit`, both deadzones, both `reverse_*_channel`) must equal the OpenTX
-child's, or the two transports disagree by a fixed offset. The parser rejects a mismatch.
-
 ### `OpenTxTransmitter`
 
 | Field | Meaning |
@@ -32,16 +28,6 @@ child's, or the two transports disagree by a fixed offset. The parser rejects a 
 | `init_button_channel`, `init_button_threshold` | Channel whose value above the threshold counts as a field re-init press. Unset means no button |
 | `invert_angular_channel_readback` | The radio model inverts the angular output after mixing in the trainer input (the Mrs Buff CRSFR model does this to its right motor, `firmware/config/CHANNEL_CONVENTION.md`). Sending is unaffected, since the trainer value goes through the same inversion as the sticks, but the read-back channels are mixer outputs. Left uninverted, the wheels read back with opposite signs and forward stick reports as a spin |
 
-### `Esp32DiagnosticsOpenTxTransmitter`
-
-`OpenTxTransmitter` plus the Mr Stabs Mk2 firmware's telemetry ring, polled over WiFi and recorded
-on `/robot/esp32_diagnostics`.
-
-| Field | Meaning |
-| --- | --- |
-| `esp32_host`, `esp32_port` | The robot's address, an IP literal. 192.168.4.1 is its access point; in client mode use the address the router reserves |
-| `reconnect_period_s` | Wait after a failed poll. The ring holds two minutes of records, so a poll back within that loses nothing |
-
 ### `EspNowTransmitter`
 
 Autonomous drive commands to Mr Stabs Mk2 over the ESP-NOW USB dongle, plus its telemetry back. It
@@ -50,20 +36,6 @@ carries no arm authority (`firmware/mr_stabs_mk2/README.md`).
 | Field | Meaning |
 | --- | --- |
 | `dongle_serial_path` | A udev symlink (`install/install_udev_rules.sh`), not a raw ttyACM path: the handset also enumerates as ttyACM and the order is not stable |
-
-### `CompositeTransmitter`
-
-Fans one command stream out to several transmitters. The first child is primary and owns everything
-read-side: status, behavior mode, and command feedback on a key collision. `[[transmitter.children]]`
-is an array of tables so the order is guaranteed. Each entry may set `transmit_rate_hz`, the most
-sends per second that child gets; 0 passes every send.
-
-- `send()`, `enable()` and `disable()` fan out to every child. `update()` polls every child so their receive paths drain.
-- A non-primary child is an accelerator. Its `initialize()` failure is logged and ignored: a dead ESP-NOW dongle costs latency, not control.
-- The composite does no command preprocessing. Each child does its own scaling. The rate limit that makes two transports agree lives in the firmware, after the arbitration that picks between them.
-- The control loop sends at 250 Hz. The OpenTX trainer path feeds a 150 Hz Crossfire link through serial CLI writes and gains nothing past that, while ESP-NOW takes every cycle.
-- A capped child gets the newest command once its period has passed. A command it skips is held and delivered when the period runs out, from `update()` if no newer `send()` comes, and before `disable()`, so the final stop command always lands.
-- Pacing is a hardware rate, so it runs on the steady clock. Only tests inject another time source.
 
 ### `SimTransmitter`
 
@@ -101,14 +73,6 @@ sends per second that child gets; 0 passes every send.
 | `hazard_prediction_horizon_s` | Advance a tracked hazard along its filtered velocity by this long before testing it. For a house bot moving across our path: reacting to where it is aims at where it was |
 | `hazard_heading_threshold` | Heading must point within this angle (rad) of the hazard for the reverse to trigger |
 | `hazard_reverse_min_speed` | Reverse speed floor while the hazard backstop is active, normalized command |
-
-### `FixedVelocityNavigation`
-
-| Field | Meaning |
-| --- | --- |
-| `linear_x` | Fixed linear X command, m/s |
-| `linear_y` | Fixed linear Y command, m/s |
-| `angular_z` | Fixed angular Z command, rad/s |
 
 ### `MotionProfileNavigation`
 
@@ -169,9 +133,7 @@ Requires a `[navigation.policy]` table naming the model bundle. Refuses to start
 | --- | --- |
 | `size_x`, `size_y` | Arena extent (m) along field x and field y |
 
-### `HomographyFieldFilter` and `CalibratedFieldFilter`
-
-Both fit the mask outline, so they share these fields. `CalibratedFieldFilter` reads its field size from the calibration file, not from `field_size_x` and `field_size_y`.
+### `HomographyFieldFilter`
 
 | Field | Meaning |
 | --- | --- |
@@ -179,13 +141,6 @@ Both fit the mask outline, so they share these fields. `CalibratedFieldFilter` r
 | `max_quad_coverage` | Mask area over quad area. Above this the outline is not a quadrilateral, so at least one side is not a field edge. Structural, because the reprojection residual cannot see it |
 | `border_margin_px` | Contour points this close to the frame edge are dropped before the edge fit |
 | `corner_skip_fraction` | Fraction of each side dropped at both ends, as belonging to the mat's rounded corners |
-
-### `CalibratedFieldFilter`
-
-| Field | Meaning |
-| --- | --- |
-| `calibration_file` | Per-cage calibration, e.g. `config/cages/<venue>_<cage>.toml`. Same rule as `hazards_file`: a plain path, absolute or relative to the project root, with no implied directory and no implied extension, so the string in a config reads as the file it names |
-| `max_seating_error_px` | Above this corner error the start-up seating check warns and keeps publishing the stored calibration. Behavior: `docs/reference/perception/robot_filter_pipeline.md` |
 
 ### `FiducialFieldFilter`
 

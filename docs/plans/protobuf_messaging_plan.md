@@ -41,7 +41,7 @@ changed these parts:
 | JSON recording topics: `/camera/frame_meta`, `/blob_detections`, `/keypoint_detections`, `/apriltag/robot_tags` | yes | Hand-built JSON in C++, schema texts duplicated |
 | `/diagnostics/<module>` | yes, behind gate D1 | Free-form tree; Foxglove plot paths may get worse |
 | `/status/*`, `/command/*` | yes | Already single-source (`AB_JSON_MESSAGE`), but only in C++; the web gets generated TS through a dump binary |
-| `/robot/espnow_telemetry`, `/robot/esp32_diagnostics` | yes | Three hand copies of one message |
+| `/robot/espnow_telemetry` | yes | Hand copies of one message in C++ and Python |
 | ESP-NOW air and serial payloads: Command, Telemetry, TunableSet, LinkStats | yes | Packed structs, memcpy decode |
 | `firmware/espnow_dongle/scripts/espnow_diag.py` | yes | Its own copy of the type IDs, the payload sizes, and `struct.unpack` decoders for Command, Telemetry, TunableSet, and LinkStats; it also builds Command frames |
 | `firmware/mr_stabs_mk2/scripts/espnow_ota.py` | no | Speaks only the serial framing and the frozen OTA messages |
@@ -66,11 +66,9 @@ changed these parts:
   (`src/foxglove_adapters/camera_info.cpp:43`), `to_detections_json`
   (`src/foxglove_adapters/detections.cpp:10`), `diagnostics_module_json`
   (`src/diagnostics_logger/foxglove_diagnostics_backend.cpp`), `to_espnow_telemetry_json`
-  (`src/transmitter/espnow_transmitter.cpp:61`), `to_esp32_diagnostics_json`
-  (`src/esp32_diagnostics/esp32_diagnostics_event.cpp:206`), and
+  (`src/transmitter/espnow_transmitter.cpp:61`), and
   `AprilTagKeypointModel::to_json` (`src/keypoint_model/apriltag_keypoint_model.cpp:446`).
-  `/robot/esp32_diagnostics` has two producers: `esp32_wifi_telemetry.cpp` and
-  `src/transmitter/esp32_diagnostics_opentx_transmitter.cpp:31`.
+  No C++ code writes `/robot/esp32_diagnostics`; only recordings before 2026-11-20 carry it.
 - **C++ JSON reader**: `video_playback_camera.cpp:199-200` string-scans `/camera/frame_meta`.
   The same file hand-decodes protobuf `CompressedVideo` to avoid linking protobuf.
 - **Remote protocol**: structs with `AB_JSON_MESSAGE` (`include/remote/messages.hpp`), topic table
@@ -91,7 +89,7 @@ changed these parts:
 - **Firmware**: packed structs in `espnow_protocol.h:34-133` with size `static_assert`s
   (`:162-169`). `TelemetryPayload` is 155 bytes. The host compiles that header
   (`CMakeLists.txt:268-269`) and memcpys payloads after an exact length check
-  (`espnow_transmitter.cpp:259-266`, `esp32_telemetry_batch.cpp:18-33`).
+  (`espnow_transmitter.cpp:259-266`).
 - **Dongle diagnostics tool**: `firmware/espnow_dongle/scripts/espnow_diag.py` reads the dongle's
   serial stream and serves a live page. It holds the type IDs and payload sizes (`:35-57`) and
   decodes payloads with `struct.unpack`. `tests/python/test_espnow_diag.py` pins its constants to
@@ -229,8 +227,7 @@ Two rules decide which C++ type a message uses:
   `json_message.hpp` and `AB_JSON_MESSAGE` are deleted.
 - **A domain type the C++ code uses for its own work stays a C++ type**, with one `to_msg`/
   `from_msg` pair per type and a round-trip test. That covers `CameraSettings` (camera code and
-  the TOML profile store), the `include/enums/` enums, `DiagnosticsData`, and
-  `Esp32DiagnosticsEvent`.
+  the TOML profile store), the `include/enums/` enums, and `DiagnosticsData`.
 
 `include/remote/protocol.hpp` stays the topic table (topic, latch, rate) and its rows name the
 generated types: `StatusTopic<msg::status::System>{"/status/system", Latch::NO, 10.0}`. Its
@@ -601,7 +598,6 @@ import "auto_battlebot/msg/link/link.proto";
 enum TelemetryTransport {
   TELEMETRY_TRANSPORT_UNSPECIFIED = 0;
   TELEMETRY_TRANSPORT_ESPNOW = 1;  // /robot/espnow_telemetry
-  TELEMETRY_TRANSPORT_WIFI = 2;    // /robot/esp32_diagnostics, polled GET /telemetry.pb
 }
 
 message RobotTelemetry {
@@ -612,14 +608,10 @@ message RobotTelemetry {
   // ESP-NOW only: host monotonic arrival minus robot.espnow.jetson_tx_us. Absent before the
   // first accepted command.
   optional int64 round_trip_us = 4;
-  // WiFi only: the row waited in the robot's ring for a poll or for the link, so
-  // host_receive_ns is late and clock fits skip it.
-  bool backfill = 5;
 }
 ```
 
-Both topics keep their names, and both producers of `/robot/esp32_diagnostics`
-(`esp32_wifi_telemetry.cpp` and `esp32_diagnostics_opentx_transmitter.cpp`) write this message.
+`/robot/espnow_telemetry` keeps its name, and `EspNowTransmitter` writes this message.
 What changes:
 
 - Foxglove paths gain one level, or two for the grouped fields:
@@ -1350,11 +1342,7 @@ firmware and ends with the robot, the dongle, and the host changed together.
    - `espnow_transmitter.cpp` decodes 0x22 and 0x24 with libprotobuf, sends 0x21, and records
      `RobotTelemetry`.
    - It counts frames on the retired IDs and reports the mismatch (decision 9).
-   - `esp32_wifi_telemetry.cpp` polls `/telemetry.pb`.
-   - `esp32_telemetry_batch.cpp` decodes `TelemetryBatch`.
-   - `esp32_diagnostics_opentx_transmitter.cpp` publishes `RobotTelemetry`.
-   - `to_espnow_telemetry_json` and `to_esp32_diagnostics_json` are deleted, along with
-     `parse_esp32_diagnostics_csv`, which only `test_esp32_diagnostics.cpp` calls.
+   - `to_espnow_telemetry_json` is deleted.
 6. Python:
    - `calibration/sysid/telemetry.py` takes its columns from the `link.Telemetry` descriptor
      plus the `RobotTelemetry` host fields, flattening the sub-messages by leaf name.
@@ -1394,7 +1382,7 @@ rate for that reason.
    - update the remote UI line to point at `proto/auto_battlebot/msg/status.proto`
 4. Update the ESP-NOW protocol tables in `firmware/shared/espnow_protocol/`, and the payload
    descriptions in `firmware/mr_stabs_mk2/README.md`, `firmware/espnow_dongle/README.md`, and
-   `docs/reference/robot_link/esp32_wifi_telemetry.md`.
+   `docs/reference/robot_link/firmware_telemetry.md`.
 
 ## Gates
 
@@ -1420,7 +1408,7 @@ rate for that reason.
   This replaces `test_json_schema_parity.py`.
 - **Legacy decode**: the existing JSON-text tests (`test_detections.cpp`, `test_camera_info.cpp`,
   `test_foxglove_diagnostics_backend.cpp`, `test_espnow_transmitter.cpp`,
-  `test_esp32_diagnostics.cpp`, `test_esp32_wifi_telemetry.cpp`, `test_video_playback_camera.cpp`,
+  `test_video_playback_camera.cpp`,
   `test_status_bus.cpp`) become protobuf tests. A JSON message from each kept as a fixture
   checks that the readers still accept old files.
 - **`decode_dict`**: for each topic, the JSON and protobuf forms of the same message give equal

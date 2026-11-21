@@ -49,7 +49,7 @@ def load_cage_calibration(path: Path) -> CageCalibration:
 
 
 def save_cage_calibration(path: Path, calibration: CageCalibration, header: str = "") -> None:
-    """Write the TOML `cage_calibration.cpp` reads. `header` lines become leading comments."""
+    """Write the cage calibration TOML. `header` lines become leading comments."""
     tf = calibration.tf_cvcamera_from_hfield
     lines = [f"# {line}" if line else "#" for line in header.splitlines()]
     lines += [

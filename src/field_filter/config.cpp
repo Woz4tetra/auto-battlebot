@@ -5,7 +5,6 @@
 
 #include "config/config_cast.hpp"
 #include "config/config_parser.hpp"
-#include "field_filter/calibrated_field_filter.hpp"
 #include "field_filter/fiducial_field_filter.hpp"
 #include "field_filter/fixed_field_filter.hpp"
 #include "field_filter/homography_field_filter.hpp"
@@ -20,8 +19,6 @@ REGISTER_CONFIG(FieldFilterConfiguration, NoopFieldFilterConfiguration, "NoopFie
 REGISTER_CONFIG(FieldFilterConfiguration, FixedFieldFilterConfiguration, "FixedFieldFilter")
 REGISTER_CONFIG(FieldFilterConfiguration, HomographyFieldFilterConfiguration,
                 "HomographyFieldFilter")
-REGISTER_CONFIG(FieldFilterConfiguration, CalibratedFieldFilterConfiguration,
-                "CalibratedFieldFilter")
 REGISTER_CONFIG(FieldFilterConfiguration, FiducialFieldFilterConfiguration, "FiducialFieldFilter")
 #ifdef BUILD_WITH_ZED
 REGISTER_CONFIG(FieldFilterConfiguration, PointCloudFieldFilterConfiguration,
@@ -70,9 +67,6 @@ std::shared_ptr<FieldFilterInterface> make_field_filter(const FieldFilterConfigu
     } else if (config.type == "HomographyFieldFilter") {
         return std::make_shared<HomographyFieldFilter>(
             config_cast<HomographyFieldFilterConfiguration>(config));
-    } else if (config.type == "CalibratedFieldFilter") {
-        return std::make_shared<CalibratedFieldFilter>(
-            config_cast<CalibratedFieldFilterConfiguration>(config));
     } else if (config.type == "FiducialFieldFilter") {
         return std::make_shared<FiducialFieldFilter>(
             config_cast<FiducialFieldFilterConfiguration>(config));

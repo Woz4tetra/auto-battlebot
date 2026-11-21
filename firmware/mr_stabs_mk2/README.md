@@ -362,8 +362,8 @@ drops any record the loop overwrote mid-copy (`lib/telemetry_ring`, tested in
 `GET /telemetry?from=<seq>&max=<n>` returns a `TelemetryBatchHeader` (in
 `firmware/shared/espnow_protocol`) and then up to 256 records from `from` on, oldest first. With
 no `from` it returns the header alone, which tells a new client where the head is. The header's
-`boot_id` changes on every boot, when seqs restart at 0. The Jetson's `Esp32WifiTelemetry` polls
-it every 100 ms for the sysid profile, so a WiFi dropout shorter than 90 s costs no rows.
+`boot_id` changes on every boot, when seqs restart at 0. No Jetson-side client polls it; the
+Jetson reads telemetry over ESP-NOW (`/robot/espnow_telemetry`).
 
 ### Recording Data
 
