@@ -65,7 +65,7 @@ Upstream ships the wrapper that `run-clang-tidy` points at: a `clang-tidy` scrip
 
 ## uvcvideo kworker priority
 
-`install/install_uvcvideo_rt.sh` holds uvcvideo's copy kworkers at `SCHED_FIFO` 50 so the ZED's bulk endpoint never overruns. The measurement is in `docs/experiments/platform/2026-09-22_zed_frame_rotation.md`.
+`install/install_uvcvideo_rt.sh` holds uvcvideo's copy kworkers at `SCHED_FIFO` 50 so the ZED's bulk endpoint never overruns.
 
 - Bug: on JetPack 7 (kernel 6.8) about 0.7% of ZED 2i frames arrive with the whole byte stream shifted by 2048 bytes (two 1024 B bulk packets). The image looks cyclically rotated with a seam at column 1024. The shift is already in the V4L2 buffer at `DQBUF`, before the ZED SDK touches it.
 - Cause: uvcvideo copies each URB's payload in a kworker and resubmits the URB only after the copy. With 5 URBs of about 32 KB there is about 1.5 ms of host-side buffering. When the app loads the CPUs, those kworkers (`SCHED_OTHER`, nice -20) wait behind other work, the camera's FIFO overruns, and it sets the UVC error bit. uvcvideo drops that frame, and about 3% of the time the camera resyncs 2048 bytes off, so the next full-size frame is rotated.

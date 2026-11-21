@@ -68,7 +68,7 @@ Fast headless kinematic sim for Mrs Buff Mk3 at 30 Hz.
 | `[our_robot]` plant keys | Transcribed from `playground/calibration/out/plant_stageA.toml` (model M4, velocity jig sessions 2026-08-19 through 2026-08-23). Edit the fit, not this file. Measured with guard plates on, so their ground friction is part of the plant. Name mapping below. |
 | `max_linear_speed`, `tau_linear`, `tau_angular` | Symmetric fallbacks. Unused once the `_fwd`/`_rev` and `_accel`/`_decel` keys are set. |
 | `steer_brake_coeff`, `tau_linear_accel`, `tau_linear_decel` | Fit provenance in the dated experiments doc above. |
-| `[perception] sensing_model` | Perception latency, dropouts and noise come from a sensing model (`docs/experiments/control/2026-11-15_kinematic_sim_design.md`). Empty sends the true poses every tick. Pair a model with `config/simulation/kinematic_sim_sensing.toml` on the C++ side so the real keypoint filter and motion estimator see the measurements. `simulation/sensing_models/provisional.toml` is the usual non-empty value. |
+| `[perception] sensing_model` | Perception latency, dropouts and noise come from a sensing model. Empty sends the true poses every tick. Pair a model with `config/simulation/kinematic_sim_sensing.toml` on the C++ side so the real keypoint filter and motion estimator see the measurements. `simulation/sensing_models/provisional.toml` is the usual non-empty value. |
 
 Fit name to key name:
 

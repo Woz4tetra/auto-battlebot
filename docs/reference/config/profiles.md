@@ -252,7 +252,7 @@ All pair with a sim-side config under `simulation/` and run through `./scripts/r
 - `mr_stabs_mk2_kinematic_sim`: the sim's second `[[opponents]]` entry is the house bot, reported as
   NEUTRAL_ROBOT_1 so the hazard assembler makes it a keep-out instead of a target.
 - `mr_stabs_mk2_kinematic_sim_sensing`, `mrs_buff_mk3_kinematic_sim_sensing`: the sim's sensing
-  model (`docs/experiments/control/2026-11-15_kinematic_sim_design.md`) delivers keypoints with
+  model delivers keypoints with
   latency, dropouts, noise and heading flips, and the real `RobotFrontBackFilter` and
   `KalmanMotionEstimator` run on them. They extend `_simulation`, not `kinematic_sim`, to keep
   `_common`'s robot filter, so they restate the sim parts of `kinematic_sim` and the robot parts of
