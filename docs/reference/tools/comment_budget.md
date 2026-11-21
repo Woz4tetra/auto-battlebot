@@ -1,7 +1,14 @@
 # Comment budget checker
 
 `scripts/comment_budget.py` enforces the no-comments rule in `CLAUDE.md` ("Comments"). Every file
-has a budget of 0 counted comment lines: `.comment-baseline.json` is `{}` since 2026-11-20.
+has a budget of 0 counted comment lines except the accepted rules in `.comment-baseline.json`:
+invariants no test can prove, each approved by the user.
+
+| File | Lines | Rule |
+| --- | --- | --- |
+| `src/runner.cpp` | 2 | `cancel_initialize()` overrides are async-signal-safe (one atomic store) |
+| `src/rgbd_camera/video_encoder.cpp` | 3 | `stopping_` is set under the lock, or a frame races into the next file |
+| `firmware/mr_stabs_mk2/include/wifi_manager.h` | 1 | `_state` is owned by the task, read by `snapshot()` under `_lock` |
 
 ## Commands
 

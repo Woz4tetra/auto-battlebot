@@ -117,6 +117,9 @@ bool VideoEncoder::software_encoder_available() {
 void VideoEncoder::stop() {
     if (running_.load()) {
         {
+            // Under the lock, so submit() sees it before the encode thread can drain and exit.
+            // Set outside it, a frame submitted in between sat in the queue and opened the next
+            // recording as its first packet, two seconds stale, with every index after it shifted.
             std::lock_guard<std::mutex> lock(mutex_);
             stopping_.store(true);
         }

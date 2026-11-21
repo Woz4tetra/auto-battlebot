@@ -1,1 +1,5 @@
-{}
+{
+  "firmware/mr_stabs_mk2/include/wifi_manager.h": 1,
+  "src/rgbd_camera/video_encoder.cpp": 3,
+  "src/runner.cpp": 2
+}

@@ -68,6 +68,8 @@ static_assert(std::atomic<bool>::is_always_lock_free,
 
 void Runner::quit_from_signal_handler() {
     quit_requested_.store(true);
+    // A camera re-open can take 30 s. cancel_initialize() only stores an atomic, so this is
+    // still safe from the signal handler.
     camera_->cancel_initialize();
 }
 
