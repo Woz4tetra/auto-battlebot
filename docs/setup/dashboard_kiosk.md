@@ -22,4 +22,3 @@
 
 The wait is gated on the machine booting a desktop at all, so a headless deploy never waits for a session that is not coming. Both conditions must hold: a display manager enabled (that creates the X session) and `graphical.target` as the boot target (that runs it). Anything else counts as headless, so an unclear answer costs no startup time. No `XAUTHORITY` handling is needed: GDM grants the session owner by uid (`xhost` shows `SI:localuser:<user>`), so a process running as that user connects without a cookie.
 
-`service/build_and_install_service.sh` expands `__UID__` to the numeric uid for `XDG_RUNTIME_DIR`. systemd's `%U` specifier resolves to 0 in a system unit even with `User=` set, which sent dconf to `/run/user/0` and broke the kiosk setup.

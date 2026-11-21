@@ -18,12 +18,10 @@ PCL is only reachable from `PointCloudFieldFilter` and `data_structures/point_cl
 
 `scripts/build.sh` builds the web dashboard that `viz_relay` serves, through `scripts/build_web.sh`. It is optional. Without Node the build skips it and the relay answers 503 with a note.
 
-## CMake dependency workarounds
+## CMake dependencies
 
-- Crow and Asio (web dashboard HTTP server) are header-only and linked to `viz_relay` only. They are populated with `SOURCE_SUBDIR` pointing at a directory with no `CMakeLists.txt`, which skips Crow's own `find_package` for Asio. The `viz_relay` target wires the include paths itself.
-- nlohmann_json (remote protocol, `include/remote/`) comes from the release's single-header URL tarball, which is far smaller than the repository. `DOWNLOAD_EXTRACT_TIMESTAMP` needs CMake 3.24. JetPack 6 ships 3.22, which reads the unknown keyword as more URL entries and fails with "At least one entry of URL is a path", so the option is passed only on 3.24 and newer.
+- Crow and Asio (web dashboard HTTP server) are header-only and linked to `viz_relay` only.
+- nlohmann_json (remote protocol, `include/remote/`) comes from the release's single-header URL tarball, which is far smaller than the repository.
 - mcap ships no CMake target, only headers plus a single-translation-unit implementation define.
 - CUDA sources (the GPU preprocess kernels): nvcc comes from the toolkit that FindCUDA picked, since `/usr/local/cuda/bin` is not on `PATH` on the Jetsons. The kernels must be built by the same toolkit whose static runtime FindCUDA links (`CUDA_USE_STATIC_CUDA_RUNTIME`), so the process has one CUDA runtime, shared by TensorRT's stream and the kernels.
-- Foxglove SDK: the C++ wrapper sources compile in this tree on top of the prebuilt Rust static library, which `install/install_foxglove_sdk.sh` unpacks into `third_party/foxglove`. The SDK's own headers trip `-Wdeprecated-declarations` under C++20, so they are system headers and the wrapper compiles with warnings off. Nothing of ours is in it.
-- There is no `-DDEBUG` in the debug flags: nothing in the tree tests it, and the macro collides with `foxglove::schemas::Log::LogLevel::DEBUG` in the SDK headers.
-- `NvjpgJpegEncoder` loads its plugin from the directory `auto_battlebot_lib` is in, so the plugin builds beside the library.
+- Foxglove SDK: the C++ wrapper sources compile in this tree on top of the prebuilt Rust static library, which `install/install_foxglove_sdk.sh` unpacks into `third_party/foxglove`.

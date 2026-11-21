@@ -105,15 +105,6 @@ To start the desktop manually after logging into the CLI:
 -   Log in and try `sudo su`
 -   If no password prompt appears, these steps worked
 
-## Engine build notes
-
-### `tensorrt_build.py`
-
-#### TensorRT timing cache
-
-`save_timing_cache` in `tensorrt_build.py` is last writer wins. Concurrent builders may race
-there; the cache is advisory, and a lost update only costs the next build some re-timing.
-
 ## Increase memory security limit
 
 This increases the maximum RAM a process from a given user can use.
@@ -148,11 +139,10 @@ The Wi-Fi access state file is `$HOME/.local/state/auto_battlebot/wifi_access`. 
 ## Video encoder
 
 - The H.264 preview uses NVENC where the box has it and libx264 at ultrafast on one thread where it does not (the Orin Nano). It is created when either can open.
-- The nvv4l2h264enc backend returns nullptr when an element is missing or the pipeline does not reach PLAYING, which is where nvv4l2h264enc opens the encoder device.
 
 ## JPEG encoder and OpenCV
 
-`libnvjpeg` used to sit in the global symbol scope on the Jetson and answer OpenCV's libjpeg calls, so any `cv::imencode(".jpg")` after linking it crashed. The NVJPG encoder is now a `dlopen` plugin with `RTLD_DEEPBIND`. `JpegEncoderTest.OpenCvJpegStillWorksAlongsideTheChosenEncoder` runs both side by side.
+The NVJPG encoder is a `dlopen` plugin with `RTLD_DEEPBIND`. Linked into the global symbol scope, `libnvjpeg` answers OpenCV's libjpeg calls and crashes `cv::imencode(".jpg")`.
 
 ## Pinned frame memory
 
@@ -201,15 +191,15 @@ The service keeps UI state (`selected_profile`, `wifi_access`) in `~/.local/stat
 
 ### CUDA architectures
 
-`CMAKE_CUDA_ARCHITECTURES` is set before `enable_language`, which otherwise probes a default that CUDA 13 no longer supports. Orin is sm87, the dev laptop is sm89, and megamind's A6000s are sm86.
+`CMAKE_CUDA_ARCHITECTURES` is set before `enable_language`, which otherwise probes a default that CUDA 13 does not support. Orin is sm87, the dev laptop is sm89, and megamind's A6000s are sm86.
 
 ### L4T floor
 
-`install/check_jetson_orin.sh` checks the L4T version and accepts R36.5 (JetPack 6.2.3) and R39 (JetPack 7.2). It rejects R36.4 and older with an error that names JetPack 6.2.3. The install path branches on the L4T major for the PyTorch wheel source and expects the Python version JetPack ships. Without the check, an unsupported JetPack is accepted and fails much later, at wheel install or engine load. Tests set `NV_TEGRA_RELEASE_FILE` and `DEVICE_TREE_MODEL_FILE` to fake the release and model files.
+`install/check_jetson_orin.sh` checks the L4T version and accepts R36.5 (JetPack 6.2.3) and R39 (JetPack 7.2). It rejects R36.4 and older with an error that names JetPack 6.2.3. The install path branches on the L4T major for the PyTorch wheel source and expects the Python version JetPack ships. Without the check, an unsupported JetPack is accepted and fails much later, at wheel install or engine load.
 
 ### jetson_clocks
 
-`install/install_jetson_clocks.sh` installs a systemd oneshot unit that runs `jetson_clocks` at boot, lifting DVFS gating so the CPU, GPU, and EMC stay at their maximum frequency. `RemainAfterExit` keeps the unit active after the script returns, so the kept settings are clearly attributed to this service.
+`install/install_jetson_clocks.sh` installs a systemd oneshot unit that runs `jetson_clocks` at boot, lifting DVFS gating so the CPU, GPU, and EMC stay at their maximum frequency. `RemainAfterExit` keeps the unit active after the script returns.
 
 ### Masked user services
 
@@ -229,7 +219,3 @@ The venv `activate` script gets a `LD_LIBRARY_PATH` block because the host sets 
 - The index is derived from the CUDA version (13.2 gives `cu132`) rather than tabled, so a 13.0 or 13.3 box picks its own.
 - The install uses `--index-url`, not `--extra-index-url`. PyPI's aarch64 torch is a CPU-only build and wins resolution otherwise, leaving `torch.cuda.is_available()` false.
 - cusparselt (for PyTorch 24.06+) installs only for the NVIDIA JetPack 6 wheels. The upstream CUDA-index wheels used on JetPack 7 vendor their own CUDA dependencies.
-
-### Deploy and download script notes
-
-- `scripts/deploy_to_jetson.sh` orders the `--include` for `.build_version` before the gitignore merge, so the stamped version file transfers even though it is gitignored (first match wins).

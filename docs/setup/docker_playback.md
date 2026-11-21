@@ -224,5 +224,5 @@ Each choice in `docker/docker-compose.playback.yml`:
 
 `docker/docker-compose.playback.yml` uses the `include:` key, added in Compose v2.20. Older versions reject the whole file with `(root) Additional property include is not allowed`, which does not hint at the cause. `install/install_docker_ubuntu.sh` and `scripts/docker/docker_common.sh` check for 2.20 and fail with a readable message.
 
-The usual cause of an old version is a stale manually installed plugin shadowing the apt one. Docker searches `/usr/local/lib/docker/cli-plugins` before `/usr/libexec/docker/cli-plugins`, so a leftover binary in the former wins even after `docker-compose-plugin` is upgraded. That happened on megamind, which reported 2.11.2 while the apt package on disk was current.
+The usual cause of an old version is a stale manually installed plugin shadowing the apt one. Docker searches `/usr/local/lib/docker/cli-plugins` before `/usr/libexec/docker/cli-plugins`, so a leftover binary in the former wins even after `docker-compose-plugin` is upgraded.
 

@@ -62,7 +62,7 @@ The JetPack 7.2 Jetsons and the Box Mini run the same tree.
 | TensorRT | 10.3.0 | 10.16 |
 | cuDNN / VPI | 9.3.0 / 3.2.4 | |
 | Python | 3.10.12 (system numpy 2.2.6, pyzed 5.2; venv numpy 1.26.1) | 3.12 |
-| PyTorch (venv) | 2.5.0a0 nv24.08, the JetPack 6.1 wheel (open issue 2), CUDA available | |
+| PyTorch (venv) | 2.5.0a0 nv24.08, the JetPack 6.1 wheel (open issue 1), CUDA available | |
 | OpenCV | NVIDIA 4.8.0 | built from source by `install/install_opencv.sh` |
 | GCC | 11.4 | |
 | ZED SDK | 5.2.3 | |
@@ -119,8 +119,8 @@ rebuilt on the box. The deployed tree is a copy with no `.git`.
   [flash docs](https://docs.stereolabs.com/docs/products/embedded/zed-box-mini/reset-update)
   names the L4T 36.4 kernel packages; check that every `nvidia-l4t-*` package shows `[HELD]`.
   **Not done yet:** `apt-mark showhold` is empty and 0 of the 49 installed `nvidia-l4t-*`
-  packages are held (open issue 5).
-- `config/_zed_box.toml` runs a ZED X One S on a GMSL2 port (see open issue 3).
+  packages are held (open issue 4).
+- `config/_zed_box.toml` runs a ZED X One S on a GMSL2 port (see open issue 2).
 
 ## Display
 
@@ -141,15 +141,11 @@ GDM is installed, so `graphical.target` brings up an autologin X session, and th
 
 ## Open issues
 
-1. **Playback replay is not verified on the box.** The install, the C++ build under GCC 11, and
-   the TensorRT 10.3 engine builds (DeepLab field, `yolo26s-pose_d50000`) all work, and the live
-   pipeline runs. The `yolo26x-pose` `aarch64_sm87` engine on the box has not been rebuilt for
-   10.3 yet.
-2. **PyTorch on JetPack 6.2.3 is the JetPack 6.1 wheel.** `get_jetson_torch_install_url` in
+1. **PyTorch on JetPack 6.2.3 is the JetPack 6.1 wheel.** `get_jetson_torch_install_url` in
    `install/install_pytorch_jetson.sh` maps every R36.x release to the `v61` wheel (torch 2.5.0a0
-   nv24.08). The `v62` path it used to name returns 404 on NVIDIA's redist server, so no separate
+   nv24.08). NVIDIA's redist server has no `v62` path (404), so no separate
    6.2 wheel exists there. Set `TORCH_INSTALL` to override.
-3. **ZED X One S works, but depth needs another camera.** The box has GMSL2 only, no MIPI CSI, so `config/_zed_box.toml` uses a ZED X One S through
+2. **ZED X One S works, but depth needs another camera.** The box has GMSL2 only, no MIPI CSI, so `config/_zed_box.toml` uses a ZED X One S through
    `ZedOneRgbCamera` (`sl::CameraOne`). It is monocular, so the config runs the RGB path: `FiducialFieldFilter`, height gate off, static gate on.
    - SDK 5.2.3 and driver 1.4.1 open it as a ZED X One GS. The startup log reads
      `ZED XOne GS serial 301999176 at 1920x1200 60 fps, fx 665.0 fy 716.2`.
@@ -160,9 +156,9 @@ GDM is installed, so `graphical.target` brings up an autologin X session, and th
    - The camera logs `Video recording requested but no encoder started`, so the box records MCAP
      only, with no video.
    - For depth, a ZED X or ZED X Mini on the same port works with `ZedRgbdCamera` instead.
-4. **DS3231 RTC may have no bus.** The GPIO port lists no I2C, so `install/install_ds3231_rtc.sh`
+3. **DS3231 RTC may have no bus.** The GPIO port lists no I2C, so `install/install_ds3231_rtc.sh`
    may have nothing to attach to. Check the hardware manual.
-5. **Kernel packages are not held.** Run `hold-zedbox-kernel.sh` (or `apt-mark hold` on every
+4. **Kernel packages are not held.** Run `hold-zedbox-kernel.sh` (or `apt-mark hold` on every
    `nvidia-l4t-*` package) before any `apt upgrade`.
 
 ## Latency
@@ -249,10 +245,3 @@ Annex-B stream, which always opens on a 4-byte start code.
 
 - The ZED Box has no display. Booting to `graphical.target` makes `service/with_display.sh` wait 60 s for an X session on every service start, and GDM plus Xorg hold memory for nothing. `scripts/install_zed_box.sh` sets `multi-user.target`, which takes effect on the next boot.
 - `service/build_and_install_service.sh` installs `dashboard-kiosk.service` on every box but enables it only where a desktop boots. A headless box (the ZED Box) gets the unit file and not the enable. After adding a display, run `sudo systemctl set-default graphical.target` and `sudo systemctl enable --now dashboard-kiosk`.
-
-## ZED X One workarounds in `ZedOneRgbCamera`
-
-Each guards SDK 5.2.3 behaviour on the ZED X One GS. `docs/plans/zed_sdk_5_6_upgrade_plan.md` lists which 5.6 should fix. None is reproducible on the dev box.
-
-- **`AB_ZED_HAS_ANTIBANDING`.** `AE_ANTIBANDING` exists in SDK 5.5 (dev machines), not 5.2. Without it the control reports unsupported and the dashboard hides it; a profile's `anti_banding` is kept but not sent.
-- **Cancel.** `RgbdCameraInterface::cancel_initialize()` asks a blocking `initialize()` (a pending `zed_.open()`) to stop. It is safe to call from another thread and is a no-op for cameras that open immediately. `capture_thread_done_` is set by the capture thread as it exits so the destructor can bound its wait.
