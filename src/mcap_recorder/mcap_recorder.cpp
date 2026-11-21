@@ -52,7 +52,7 @@ McapRecorder::McapRecorder(const std::string& active_profile, std::filesystem::p
     : active_profile_(active_profile), recordings_dir_(std::move(recordings_dir)) {
     std::filesystem::path refused;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        MutexLock lock(mutex_);
         metadata_.emplace_back("active_profile", active_profile_);
         start_file_locked(refused);
     }
@@ -69,7 +69,7 @@ McapRecorder::~McapRecorder() { close(); }
 void McapRecorder::set_size_limits(std::optional<uint64_t> max_size_gb,
                                    std::optional<uint64_t> holding_dir_max_size_gb) {
     constexpr uint64_t kBytesPerGb = 1024ULL * 1024ULL * 1024ULL;
-    std::lock_guard<std::mutex> lock(mutex_);
+    MutexLock lock(mutex_);
     max_size_bytes_ =
         max_size_gb ? std::optional<uint64_t>(*max_size_gb * kBytesPerGb) : std::nullopt;
     holding_dir_max_size_bytes_ =
@@ -78,7 +78,7 @@ void McapRecorder::set_size_limits(std::optional<uint64_t> max_size_gb,
 }
 
 void McapRecorder::set_ignored_topics(const std::vector<std::string>& topics) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    MutexLock lock(mutex_);
     ignored_topics_ = std::unordered_set<std::string>(topics.begin(), topics.end());
 }
 
@@ -126,7 +126,7 @@ bool McapRecorder::set_enabled(bool enabled, std::future<void>* completed) {
         *completed = ready.get_future();
     }
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        MutexLock lock(mutex_);
         if (!enabled) {
             if (enabled_) {
                 enabled_ = false;
@@ -153,23 +153,23 @@ bool McapRecorder::set_enabled(bool enabled, std::future<void>* completed) {
 }
 
 bool McapRecorder::is_enabled() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    MutexLock lock(mutex_);
     return enabled_;
 }
 
 bool McapRecorder::records_topic(const std::string& topic) const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    MutexLock lock(mutex_);
     return enabled_ && ignored_topics_.count(topic) == 0;
 }
 
 std::optional<double> McapRecorder::file_age_s() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    MutexLock lock(mutex_);
     if (!enabled_) return std::nullopt;
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - file_started_).count();
 }
 
 std::filesystem::path McapRecorder::file_path() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    MutexLock lock(mutex_);
     return file_path_;
 }
 
@@ -177,7 +177,7 @@ bool McapRecorder::past_size_limit() const {
     std::filesystem::path path;
     uint64_t max_size_bytes = 0;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        MutexLock lock(mutex_);
         if (!max_size_bytes_ || !enabled_) return false;
         path = file_path_;
         max_size_bytes = *max_size_bytes_;
@@ -190,7 +190,7 @@ bool McapRecorder::past_size_limit() const {
 void McapRecorder::close() {
     flush_logging();
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        MutexLock lock(mutex_);
         closed_for_good_ = true;
         if (enabled_) {
             enabled_ = false;
@@ -200,20 +200,20 @@ void McapRecorder::close() {
         stop_ = true;
     }
     work_cv_.notify_all();
-    std::lock_guard<std::mutex> join_lock(join_mutex_);
+    MutexLock join_lock(join_mutex_);
     if (writer_thread_.joinable()) writer_thread_.join();
 }
 
 void McapRecorder::flush() {
-    std::unique_lock<std::mutex> lock(mutex_);
+    MutexLock lock(mutex_);
     const uint64_t target = queued_seq_;
-    written_cv_.wait(lock, [this, target] { return written_seq_ >= target; });
+    while (written_seq_ < target) lock.wait(written_cv_);
 }
 
 McapRecorder::ChannelId McapRecorder::open_channel(const std::string& topic,
                                                    const std::string& message_encoding,
                                                    const VizSchema& schema) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    MutexLock lock(mutex_);
     if (auto it = channel_by_topic_.find(topic); it != channel_by_topic_.end()) {
         return it->second;
     }
@@ -228,7 +228,7 @@ void McapRecorder::write(ChannelId channel, const std::byte* data, size_t len,
     if (len == 0 || !enabled_hint_.load(std::memory_order_relaxed)) return;
     WriteOp op{channel, log_time_ns, std::vector<std::byte>(data, data + len)};
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        MutexLock lock(mutex_);
         if (!enabled_ || channel == 0 || channel > channel_specs_.size()) return;
         if (ignored_topics_.count(channel_specs_[channel - 1].topic) != 0) return;
         const size_t cap = len > kLargeMessageBytes ? kMaxQueuedLargeBytes : kMaxQueuedBytes;
@@ -242,13 +242,13 @@ void McapRecorder::write(ChannelId channel, const std::byte* data, size_t len,
 }
 
 uint64_t McapRecorder::dropped_messages() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    MutexLock lock(mutex_);
     return dropped_messages_;
 }
 
 void McapRecorder::write_metadata(const std::string& key, const std::string& value) {
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        MutexLock lock(mutex_);
         for (auto& entry : metadata_) {
             if (entry.first == key) {
                 entry.second = value;
@@ -269,8 +269,8 @@ void McapRecorder::writer_loop() {
         size_t batch_bytes = 0;
         uint64_t batch_seq = 0;
         {
-            std::unique_lock<std::mutex> lock(mutex_);
-            work_cv_.wait(lock, [this] { return stop_ || (!queue_.empty() && !paused_for_test_); });
+            MutexLock lock(mutex_);
+            while (!stop_ && (queue_.empty() || paused_for_test_)) lock.wait(work_cv_);
             if (queue_.empty()) break;
             batch.swap(queue_);
             batch_bytes = queued_bytes_;
@@ -281,7 +281,7 @@ void McapRecorder::writer_loop() {
         }
         uint64_t dropped = 0;
         {
-            std::lock_guard<std::mutex> lock(mutex_);
+            MutexLock lock(mutex_);
             queued_bytes_ -= batch_bytes;
             written_seq_ = batch_seq;
             dropped = dropped_messages_;
@@ -321,7 +321,7 @@ void McapRecorder::handle(OpenOp& op) {
     auto writer = foxglove::McapWriter::create(opts);
     if (!writer.has_value()) {
         {
-            std::lock_guard<std::mutex> lock(mutex_);
+            MutexLock lock(mutex_);
             if (file_path_ == op.path && enabled_) {
                 enabled_ = false;
                 enabled_hint_.store(false);
@@ -391,7 +391,7 @@ foxglove::RawChannel* McapRecorder::channel_for(ChannelId id) {
 
     ChannelSpec spec;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        MutexLock lock(mutex_);
         if (id > channel_specs_.size()) return nullptr;
         spec = channel_specs_[id - 1];
     }
@@ -432,7 +432,7 @@ void McapRecorder::close_file() {
 void McapRecorder::enforce_holding_dir_size(const std::filesystem::path& directory) {
     std::optional<uint64_t> limit;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        MutexLock lock(mutex_);
         limit = holding_dir_max_size_bytes_;
     }
     if (!limit) return;

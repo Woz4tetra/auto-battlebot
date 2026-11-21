@@ -51,14 +51,14 @@ bool VideoEncoder::start(const VideoEncoderOptions &options, PacketSink sink,
     sink_ = std::move(sink);
     next_pts_ = 0;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        MutexLock lock(mutex_);
         queue_.clear();
         next_submit_index_ = 0;
         keyframe_requested_.store(false);
         broken_.store(false);
     }
     {
-        std::lock_guard<std::mutex> lock(pts_mutex_);
+        MutexLock lock(pts_mutex_);
         log_time_by_frame_ordinal_.clear();
     }
 
@@ -120,7 +120,7 @@ void VideoEncoder::stop() {
             // Under the lock, so submit() sees it before the encode thread can drain and exit.
             // Set outside it, a frame submitted in between sat in the queue and opened the next
             // recording as its first packet, two seconds stale, with every index after it shifted.
-            std::lock_guard<std::mutex> lock(mutex_);
+            MutexLock lock(mutex_);
             stopping_.store(true);
         }
         queue_cv_.notify_all();
@@ -128,7 +128,7 @@ void VideoEncoder::stop() {
             thread_.join();
         }
         running_.store(false);
-        std::lock_guard<std::mutex> lock(mutex_);
+        MutexLock lock(mutex_);
         queue_.clear();
     }
     backend_.reset();
@@ -140,7 +140,7 @@ int64_t VideoEncoder::submit(const cv::Mat &frame, uint64_t log_time_ns) {
     }
     int64_t index = -1;
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        MutexLock lock(mutex_);
         if (stopping_.load()) {
             return -1;
         }
@@ -164,8 +164,8 @@ void VideoEncoder::encode_loop() {
     while (true) {
         QueuedFrame frame;
         {
-            std::unique_lock<std::mutex> lock(mutex_);
-            queue_cv_.wait(lock, [this] { return !queue_.empty() || stopping_.load(); });
+            MutexLock lock(mutex_);
+            while (queue_.empty() && !stopping_.load()) lock.wait(queue_cv_);
             if (queue_.empty()) {
                 break;
             }
@@ -174,17 +174,17 @@ void VideoEncoder::encode_loop() {
         }
         const int64_t pts = next_pts_++;
         {
-            std::lock_guard<std::mutex> lock(pts_mutex_);
+            MutexLock lock(pts_mutex_);
             log_time_by_frame_ordinal_[pts] = frame.log_time_ns;
         }
         if (!backend_->encode(std::move(frame.image), pts, frame.force_keyframe)) {
             {
-                std::lock_guard<std::mutex> lock(pts_mutex_);
+                MutexLock lock(pts_mutex_);
                 log_time_by_frame_ordinal_.erase(pts);
             }
             size_t discarded = 0;
             {
-                std::lock_guard<std::mutex> lock(mutex_);
+                MutexLock lock(mutex_);
                 broken_.store(true);
                 discarded = queue_.size();
                 queue_.clear();
@@ -202,7 +202,7 @@ void VideoEncoder::encode_loop() {
 void VideoEncoder::deliver(const std::byte *data, size_t len, int64_t pts, bool keyframe) {
     uint64_t log_time_ns = 0;
     {
-        std::lock_guard<std::mutex> lock(pts_mutex_);
+        MutexLock lock(pts_mutex_);
         if (auto it = log_time_by_frame_ordinal_.find(pts);
             it != log_time_by_frame_ordinal_.end()) {
             log_time_ns = it->second;

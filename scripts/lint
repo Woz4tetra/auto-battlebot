@@ -297,7 +297,7 @@ run_clang_tidy() {
     else
         refresh_compile_commands_after_renames
         "$RUN_CLANG_TIDY" -p "$BUILD_DIR" -clang-tidy-binary "$TIDY_BINARY" \
-            -warnings-as-errors='*' "^${PROJECT_ROOT}/src/.*\.cpp$"
+            -extra-arg=-Wthread-safety -warnings-as-errors='*' "^${PROJECT_ROOT}/src/.*\.cpp$"
         record "clang-tidy" $?
     fi
 }

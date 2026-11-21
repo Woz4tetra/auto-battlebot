@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "mcap_recorder/config.hpp"
+#include "thread_safety/mutex.hpp"
 #include "viz/schema.hpp"
 
 namespace auto_battlebot {
@@ -102,9 +103,10 @@ class McapRecorder {
     static std::filesystem::path make_file_path(const std::filesystem::path& recordings_dir,
                                                 const std::string& active_profile, int segment);
     static bool is_reserved(const std::filesystem::path& path);
-    bool start_file_locked(std::filesystem::path& refused, std::future<void>* completed = nullptr);
-    std::filesystem::path next_file_path_locked();
-    void push_locked(Op op, size_t bytes);
+    bool start_file_locked(std::filesystem::path& refused, std::future<void>* completed = nullptr)
+        REQUIRES(mutex_);
+    std::filesystem::path next_file_path_locked() REQUIRES(mutex_);
+    void push_locked(Op op, size_t bytes) REQUIRES(mutex_);
 
     void writer_loop();
     void handle(OpenOp& op);
@@ -118,24 +120,24 @@ class McapRecorder {
     std::string active_profile_;
     std::filesystem::path recordings_dir_;
 
-    mutable std::mutex mutex_;
+    mutable Mutex mutex_;
     std::condition_variable work_cv_;
     std::condition_variable written_cv_;
-    std::deque<Op> queue_;
-    size_t queued_bytes_ = 0;
-    uint64_t queued_seq_ = 0;
-    uint64_t written_seq_ = 0;
-    uint64_t dropped_messages_ = 0;
-    bool stop_ = false;
-    bool enabled_ = false;
+    std::deque<Op> queue_ GUARDED_BY(mutex_);
+    size_t queued_bytes_ GUARDED_BY(mutex_) = 0;
+    uint64_t queued_seq_ GUARDED_BY(mutex_) = 0;
+    uint64_t written_seq_ GUARDED_BY(mutex_) = 0;
+    uint64_t dropped_messages_ GUARDED_BY(mutex_) = 0;
+    bool stop_ GUARDED_BY(mutex_) = false;
+    bool enabled_ GUARDED_BY(mutex_) = false;
     std::atomic<bool> enabled_hint_{false};
     std::atomic<uint64_t> generation_{0};
-    bool closed_for_good_ = false;
-    bool paused_for_test_ = false;
+    bool closed_for_good_ GUARDED_BY(mutex_) = false;
+    bool paused_for_test_ GUARDED_BY(mutex_) = false;
     ChannelLogFn channel_log_ = &McapRecorder::log_to_channel;
-    std::filesystem::path file_path_;
-    std::chrono::steady_clock::time_point file_started_{};
-    std::unordered_set<std::string> issued_paths_;
+    std::filesystem::path file_path_ GUARDED_BY(mutex_);
+    std::chrono::steady_clock::time_point file_started_ GUARDED_BY(mutex_){};
+    std::unordered_set<std::string> issued_paths_ GUARDED_BY(mutex_);
     std::vector<ChannelSpec> channel_specs_;
     std::unordered_map<std::string, ChannelId> channel_by_topic_;
     std::unordered_set<std::string> ignored_topics_;
@@ -154,7 +156,7 @@ class McapRecorder {
     };
     WriterThreadState writer_state_;
 
-    std::mutex join_mutex_;
+    Mutex join_mutex_;
     std::thread writer_thread_;
 };
 

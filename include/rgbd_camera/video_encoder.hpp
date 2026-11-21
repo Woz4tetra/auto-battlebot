@@ -6,11 +6,12 @@
 #include <deque>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <opencv2/opencv.hpp>
 #include <string>
 #include <thread>
 #include <unordered_map>
+
+#include "thread_safety/mutex.hpp"
 
 namespace auto_battlebot {
 class H264Backend;
@@ -80,12 +81,12 @@ class VideoEncoder {
     std::unique_ptr<H264Backend> backend_;
 
     int64_t next_pts_ = 0;
-    int64_t next_submit_index_ = 0;
-    std::unordered_map<int64_t, uint64_t> log_time_by_frame_ordinal_;
-    std::mutex pts_mutex_;
+    Mutex pts_mutex_;
+    std::unordered_map<int64_t, uint64_t> log_time_by_frame_ordinal_ GUARDED_BY(pts_mutex_);
 
-    std::deque<QueuedFrame> queue_;
-    mutable std::mutex mutex_;
+    mutable Mutex mutex_;
+    int64_t next_submit_index_ GUARDED_BY(mutex_) = 0;
+    std::deque<QueuedFrame> queue_ GUARDED_BY(mutex_);
     std::condition_variable queue_cv_;
     std::thread thread_;
     std::atomic<bool> running_{false};

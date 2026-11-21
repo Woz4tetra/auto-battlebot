@@ -152,7 +152,10 @@ bool ZedRgbdCamera::initialize() {
 
     const std::optional<CameraInfo> camera_info = device_->read_camera_info();
     if (!camera_info) return false;
-    latest_data_.camera_info = *camera_info;
+    {
+        MutexLock lock(data_mutex_);
+        latest_data_.camera_info = *camera_info;
+    }
 
     capture_running_ = true;
 
@@ -172,9 +175,10 @@ void ZedRgbdCamera::reset_runtime_state() {
     last_grab_ok_ = true;
     capture_thread_done_.store(false, std::memory_order_release);
     frame_counter_ = 0;
-    last_returned_frame_counter_ = 0;
     grab_health_.reset();
     device_->reset_runtime_state();
+    MutexLock lock(data_mutex_);
+    last_returned_frame_counter_ = 0;
     reset_capture_timing_stats();
 }
 
@@ -216,7 +220,7 @@ bool ZedRgbdCamera::capture_frame() {
 
         if (grab_health_.should_shutdown() && !shutdown_requested_.load()) {
             {
-                std::lock_guard<std::mutex> lock(data_mutex_);
+                MutexLock lock(data_mutex_);
                 shutdown_requested_ = true;
             }
             data_cv_.notify_all();
@@ -236,7 +240,7 @@ bool ZedRgbdCamera::capture_frame() {
     const SvoRecorder::FrameRef svo_frame = svo_recorder_->on_frame_grabbed();
 
     const auto lock_hold_start = std::chrono::steady_clock::now();
-    std::lock_guard<std::mutex> lock(data_mutex_);
+    MutexLock lock(data_mutex_);
 
     if (!device_->retrieve(latest_data_)) {
         return false;
@@ -266,15 +270,9 @@ bool ZedRgbdCamera::get(CameraData &data) {
     if (!capture_running_) return false;
     const auto get_start = std::chrono::steady_clock::now();
     int wait_loops = 0;
-    std::unique_lock<std::mutex> lock(data_mutex_);
+    MutexLock lock(data_mutex_);
 
-    if (!(frame_counter_ > last_returned_frame_counter_)) {
-        if (!wait_for_frame_or_disconnect(lock, wait_loops, [&]() {
-                return frame_counter_ > last_returned_frame_counter_;
-            })) {
-            return false;
-        }
-    }
+    if (!wait_for_frame_or_disconnect(lock, wait_loops)) return false;
 
     if (shutdown_requested_ || stop_capture_thread_) return false;
     if (!last_grab_ok_) return false;
@@ -302,16 +300,17 @@ bool ZedRgbdCamera::get(CameraData &data) {
     return true;
 }
 
-bool ZedRgbdCamera::wait_for_frame_or_disconnect(std::unique_lock<std::mutex> &lock,
-                                                 int &wait_loops,
-                                                 const std::function<bool()> &frame_ready) {
+bool ZedRgbdCamera::frame_or_disconnect_ready() const {
+    return frame_counter_ > last_returned_frame_counter_ || shutdown_requested_ ||
+           stop_capture_thread_ || !last_grab_ok_.load();
+}
+
+bool ZedRgbdCamera::wait_for_frame_or_disconnect(MutexLock &lock, int &wait_loops) {
     const auto deadline = std::chrono::steady_clock::now() + kGetDeadline;
-    while (!data_cv_.wait_for(lock, kGetWaitTimeout, [&]() {
-        return frame_ready() || shutdown_requested_ || stop_capture_thread_ ||
-               !last_grab_ok_.load();
-    })) {
+    while (!frame_or_disconnect_ready()) {
+        if (lock.wait_for(data_cv_, kGetWaitTimeout) == std::cv_status::no_timeout) continue;
+        if (frame_or_disconnect_ready()) break;
         wait_loops++;
-        if (!last_grab_ok_.load()) return false;
         if (std::chrono::steady_clock::now() >= deadline) {
             spdlog::error("[ZedRgbdCamera] No frame in {} s", kGetDeadline.count());
             return false;

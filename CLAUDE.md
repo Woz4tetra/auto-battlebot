@@ -149,6 +149,9 @@ All code is in namespace `auto_battlebot`. Interfaces live in `include/<module>/
   keys on it
 - No ROS. Live viz and recordings use Foxglove schemas over the Foxglove SDK (`docs/reference/recording/foxglove_recording_format.md`); the relay is `viz_relay`. Do not add ROS dependencies
 - Compiler flags are `-Wall -Wextra -Werror`. Fix warnings, do not suppress them
+- A member shared between threads under a mutex uses `Mutex`, `MutexLock` and `GUARDED_BY` from
+  `include/thread_safety/mutex.hpp`, not a bare `std::mutex`. Lint's clang-tidy pass enforces it
+  (`docs/reference/tools/thread_safety.md`)
 - Remote UI status topics and commands are added in `include/remote/protocol.hpp` (one row each,
   structs in `include/remote/messages.hpp`); `./scripts/lint` regenerates the web page's types
 
