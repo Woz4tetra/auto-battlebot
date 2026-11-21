@@ -79,7 +79,7 @@ Reads the top-level `[plant]` table. See `docs/reference/control/plant_backed_co
 | `max_angular_command` | Cap on the magnitude of the normalized turn command, 0..1. Unset is no limit. Output-side safety clamp; `max_yaw_rate` is the one that shapes behavior |
 | `enable_hysteresis` | Turn-direction hysteresis, prevents dithering when the target is behind |
 | `boundary_margin` | Minimum distance kept from field boundaries, m |
-| `max_linear_command` | Cap on the magnitude of the normalized forward command, 0..1. Unset is no limit |
+| `max_linear_command` | Cap on the forward command as a fraction of full stick, 0..1: the m/s output is clamped to `[-max_linear_command * k_rev, max_linear_command * k_fwd]` after the hazard barrier. Unset is no limit |
 | `wall_reverse_distance_m` | Distance to any wall at which `linear_x` is reversed to back away. Unset turns it off |
 | `wall_reverse_min_speed` | Minimum reverse speed (normalized) when wall reverse engages |
 | `hazard_tangent_enable` | Steer at a tangent point on a blocking hazard's rim instead of at the true goal. The controller only chases a `Pose2D`, so this costs nothing in navigation |

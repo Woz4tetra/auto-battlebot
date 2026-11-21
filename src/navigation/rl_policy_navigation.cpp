@@ -214,7 +214,8 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
     }
     --ticks_until_policy_step_;
 
-    VelocityCommand command{action_.linear, 0.0, action_.angular};
+    VelocityCommand command = plant_stick_to_body_velocity(
+        {.forward = action_.linear, .lateral = 0.0, .yaw = action_.angular}, config_.plant);
     const Pose2D our_pose = pose_to_pose2d(our_robot->pose);
     if (hazards_) {
         const double v_actual = measured_speed_and_yaw_rate(*our_robot).speed;
@@ -230,9 +231,6 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
                             {"bound", std::min(barrier.approach_speed_bound_mps, 99.0)}});
         }
     }
-    command = plant_stick_to_body_velocity(
-        {.forward = command.forward_mps, .lateral = 0.0, .yaw = command.yaw_rate_radps},
-        config_.plant);
     last_visualization_.path =
         NavigationPathSegment{our_pose.x, our_pose.y, target.pose.x, target.pose.y};
     last_visualization_.command = command;

@@ -80,8 +80,10 @@ HazardBarrierResult HazardAvoidance::limit_command(const Pose2D &our_pose,
 
     constexpr double kEps = 1e-6;
 
-    double u_min = -1.0;
-    double u_max = 1.0;
+    const double full_fwd = settings_.max_linear_speed_fwd;
+    const double full_rev = std::max(settings_.max_linear_speed_rev, kEps);
+    double v_min = -full_rev;
+    double v_max = full_fwd;
     const double cos_yaw = std::cos(our_pose.yaw);
     const double sin_yaw = std::sin(our_pose.yaw);
 
@@ -100,31 +102,30 @@ HazardBarrierResult HazardAvoidance::limit_command(const Pose2D &our_pose,
                              settings_.barrier_horizon_s;
         const double excess = v_approach - bound;
 
+        const double brake_fraction = std::min(1.0, settings_.excess_gain * excess);
         if (toward > 0.0) {
-            const double k = (bound >= 0.0) ? settings_.max_linear_speed_fwd
-                                            : std::max(settings_.max_linear_speed_rev, kEps);
-            u_max = std::min(u_max, bound / (k * toward));
+            v_max = std::min(v_max, bound / toward);
             if (excess > 0.0) {
-                u_max = std::min(u_max, -std::min(1.0, settings_.excess_gain * excess));
+                v_max = std::min(v_max, -full_rev * brake_fraction);
                 result.braking = true;
             }
         } else {
-            const double k = (bound >= 0.0) ? std::max(settings_.max_linear_speed_rev, kEps)
-                                            : settings_.max_linear_speed_fwd;
-            u_min = std::max(u_min, bound / (k * toward));
+            v_min = std::max(v_min, bound / toward);
             if (excess > 0.0) {
-                u_min = std::max(u_min, std::min(1.0, settings_.excess_gain * excess));
+                v_min = std::max(v_min, full_fwd * brake_fraction);
                 result.braking = true;
             }
         }
         result.approach_speed_bound_mps = std::min(result.approach_speed_bound_mps, bound);
     }
 
+    const auto fraction_of_full = [&](double v) { return v / (v >= 0.0 ? full_fwd : full_rev); };
     double limited;
-    if (u_min > u_max) {
-        limited = 0.5 * (u_min + u_max);
+    if (v_min > v_max) {
+        const double fraction = 0.5 * (fraction_of_full(v_min) + fraction_of_full(v_max));
+        limited = fraction * (fraction >= 0.0 ? full_fwd : full_rev);
     } else {
-        limited = std::clamp(command.forward_mps, u_min, u_max);
+        limited = std::clamp(command.forward_mps, v_min, v_max);
     }
     if (limited != command.forward_mps) {
         command.forward_mps = limited;

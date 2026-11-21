@@ -190,9 +190,9 @@ Nothing in C++ defaults to a fit, so a test that default-constructs a config get
 - `ekf::ekf_update` is a gated Joseph-form measurement update. The innovation rows flagged in `angle_rows` are wrapped into (-pi, pi] before gating, and the state rows flagged in `angle_states` are wrapped after the update, so angular quantities never see a 2-pi discontinuity. A gate-rejected measurement leaves state and covariance untouched. `gate_nis <= 0` disables the gate. The Joseph form `(I - KH) P (I - KH)^T + K R K^T` keeps the covariance positive semidefinite where the short form `P - KHP` does not under roundoff.
 - `PlantModelInterface` is the process model for the our-robot EKF: commands in, predicted state and Jacobian out. `JigPlantModel` mirrors `auto_battlebot/plant.py` exactly (deadzone, per-sign gain, transport delay, asymmetric first-order lag, arc integration with 2 ms substeps). `plant_model_` in `KalmanMotionEstimator` holds the concrete type so `coast()` can propagate a copy without paying for the finite-difference Jacobian.
 - Dead-reckoning arms use the fitted gains alone (`k_fwd`, `k_rev`, `k_ang`): no deadzone removal, no steer-brake or droop coupling, no drift, no lag. They hold one command flat across a single frame and carry no state, so the coupling terms would model a response the arm cannot represent. Use `plant_steady_state()` instead when the caller integrates a command history with lag, as `JigPlantModel` does for the EKF arm. `linear_y` is always zero: a differential drive has no lateral degree of freedom and every transmitter writes zero there.
-- `JigPlantModel` takes normalized [-1, 1] stick commands in `VelocityCommand` `linear_x` (forward)
-  and `angular_z` (yaw). `linear_y` is ignored (tank drive). The gains map to m/s and rad/s, so
-  passing physical velocities would apply them twice.
+- `JigPlantModel` takes normalized [-1, 1] `StickCommand`s, `forward` and `yaw`. `lateral` is
+  ignored (tank drive). The gains map to m/s and rad/s, so passing physical velocities would apply
+  them twice.
 - The command span must cover `[t0 - delay_s, t1]`; `CommandRingBuffer::gather` builds exactly
   that. The command is re-read every substep, zero-order held, and zero before the first entry,
   matching `Plant.command_at` in `plant.py`.

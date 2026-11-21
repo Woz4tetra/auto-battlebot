@@ -49,7 +49,7 @@ class MotionProfileNavigation : public NavigationInterface {
     double compute_angular_command(double w_ref, double dt);
 
     void override_linear_with_wall_reverse(const Pose2D &our_pose, const FieldDescription &field,
-                                           VelocityCommand &cmd) const;
+                                           StickCommand &stick) const;
 
     Pose2D clamp_to_field(const Pose2D &pose, const FieldDescription &field) const;
 

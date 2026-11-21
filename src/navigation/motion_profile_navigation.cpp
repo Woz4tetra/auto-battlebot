@@ -227,28 +227,29 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
     const double v_ref = compute_reference_speed(distance, dt, terminal_velocity);
     const double dvdt = (dt > 0.0) ? (v_ref - prev_v_ref_) / dt : 0.0;
 
-    VelocityCommand cmd{0.0, 0.0, 0.0};
+    StickCommand stick{};
     const double w_ref = compute_yaw_reference(angle_error, now_s);
-    cmd.yaw_rate_radps = compute_angular_command(w_ref, dt);
+    stick.yaw = compute_angular_command(w_ref, dt);
     if (max_angular_command_) {
-        cmd.yaw_rate_radps =
-            std::clamp(cmd.yaw_rate_radps, -*max_angular_command_, *max_angular_command_);
+        stick.yaw = std::clamp(stick.yaw, -*max_angular_command_, *max_angular_command_);
     }
     prev_w_ref_ = w_ref;
 
     if (std::abs(angle_error) < angle_threshold_) {
-        cmd.forward_mps = compute_linear_command(v_ref, dvdt, v_actual, dt, speed_is_measured);
+        stick.forward = compute_linear_command(v_ref, dvdt, v_actual, dt, speed_is_measured);
         prev_v_ref_ = v_ref;
     } else {
         prev_v_ref_ = 0.0;
         speed_integral_ = 0.0;
     }
 
-    override_linear_with_wall_reverse(our_body, field, cmd);
+    override_linear_with_wall_reverse(our_body, field, stick);
+    VelocityCommand cmd = plant_stick_to_body_velocity(stick, plant_);
     const auto barrier = hazards_.limit_command(our_body, field, v_actual, cmd);
 
     if (max_linear_command_) {
-        cmd.forward_mps = std::clamp(cmd.forward_mps, -*max_linear_command_, *max_linear_command_);
+        cmd.forward_mps = std::clamp(cmd.forward_mps, -*max_linear_command_ * plant_.k_rev,
+                                     *max_linear_command_ * plant_.k_fwd);
     }
 
     logger_->debug("profile",
@@ -271,8 +272,7 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
                        {"target_x_steered", clamped_target.x},
                        {"target_y_steered", clamped_target.y},
                    });
-    return plant_stick_to_body_velocity(
-        {.forward = cmd.forward_mps, .lateral = 0.0, .yaw = cmd.yaw_rate_radps}, plant_);
+    return cmd;
 }
 
 double MotionProfileNavigation::measure_forward_speed(const RobotDescription &robot,
@@ -392,7 +392,7 @@ double MotionProfileNavigation::compute_angular_command(double w_ref, double dt)
 
 void MotionProfileNavigation::override_linear_with_wall_reverse(const Pose2D &our_pose,
                                                                 const FieldDescription &field,
-                                                                VelocityCommand &cmd) const {
+                                                                StickCommand &stick) const {
     if (!wall_reverse_distance_m_) return;
 
     const double wall_dist = distance_to_nearest_wall(our_pose, field);
@@ -402,7 +402,7 @@ void MotionProfileNavigation::override_linear_with_wall_reverse(const Pose2D &ou
     const double heading_err = std::abs(normalize_angle(angle_to_wall - our_pose.yaw));
     if (heading_err >= wall_heading_threshold_rad_) return;
 
-    cmd.forward_mps = -std::max(std::abs(cmd.forward_mps), wall_reverse_min_speed_);
+    stick.forward = -std::max(std::abs(stick.forward), wall_reverse_min_speed_);
     logger_->debug("wall_reverse", {{"wall_dist", wall_dist},
                                     {"angle_to_wall_deg", angle_to_wall * 180.0 / M_PI},
                                     {"heading_err_deg", heading_err * 180.0 / M_PI}});

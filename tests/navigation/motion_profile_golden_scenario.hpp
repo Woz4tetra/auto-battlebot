@@ -50,11 +50,11 @@ inline ScenarioTick scenario_tick(int i) {
     tick.field.size.size.x = 6.0;
     tick.field.size.size.y = 6.0;
     FieldHazard hazard;
-    hazard.center.x = 0.6;
-    hazard.center.y = 0.25;
-    hazard.hard_radius = 0.12;
-    hazard.inflated_radius_m = 0.18;
-    hazard.object_radius = 0.12;
+    hazard.center.x = 0.2;
+    hazard.center.y = 0.05;
+    hazard.hard_radius = 0.15;
+    hazard.inflated_radius_m = 0.2;
+    hazard.object_radius = 0.15;
     tick.field.hazards.push_back(hazard);
 
     const bool near_wall = i >= 45;

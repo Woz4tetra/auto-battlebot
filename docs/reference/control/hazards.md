@@ -69,14 +69,14 @@ The assembler is the one place inflation happens. The two hazard sources decay d
 
 ## Velocity barrier envelope
 
-Per hazard, the approach bound is `(gap - max(v_approach, 0) * delay) / horizon`, and the command constraint is `u * k * toward <= bound`, with `k` the plant gain for the commanded direction. Properties:
+Per hazard, the approach bound is `(gap - max(v_approach, 0) * delay) / horizon`, and the constraint on the forward command `v` (m/s, the navigator's body velocity before the command shaper) is `v * toward <= bound`. With no hazard binding, `v` stays inside `[-max_linear_speed_rev, max_linear_speed_fwd]`, the plant's full reverse and forward speeds. Properties:
 
-- A command near a hazard never asks for a speed the remaining gap cannot absorb, which keeps wheels from spinning up during a blocked push. Example with `k_fwd = 5`, horizon 0.2 s, delay 0.05 s: a stationary robot 0.4 m away has bound 2 m/s, so full thrust clips to 0.4.
-- Excess recovery maps measured excess approach speed (m/s) to an opposing normalized command with a gain of 1.5 (`kExcessGain` in `src/navigation/hazard_avoidance.cpp`). That gain recovered the 2026-08-28 recorded push-into-hole coast with margin in the counterfactual sim. The envelope decides where braking starts. The gain only sets how hard recovery pulls once the envelope is already violated.
+- A command near a hazard never asks for a speed the remaining gap cannot absorb, which keeps wheels from spinning up during a blocked push. Example with `k_fwd = 5`, horizon 0.2 s, delay 0.05 s: a stationary robot 0.4 m away has bound 2 m/s, so a 5 m/s command clips to 2 m/s (0.4 of full stick after the shaper).
+- Excess recovery maps measured excess approach speed (m/s) to an opposing command of `min(1, 1.5 * excess)` times the full speed in that direction (`excess_gain` in `HazardAvoidanceSettings`). That gain recovered the 2026-08-28 recorded push-into-hole coast with margin in the counterfactual sim. The envelope decides where braking starts. The gain only sets how hard recovery pulls once the envelope is already violated.
 - Excess recovery opposes the approach, not the robot's forward axis. With the rear toward the hazard and the robot sliding into it, recovery lands as full forward drive, away from it. A literal reverse would back the robot into the hole.
 - The projection is on the approach component, so tangent motion has zero approach and rounding a hazard at speed is free. The projection is continuous.
-- Inside a hazard ahead and one behind, the forward limit demands reverse and the rear limit demands forward. No command satisfies both, so the barrier splits the violation, which comes out as a stop.
-- Pursuit builds the shared settings without a plant fit, so speeds are zero. The barrier is a pass-through there instead of dividing by zero.
+- Inside a hazard ahead and one behind, the forward limit demands reverse and the rear limit demands forward. No command satisfies both, so the barrier splits the violation, which comes out as a stop. The split averages the two bounds as fractions of full speed, so an asymmetric `k_fwd` / `k_rev` does not bias it.
+- Settings with `max_linear_speed_fwd = 0` (no plant fit) make the barrier a pass-through.
 - The barrier has an enable switch so a baseline sweep can measure the failure mode with it off.
 - `horizon` is `tau_lin_d + delay_s`, the same first-order envelope the goal brake schedule inverts, and `delay` is `delay_s`. `MotionProfileNavigation` and `RlPolicyNavigation` fill `k_fwd`, `k_rev`, `horizon` and `delay` from the plant fit.
 - `HazardBarrierResult::approach_speed_bound_mps` is the tightest bound any hazard imposed. Negative means the robot is inside a hard radius and must retreat. Infinity means nothing constrained.
