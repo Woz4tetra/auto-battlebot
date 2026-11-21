@@ -1,5 +1,8 @@
-extends = "_jetson"
+extends = "_zed_box"
 
 [robot_filter.label_mapping]
 "MR_STABS_MK2" = ["THEIR_ROBOT_1"]
 "MRS_BUFF_MK3" = ["OUR_ROBOT_1"]
+
+[navigation]
+from = "navigation/mrs_buff_mk3_rl"

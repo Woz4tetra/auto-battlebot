@@ -12,5 +12,8 @@ field_size_y = 1.5
 [transmitter]
 from = "transmitters/mr_stabs_mk2_espnow"
 
+[navigation]
+from = "navigation/mr_stabs_mk2_rl"
+
 [plant]
 from = "robots/mr_stabs_mk2_geometry"

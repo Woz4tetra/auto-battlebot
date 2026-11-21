@@ -1,5 +1,3 @@
-extends = "mr_stabs_mk2_fid_zed_box"
-
 [navigation]
 type = "RlPolicyNavigation"
 

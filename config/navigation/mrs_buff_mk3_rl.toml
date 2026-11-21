@@ -1,0 +1,5 @@
+[navigation]
+type = "RlPolicyNavigation"
+
+[navigation.policy]
+bundle = "data/models/nav_policies/rl_nav_p4"
