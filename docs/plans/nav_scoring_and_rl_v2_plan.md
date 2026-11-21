@@ -524,6 +524,12 @@ One spec change, so it means one retrain:
 - per-wheel speed from eRPM (`motor_speed_left/right`), with the telemetry rate, delay and
   quantization measured on the robot
 - the history grows from 8 steps (160 ms) to 0.5-1 s
+- `our_age`, `our_stale`, `opp_age` and `opp_stale` come out. The estimator no longer tracks
+  measurement age or staleness, so `observation_v1` writes the constants the policy trained on
+  (0, false). A track now drops when its position sigma passes `max_position_sigma_m`, and past
+  `max_coast_s` it reports zero velocity and yaw rate; train on that
+- the three opponent sigma inputs have the same zero-in-training problem: v2 either trains on
+  real values or drops them
 - bump the spec version in `auto_battlebot/rl/obs_spec.py` and the C++ mirror; the bundle
   self-test covers the parity
 
