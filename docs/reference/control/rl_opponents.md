@@ -60,3 +60,9 @@ Code: `auto_battlebot/rl/envs/opponents.py`, `policy_opponents.py`, `trained_opp
 ## Scripted pursuit policy
 
 `auto_battlebot/rl/policies/scripted.py` registers `pursuit`, the toy's scripted baseline. It reads the opponent's body-frame position from the observation and steers at it with the same PD heading loop, angle threshold, distance ramp, turn scale and steer brake as `src/navigation/pursuit_navigation.cpp`. `PursuitConfig` defaults are the gains the Mr Stabs Mk2 bench profile ran before it moved to `MotionProfileNavigation`, except `max_linear_command`, which the evaluation sets per arm because 0.25 is a bench setting, not a fighting one.
+
+## Environment internals
+
+- **Substep order and graph capture.** One physics substep runs `command_path` (transport delay, firmware mixer yaw loop, drivetrain delay, command shaping into wheel volts), `move_mocap` (the kinematic opponent and house bot), `mjw.step`, `classify_contacts`, `advance`. The environment captures the substeps into one CUDA graph.
+- **Mixer paths by robot.** The firmware path ports `auto_battlebot/mujoco_sim/firmware.py` (`legacy=False`, auto steer on) line by line, and `firmware_test` runs it alone to compare against the scalar `FirmwareMixer`. That is Mr Stabs Mk2's chain. Mrs Buff Mk3 has no onboard controller: the radio mixes linear and angular straight into her ESCs (`direct`), so she runs open loop with no eRPM feedback.
+- **Strike geometry.** Mr Stabs Mk2's strikes land on her wedge, modelled as a box at the nose. Mrs Buff Mk3's land on her weapon disk's sweep, a cylinder, because the disk fills it as it spins. `weapon_sweep_hit` tests it against the opponent's box sample points over that cylinder.
