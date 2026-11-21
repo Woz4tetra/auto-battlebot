@@ -73,14 +73,11 @@ RlPolicyNavigation::RlPolicyNavigation(const RlPolicyNavigationConfiguration &co
 }
 
 void RlPolicyNavigation::load() {
-    if (config_.opponent_mode != OpponentMode::KALMAN) {
-        const std::string found = config_.opponent_mode.has_value()
-                                      ? std::string(magic_enum::enum_name(*config_.opponent_mode))
-                                      : std::string("not set");
+    if (!config_.has_opponent_filter) {
         throw ConfigValidationError(
-            "RlPolicyNavigation needs [robot_filter.motion_estimator] opponent_mode = 'KALMAN' "
-            "(6-state opponent filter); found opponent_mode " +
-            found + " from " + config_.opponent_mode_source);
+            "RlPolicyNavigation needs [robot_filter.motion_estimator] type = "
+            "'KalmanMotionEstimator' (6-state opponent filter); found " +
+            config_.opponent_filter_source);
     }
 
     const rl_policy::PolicyBundle bundle =

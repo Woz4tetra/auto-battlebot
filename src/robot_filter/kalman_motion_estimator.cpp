@@ -64,20 +64,14 @@ JigPlantParams required_plant(const KalmanMotionEstimatorConfiguration &config) 
 KalmanMotionEstimator::KalmanMotionEstimator(const KalmanMotionEstimatorConfiguration &config)
     : config_(config),
       diagnostics_logger_(DiagnosticsLogger::get_logger("kalman_motion_estimator")),
-      our_dr_plant_(required_plant(config)) {
-    if (config_.our_robot_mode == OurRobotMode::EKF && config_.plant.has_value()) {
-        plant_model_ = std::make_unique<JigPlantModel>(*config_.plant, config_.plant_noise);
-    }
-}
+      plant_model_(std::make_unique<JigPlantModel>(required_plant(config), config_.plant_noise)) {}
 
 void KalmanMotionEstimator::reset() {
     opponent_tracks_.clear();
-    held_opponent_tracks_.clear();
-    our_tracks_.clear();
     our_ekf_tracks_.clear();
     command_feedback_ = CommandFeedback{};
     command_history_.clear();
-    if (plant_model_) plant_model_->reset();
+    plant_model_->reset();
     last_field_ = FieldDescription{};
     has_field_ = false;
     last_field_margin_ = 0.0;
@@ -345,13 +339,6 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
         measured_frame_ids.insert(input.frame_id);
 
         if (input.group == Group::OURS) {
-            if (!plant_model_) {
-                HeldTrack &track = our_tracks_[input.frame_id];
-                track.output_template = input;
-                track.last_measured_stamp = timestamp;
-                continue;
-            }
-
             const ekf::Mat<2, 2> measurement_noise = measurement_noise_for(input, context);
             auto [it, inserted] = our_ekf_tracks_.try_emplace(input.frame_id);
             OurEkfTrack &track = it->second;
@@ -491,15 +478,6 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
              {"yaw", pose_to_pose2d(input.pose).yaw},
              {"label", std::string(magic_enum::enum_name(input.label))}});
 
-        if (config_.opponent_mode == OpponentMode::HOLD) {
-            HeldTrack &track = held_opponent_tracks_[input.frame_id];
-            track.output_template = input;
-            track.last_update_stamp = timestamp;
-            track.last_measured_stamp = timestamp;
-            track.output_stale = false;
-            continue;
-        }
-
         const ekf::Mat<2, 2> measurement_noise = measurement_noise_for(input, context);
         auto [it, inserted] = opponent_tracks_.try_emplace(input.frame_id);
         OpponentTrack &track = it->second;
@@ -571,31 +549,6 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
         }
     }
 
-    for (auto &[frame_id, track] : our_tracks_) {
-        if (measured_frame_ids.count(frame_id) != 0) {
-            track.output_stale = false;
-        } else {
-            track.output_stale = true;
-            const auto cmd_it = command_feedback_.stick_commands.find(frame_id);
-            const double dt = timestamp - track.last_update_stamp;
-            if (cmd_it != command_feedback_.stick_commands.end() && dt > 0.0 && dt <= 1.0) {
-                const VelocityCommand cmd =
-                    plant_stick_to_body_velocity(cmd_it->second, our_dr_plant_);
-                Pose2D predicted_pose = pose_to_pose2d(track.output_template.pose);
-                const Eigen::Vector2d velocity_field =
-                    body_velocity_to_field(cmd.forward_mps, cmd.lateral_mps, predicted_pose.yaw);
-                predicted_pose.x += velocity_field.x() * dt;
-                predicted_pose.y += velocity_field.y() * dt;
-                predicted_pose.yaw = ekf::wrap_angle(predicted_pose.yaw + cmd.yaw_rate_radps * dt);
-                track.output_template.pose = pose2d_to_pose(predicted_pose);
-                clip_to_field_bounds(track.output_template.pose.position, field,
-                                     context.field_bounds_margin_meters);
-                frame_id_assigner.set_last_position(frame_id, track.output_template.pose.position);
-            }
-        }
-        track.last_update_stamp = timestamp;
-    }
-
     for (auto &[frame_id, track] : our_ekf_tracks_) {
         if (measured_frame_ids.count(frame_id) != 0) continue;
         track.output_stale = true;
@@ -604,13 +557,6 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
                                     track.output_template.pose.position.z};
         clip_to_field_bounds(predicted_position, field, context.field_bounds_margin_meters);
         frame_id_assigner.set_last_position(frame_id, predicted_position);
-    }
-
-    for (auto &[frame_id, track] : held_opponent_tracks_) {
-        if (measured_frame_ids.count(frame_id) != 0) continue;
-        track.output_stale = true;
-        track.last_update_stamp = timestamp;
-        frame_id_assigner.set_last_position(frame_id, track.output_template.pose.position);
     }
 
     for (auto &[frame_id, track] : opponent_tracks_) {
@@ -625,12 +571,6 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
     }
 
     if (context.our_robot_hold_window_s > 0.0) {
-        for (auto it = our_tracks_.begin(); it != our_tracks_.end();) {
-            const bool expired =
-                it->second.output_stale &&
-                (timestamp - it->second.last_measured_stamp) > context.our_robot_hold_window_s;
-            it = expired ? our_tracks_.erase(it) : ++it;
-        }
         for (auto it = our_ekf_tracks_.begin(); it != our_ekf_tracks_.end();) {
             const bool expired =
                 it->second.output_stale &&
@@ -640,14 +580,7 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
     }
 
     std::vector<RobotDescription> outputs;
-    outputs.reserve(our_tracks_.size() + our_ekf_tracks_.size() + opponent_tracks_.size() +
-                    held_opponent_tracks_.size());
-    for (const auto &[frame_id, track] : our_tracks_) {
-        RobotDescription output = track.output_template;
-        output.is_stale = track.output_stale;
-        output.measurement_age_s = measurement_age(timestamp, track.last_measured_stamp);
-        outputs.push_back(std::move(output));
-    }
+    outputs.reserve(our_ekf_tracks_.size() + opponent_tracks_.size());
     for (const auto &[frame_id, track] : our_ekf_tracks_) {
         outputs.push_back(render_our_ekf(track, track.state, track.output_stale));
         outputs.back().measurement_age_s = measurement_age(timestamp, track.last_measured_stamp);
@@ -666,32 +599,23 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
         diagnostics_logger_->debug("opponent_" + std::string(magic_enum::enum_name(frame_id)),
                                    fields);
     }
-    for (const auto &[frame_id, track] : held_opponent_tracks_) {
-        RobotDescription output = track.output_template;
-        output.is_stale = track.output_stale;
-        output.measurement_age_s = measurement_age(timestamp, track.last_measured_stamp);
-        outputs.push_back(std::move(output));
-    }
 
-    diagnostics_logger_->debug(
-        {{"num_our_tracks", static_cast<int>(our_tracks_.size() + our_ekf_tracks_.size())},
-         {"num_opponent_tracks",
-          static_cast<int>(opponent_tracks_.size() + held_opponent_tracks_.size())},
-         {"num_measurements", static_cast<int>(measurements.size())},
-         {"num_gated", num_gated},
-         {"num_reinit", num_reinit},
-         {"num_rewind_missed", num_rewind_missed},
-         {"num_heading_flips", num_heading_flips},
-         {"num_opponent_heading_flips", num_opponent_heading_flips},
-         {"num_opponent_heading_reinit", num_opponent_heading_reinit},
-         {"min_coast_span_s", min_coast_span_s_}});
+    diagnostics_logger_->debug({{"num_our_tracks", static_cast<int>(our_ekf_tracks_.size())},
+                                {"num_opponent_tracks", static_cast<int>(opponent_tracks_.size())},
+                                {"num_measurements", static_cast<int>(measurements.size())},
+                                {"num_gated", num_gated},
+                                {"num_reinit", num_reinit},
+                                {"num_rewind_missed", num_rewind_missed},
+                                {"num_heading_flips", num_heading_flips},
+                                {"num_opponent_heading_flips", num_opponent_heading_flips},
+                                {"num_opponent_heading_reinit", num_opponent_heading_reinit},
+                                {"min_coast_span_s", min_coast_span_s_}});
     return outputs;
 }
 
 std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double now) {
     std::vector<RobotDescription> outputs;
-    outputs.reserve(our_tracks_.size() + our_ekf_tracks_.size() + opponent_tracks_.size() +
-                    held_opponent_tracks_.size());
+    outputs.reserve(our_ekf_tracks_.size() + opponent_tracks_.size());
 
     const double target = now + render_lead_s();
     double worst_span = std::numeric_limits<double>::infinity();
@@ -719,40 +643,12 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
         outputs.back().measurement_age_s = measurement_age(now, track.last_measured_stamp);
     }
 
-    for (const auto &[frame_id, track] : our_tracks_) {
-        RobotDescription output = track.output_template;
-        const auto cmd_it = command_feedback_.stick_commands.find(frame_id);
-        const double dt = target - track.last_update_stamp;
-        if (cmd_it != command_feedback_.stick_commands.end() && dt > 0.0 &&
-            dt <= kMaxIntegrationStepS) {
-            const VelocityCommand cmd = plant_stick_to_body_velocity(cmd_it->second, our_dr_plant_);
-            Pose2D predicted_pose = pose_to_pose2d(output.pose);
-            const Eigen::Vector2d velocity_field =
-                body_velocity_to_field(cmd.forward_mps, cmd.lateral_mps, predicted_pose.yaw);
-            predicted_pose.x += velocity_field.x() * dt;
-            predicted_pose.y += velocity_field.y() * dt;
-            predicted_pose.yaw = ekf::wrap_angle(predicted_pose.yaw + cmd.yaw_rate_radps * dt);
-            output.pose = pose2d_to_pose(predicted_pose);
-            clip_to_field_bounds(output.pose.position, last_field_, last_field_margin_);
-        }
-        output.is_stale = track.output_stale || is_stale(track.last_measured_stamp);
-        output.measurement_age_s = measurement_age(now, track.last_measured_stamp);
-        outputs.push_back(std::move(output));
-    }
-
     for (auto &[frame_id, track] : opponent_tracks_) {
         worst_span = std::min(worst_span, target - track.state_stamp);
         advance_opponent(track, target);
         const bool stale = track.output_stale || is_stale(track.last_measured_stamp);
         outputs.push_back(render_opponent(track, last_field_, stale));
         outputs.back().measurement_age_s = measurement_age(now, track.last_measured_stamp);
-    }
-
-    for (const auto &[frame_id, track] : held_opponent_tracks_) {
-        RobotDescription output = track.output_template;
-        output.is_stale = track.output_stale || is_stale(track.last_measured_stamp);
-        output.measurement_age_s = measurement_age(now, track.last_measured_stamp);
-        outputs.push_back(std::move(output));
     }
 
     if (std::isfinite(worst_span)) {

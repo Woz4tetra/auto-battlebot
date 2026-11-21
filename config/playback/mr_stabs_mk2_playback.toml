@@ -4,8 +4,5 @@ extends = "playback/_playback"
 "MRS_BUFF_MK3" = ["THEIR_ROBOT_1"]
 "MR_STABS_MK2" = ["OUR_ROBOT_1"]
 
-[robot_filter.motion_estimator]
-type = "DeadReckoningMotionEstimator"
-
 [plant]
 from = "robots/mr_stabs_mk2"

@@ -17,15 +17,14 @@ REGISTER_CONFIG(NavigationConfiguration, RlPolicyNavigationConfiguration, "RlPol
 
 void RlPolicyNavigationConfiguration::apply_robot_filter(
     const RobotFilterConfiguration &robot_filter) {
-    opponent_mode.reset();
-    opponent_mode_source = "robot_filter type '" + robot_filter.type + "'";
+    has_opponent_filter = false;
+    opponent_filter_source = "robot_filter type '" + robot_filter.type + "'";
     const auto *front_back = dynamic_cast<const RobotFrontBackFilterConfiguration *>(&robot_filter);
     if (front_back == nullptr || !front_back->motion_estimator) return;
-    opponent_mode_source +=
+    opponent_filter_source +=
         " with motion_estimator type '" + front_back->motion_estimator->type + "'";
-    const auto *kalman = dynamic_cast<const KalmanMotionEstimatorConfiguration *>(
-        front_back->motion_estimator.get());
-    if (kalman != nullptr) opponent_mode = kalman->opponent_mode;
+    has_opponent_filter = dynamic_cast<const KalmanMotionEstimatorConfiguration *>(
+                              front_back->motion_estimator.get()) != nullptr;
 }
 
 std::unique_ptr<NavigationConfiguration> parse_navigation_config(ConfigParser &parser) {

@@ -210,8 +210,8 @@ live-vs-replay tag comparison shows the 15 Mbps default loses nothing.
   recording names. Set it to re-rectify old footage against a revised calibration.
 - `playback/mrs_buff_mk3_playback`: hazard files for the venues are
   `config/hazards/massd_arena_north_south.toml` and `config/hazards/aer_arena_east_west.toml`.
-- `playback/mr_stabs_mk2_playback`: `MotionProfileNavigation` from `_common` and dead reckoning, on
-  the distilled Mr Stabs plant.
+- `playback/mr_stabs_mk2_playback`: `MotionProfileNavigation` and the EKF from `_common`, on the
+  distilled Mr Stabs plant.
 - `playback/brettzone_cage_high`: NHRL's fixed `Cage-N-Overhead-High` footage, re-wrapped by
   `scripts/nhrl_to_recordings.py`, which writes the file on the set's first clip; `MANIFEST.md` in
   the set's `data/saved_recordings/` directory lists the rest. One fixed 1080p

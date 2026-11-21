@@ -55,14 +55,10 @@ and lets the next `coast()` re-propagate.
 
 ### Our robot
 
-Two modes, selected by `our_robot_mode`:
-
-- `DEAD_RECKONING` integrates the last commanded velocity directly, matching
-  `RobotTemporalMotionFilter`.
-- `EKF` runs a five-state EKF `[x, y, theta, v, w]` propagated by `JigPlantModel`, which
-  re-reads the command history at `t - delay_s` and integrates exact arcs in 2 ms
-  substeps through per-sign deadzones, asymmetric first-order lag, and the steer-brake and
-  angular-droop coupling terms.
+A five-state EKF `[x, y, theta, v, w]` propagated by `JigPlantModel`, which re-reads the
+command history at `t - delay_s` and integrates exact arcs in 2 ms substeps through
+per-sign deadzones, asymmetric first-order lag, and the steer-brake and angular-droop
+coupling terms.
 
 Every measurement corrects position and heading.
 A heading innovation past pi/2 also falls back to the position rows, because the
@@ -247,10 +243,6 @@ A mission reset clears the trajectory and integrator state that only makes sense
 ### The coupling compensations are mutually recursive
 
 The droop term reads the linear command and the steer-brake term reads the turn command. Each is driven by the previous tick's UNCOMPENSATED counterpart, which breaks the loop. Feeding the compensated values back instead has a loop gain above 1 and saturates both channels within a few ticks.
-
-## Temporal motion filter
-
-`RobotTemporalMotionFilter` reads only `k_fwd`, `k_rev` and `k_ang` from the shared `[plant]` table. Its prediction holds one command flat over a frame, with no state to carry lag or coupling.
 
 ## Transmitter acceleration limit
 

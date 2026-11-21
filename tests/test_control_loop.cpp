@@ -15,6 +15,7 @@
 #include "control_loop/threaded_control_loop.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "navigation/navigation_interface.hpp"
+#include "plant/mrs_buff_mk3_params.hpp"
 #include "robot_descriptions_cache.hpp"
 #include "robot_filter/robot_front_back_filter.hpp"
 #include "time/clock_interface.hpp"
@@ -192,6 +193,9 @@ RobotFrontBackFilterConfiguration make_filter_config() {
     config.max_jump_distance = 1.0;
     config.max_consecutive_jump_rejects = 1;
     config.our_robot_hold_window_s = 0.4;
+    auto estimator = std::make_shared<KalmanMotionEstimatorConfiguration>();
+    estimator->plant = mrs_buff_mk3_plant();
+    config.motion_estimator = estimator;
     return config;
 }
 
@@ -252,8 +256,8 @@ TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
         for (const auto &m : measurements) {
             const CommandFeedback feedback = transmitter.update();
             clock->set(m.keypoints.header.stamp);
-            filter.predict(clock->now(), feedback);
             filter.correct(m.keypoints, m.field_description, m.camera_info);
+            filter.predict(clock->now(), feedback);
             const RobotDescriptionsStamped robots = filter.state();
             auto cached = cache.resolve(robots);
             transmitter.send(navigation.update(cached.robots, m.field_description, {}));

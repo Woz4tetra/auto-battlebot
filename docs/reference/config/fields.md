@@ -79,7 +79,7 @@ Requires the top-level `[plant]` table. See `docs/reference/control/plant_backed
 
 ### `RlPolicyNavigation`
 
-Requires a `[navigation.policy]` table naming the model bundle. Refuses to start unless `[robot_filter.motion_estimator]` `opponent_mode` is `KALMAN`, because the policy is trained against the 6-state opponent filter.
+Requires a `[navigation.policy]` table naming the model bundle. Refuses to start unless `[robot_filter.motion_estimator] type` is `KalmanMotionEstimator`, because the policy is trained against the 6-state opponent filter.
 
 | Field | Meaning |
 | --- | --- |
@@ -158,18 +158,12 @@ Board geometry defaults match the manufactured board.
 
 ## `[robot_filter.motion_estimator]`
 
-`type` selects implementation. Both types take their plant gains from the top-level `[plant]` table, not from this section. `apply_plant` stamps them in and throws when the table is missing.
-
-### `DeadReckoningMotionEstimator`
-
-No fields. The estimator scales the normalized stick command to body velocity with `k_fwd`, `k_rev`, `k_ang` from `[plant]` and has no other source for what full stick means. Behavior lives in the outer `[robot_filter]` section.
+`type` selects the implementation, and `KalmanMotionEstimator` is the only one. It takes its plant from the top-level `[plant]` table, not from this section. `apply_plant` stamps it in and throws when the table is missing.
 
 ### `KalmanMotionEstimator`
 
 | Field | Meaning |
 | --- | --- |
-| `our_robot_mode` | `DEAD_RECKONING` applies the last commanded velocity directly, matching `DeadReckoningMotionEstimator` for that track. `EKF` runs the 5-state EKF with a `JigPlantModel` built from `[plant]` |
-| `opponent_mode` | `KALMAN` runs the 6-state filter (constant velocity plus an independent constant-yaw-rate heading) with innovation gating and coasts through dropout gaps. `HOLD` pins each opponent at its last measured pose with no prediction, matching `DeadReckoningMotionEstimator`'s opponent behavior |
 | `opponent_accel_psd` | Continuous white-noise acceleration PSD (m^2/s^3) for the opponent constant-velocity model |
 | `opponent_yaw_accel_psd` | Continuous white-noise yaw acceleration PSD (rad^2/s^3) for the opponent heading block, which runs a constant-yaw-rate model independent of the translation block |
 | `initial_yaw_rate_sigma` | Sigma (rad/s) on the opponent yaw rate when the heading block initializes |

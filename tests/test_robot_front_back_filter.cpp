@@ -105,6 +105,12 @@ ModelResultStamped make_our_keypoints(double stamp, double front_x, double back_
     return keypoints;
 }
 
+std::shared_ptr<KalmanMotionEstimatorConfiguration> plant_backed_estimator() {
+    auto estimator = std::make_shared<KalmanMotionEstimatorConfiguration>();
+    estimator->plant = mrs_buff_mk3_plant();
+    return estimator;
+}
+
 RobotFrontBackFilterConfiguration make_our_robot_config() {
     RobotFrontBackFilterConfiguration config;
     config.front_keypoints = {KeypointLabel::OPPONENT_FRONT, KeypointLabel::MRS_BUFF_MK3_FRONT};
@@ -113,6 +119,7 @@ RobotFrontBackFilterConfiguration make_our_robot_config() {
     config.default_frame_id = FrameId::OUR_ROBOT_1;
     config.max_jump_distance = 1.0;
     config.max_consecutive_jump_rejects = 1;
+    config.motion_estimator = plant_backed_estimator();
     return config;
 }
 }  // namespace
@@ -125,6 +132,7 @@ TEST(RobotFrontBackFilterTest, RejectsLargeJumpThenAcceptsAfterThreshold) {
     config.default_frame_id = FrameId::THEIR_ROBOT_1;
     config.max_jump_distance = 0.2;
     config.max_consecutive_jump_rejects = 1;
+    config.motion_estimator = plant_backed_estimator();
 
     RobotFrontBackFilter filter(config);
     ASSERT_TRUE(filter.initialize(1));
@@ -235,7 +243,6 @@ RobotFrontBackFilterConfiguration make_kalman_opponent_config() {
     config.default_frame_id = FrameId::THEIR_ROBOT_1;
     config.max_jump_distance = 1.0;
     auto kalman = std::make_shared<KalmanMotionEstimatorConfiguration>();
-    kalman->opponent_mode = OpponentMode::KALMAN;
     kalman->opponent_max_coast_s = 1.0;
     kalman->plant = mrs_buff_mk3_plant();
     config.motion_estimator = kalman;

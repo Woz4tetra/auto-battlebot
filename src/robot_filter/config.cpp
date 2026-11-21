@@ -5,7 +5,6 @@
 
 #include "config/config_cast.hpp"
 #include "config/config_parser.hpp"
-#include "robot_filter/dead_reckoning_motion_estimator.hpp"
 #include "robot_filter/ground_truth_robot_filter.hpp"
 #include "robot_filter/kalman_motion_estimator.hpp"
 #include "robot_filter/noop_robot_filter.hpp"
@@ -16,17 +15,12 @@ REGISTER_CONFIG(RobotFilterConfiguration, NoopRobotFilterConfiguration, "NoopRob
 REGISTER_CONFIG(RobotFilterConfiguration, GroundTruthRobotFilterConfiguration,
                 "GroundTruthRobotFilter")
 REGISTER_CONFIG(RobotFilterConfiguration, RobotFrontBackFilterConfiguration, "RobotFrontBackFilter")
-REGISTER_CONFIG(MotionEstimatorConfiguration, DeadReckoningMotionEstimatorConfiguration,
-                "DeadReckoningMotionEstimator")
 REGISTER_CONFIG(MotionEstimatorConfiguration, KalmanMotionEstimatorConfiguration,
                 "KalmanMotionEstimator")
 
 std::unique_ptr<MotionEstimatorInterface> make_motion_estimator(
     const MotionEstimatorConfiguration &config) {
-    if (config.type == "DeadReckoningMotionEstimator") {
-        return std::make_unique<DeadReckoningMotionEstimator>(
-            config_cast<DeadReckoningMotionEstimatorConfiguration>(config));
-    } else if (config.type == "KalmanMotionEstimator") {
+    if (config.type == "KalmanMotionEstimator") {
         return std::make_unique<KalmanMotionEstimator>(
             config_cast<KalmanMotionEstimatorConfiguration>(config));
     }

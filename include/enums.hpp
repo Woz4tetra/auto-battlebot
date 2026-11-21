@@ -12,8 +12,6 @@
 #include "enums/keypoint_label.hpp"
 #include "enums/label.hpp"
 #include "enums/network_runtime_kind.hpp"
-#include "enums/opponent_mode.hpp"
-#include "enums/our_robot_mode.hpp"
 #include "enums/policy_execution.hpp"
 #include "enums/policy_kind.hpp"
 #include "enums/resolution.hpp"

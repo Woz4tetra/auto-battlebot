@@ -7,8 +7,6 @@
 
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
-#include "enums/opponent_mode.hpp"
-#include "enums/our_robot_mode.hpp"
 #include "plant/config.hpp"
 #include "robot_filter/motion_estimator_interface.hpp"
 
@@ -22,28 +20,7 @@ struct MotionEstimatorConfiguration {
     virtual void apply_plant([[maybe_unused]] const PlantConfiguration &plant) {}
 };
 
-struct DeadReckoningMotionEstimatorConfiguration : public MotionEstimatorConfiguration {
-    std::optional<JigPlantParams> plant;
-
-    DeadReckoningMotionEstimatorConfiguration() { type = "DeadReckoningMotionEstimator"; }
-
-    PARSE_CONFIG_FIELDS()
-
-    void apply_plant(const PlantConfiguration &plant_config) override {
-        if (!plant_config.params.has_value()) {
-            throw ConfigValidationError(
-                "type = 'DeadReckoningMotionEstimator' requires the top-level [plant] table; see "
-                "docs/reference/control/plant_backed_control.md");
-        }
-        plant = *plant_config.params;
-    }
-};
-
 struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration {
-    OurRobotMode our_robot_mode = OurRobotMode::DEAD_RECKONING;
-
-    OpponentMode opponent_mode = OpponentMode::HOLD;
-
     double opponent_accel_psd = 30.0;
     double opponent_yaw_accel_psd = 100.0;
     double initial_yaw_rate_sigma = 20.0;
@@ -78,8 +55,6 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
     KalmanMotionEstimatorConfiguration() { type = "KalmanMotionEstimator"; }
 
     void parse_fields(ConfigParser &parser) override {
-        PARSE_ENUM(our_robot_mode, OurRobotMode)
-        PARSE_ENUM(opponent_mode, OpponentMode)
         PARSE_FIELD_DOUBLE(opponent_accel_psd)
         PARSE_FIELD_DOUBLE(opponent_yaw_accel_psd)
         PARSE_FIELD_DOUBLE(initial_yaw_rate_sigma)

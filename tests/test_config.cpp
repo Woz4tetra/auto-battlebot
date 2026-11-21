@@ -1502,7 +1502,7 @@ type = "NoopPublisher"
 }
 }  // namespace
 
-TEST_F(ConfigTest, RobotFilterMotionEstimatorDefaultsToDeadReckoning) {
+TEST_F(ConfigTest, RobotFilterMotionEstimatorDefaultsToKalman) {
     write_config_file(config_with_motion_estimator(""));
 
     auto config = load_classes_from_config(temp_config_file.string());
@@ -1510,7 +1510,7 @@ TEST_F(ConfigTest, RobotFilterMotionEstimatorDefaultsToDeadReckoning) {
         dynamic_cast<RobotFrontBackFilterConfiguration *>(config.robot_filter.get());
     ASSERT_NE(filter_config, nullptr);
     ASSERT_NE(filter_config->motion_estimator, nullptr);
-    EXPECT_EQ(filter_config->motion_estimator->type, "DeadReckoningMotionEstimator");
+    EXPECT_EQ(filter_config->motion_estimator->type, "KalmanMotionEstimator");
 }
 
 TEST_F(ConfigTest, RobotFilterMotionEstimatorParsesKalman) {
@@ -1529,59 +1529,23 @@ gate_nis = 9.21
     auto *kalman_config =
         dynamic_cast<KalmanMotionEstimatorConfiguration *>(filter_config->motion_estimator.get());
     ASSERT_NE(kalman_config, nullptr);
-    EXPECT_EQ(kalman_config->our_robot_mode, OurRobotMode::DEAD_RECKONING);
     EXPECT_DOUBLE_EQ(kalman_config->opponent_accel_psd, 12.5);
     EXPECT_DOUBLE_EQ(kalman_config->max_coast_s, 0.3);
     EXPECT_DOUBLE_EQ(kalman_config->gate_nis, 9.21);
 }
 
-TEST_F(ConfigTest, RobotFilterMotionEstimatorEkfModeRejectedUntilPlantModelExists) {
-    write_config_file(config_with_motion_estimator(R"(
-[robot_filter.motion_estimator]
-type = "KalmanMotionEstimator"
-our_robot_mode = "EKF"
-)",
-                                                   kNoPlantTable));
-
-    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
-}
-
-TEST_F(ConfigTest, DeadReckoningMotionEstimatorWithoutPlantTableThrows) {
-    write_config_file(config_with_motion_estimator(R"(
-[robot_filter.motion_estimator]
-type = "DeadReckoningMotionEstimator"
-)",
-                                                   kNoPlantTable));
-
-    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
-}
-
-TEST_F(ConfigTest, MotionEstimatorsWithoutPlantTableNameThePlantTableInTheError) {
-    for (const char *type : {"DeadReckoningMotionEstimator", "KalmanMotionEstimator"}) {
-        write_config_file(config_with_motion_estimator(
-            std::string("\n[robot_filter.motion_estimator]\ntype = \"") + type + "\"\n",
-            kNoPlantTable));
-        try {
-            load_classes_from_config(temp_config_file.string());
-            FAIL() << type << " loaded without a [plant] table";
-        } catch (const ConfigValidationError &error) {
-            const std::string message = error.what();
-            EXPECT_NE(message.find(type), std::string::npos) << message;
-            EXPECT_NE(message.find("requires the top-level [plant] table"), std::string::npos)
-                << message;
-        }
+TEST_F(ConfigTest, MotionEstimatorWithoutPlantTableNamesThePlantTableInTheError) {
+    write_config_file(config_with_motion_estimator(
+        "\n[robot_filter.motion_estimator]\ntype = \"KalmanMotionEstimator\"\n", kNoPlantTable));
+    try {
+        load_classes_from_config(temp_config_file.string());
+        FAIL() << "KalmanMotionEstimator loaded without a [plant] table";
+    } catch (const ConfigValidationError &error) {
+        const std::string message = error.what();
+        EXPECT_NE(message.find("KalmanMotionEstimator"), std::string::npos) << message;
+        EXPECT_NE(message.find("requires the top-level [plant] table"), std::string::npos)
+            << message;
     }
-}
-
-TEST_F(ConfigTest, KalmanMotionEstimatorDeadReckoningModeRequiresPlantTable) {
-    write_config_file(config_with_motion_estimator(R"(
-[robot_filter.motion_estimator]
-type = "KalmanMotionEstimator"
-our_robot_mode = "DEAD_RECKONING"
-)",
-                                                   kNoPlantTable));
-
-    EXPECT_THROW(load_classes_from_config(temp_config_file.string()), ConfigValidationError);
 }
 
 TEST_F(ConfigTest, RobotFilterMotionEstimatorParsesPlantTable) {
@@ -1610,25 +1574,6 @@ heading_random_walk = 0.5
     EXPECT_DOUBLE_EQ(kalman_config->plant->c_drift, 0.0);
     EXPECT_DOUBLE_EQ(kalman_config->plant_noise.heading_random_walk, 0.5);
     EXPECT_DOUBLE_EQ(kalman_config->plant_noise.q_along, JigPlantNoiseParams{}.q_along);
-}
-
-TEST_F(ConfigTest, RobotFilterMotionEstimatorEkfModeAcceptedWithPlantTable) {
-    write_config_file(config_with_motion_estimator(std::string(R"(
-[robot_filter.motion_estimator]
-type = "KalmanMotionEstimator"
-our_robot_mode = "EKF"
-)") + kPlantTableToml,
-                                                   kNoPlantTable));
-
-    auto config = load_classes_from_config(temp_config_file.string());
-    auto *filter_config =
-        dynamic_cast<RobotFrontBackFilterConfiguration *>(config.robot_filter.get());
-    ASSERT_NE(filter_config, nullptr);
-    auto *kalman_config =
-        dynamic_cast<KalmanMotionEstimatorConfiguration *>(filter_config->motion_estimator.get());
-    ASSERT_NE(kalman_config, nullptr);
-    EXPECT_EQ(kalman_config->our_robot_mode, OurRobotMode::EKF);
-    ASSERT_TRUE(kalman_config->plant.has_value());
 }
 
 TEST_F(ConfigTest, RobotFilterMotionEstimatorPlantMissingFieldThrows) {

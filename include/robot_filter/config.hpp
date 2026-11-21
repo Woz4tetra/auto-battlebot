@@ -44,7 +44,7 @@ struct RobotFrontBackFilterConfiguration : public RobotFilterConfiguration {
     double our_robot_hold_window_s = 0.15;
     KeypointHeights keypoint_heights;
     std::shared_ptr<MotionEstimatorConfiguration> motion_estimator =
-        std::make_shared<DeadReckoningMotionEstimatorConfiguration>();
+        std::make_shared<KalmanMotionEstimatorConfiguration>();
 
     RobotFrontBackFilterConfiguration() { type = "RobotFrontBackFilter"; }
 

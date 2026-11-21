@@ -9,11 +9,9 @@ It runs on two clocks. `correct()` runs once per perception frame with new detec
 `predict()` runs every control-loop tick, at 250 Hz, and advances tracks between frames.
 Both are called from `src/control_loop/control_loop.cpp`.
 
-How `predict()` propagates is a swappable `MotionEstimatorInterface`, chosen by
-`[robot_filter.motion_estimator] type`. `DeadReckoningMotionEstimator` coasts along the
-last commanded velocity and only moves our robot, which is the only one with command
-feedback. `KalmanMotionEstimator` is what `config/_common.toml` selects; it coasts
-opponents too, from their estimated velocity.
+How `predict()` propagates is a `MotionEstimatorInterface`, chosen by
+`[robot_filter.motion_estimator] type`. `KalmanMotionEstimator` is the only implementation: an EKF
+on our robot driven through the plant model, and a 6-state Kalman filter on every other track.
 
 ![Robot filter pipeline](../../diagrams/robot_filter.svg)
 
@@ -47,21 +45,19 @@ Regenerate the SVG after editing `diagrams/robot_filter.dot`:
    nearest-neighbor against each track's last position, with a `max_jump_distance` gate that rejects
    implausible jumps (and force-accepts after `max_consecutive_jump_rejects` to recover from a bad lock).
 
-2. **`RobotTemporalMotionFilter::update_with_prediction`** stores the measured robots, then for any
-   tracked robot that was not measured this frame and has command feedback (OUR_ROBOT_1), dead-reckons
-   its pose forward along the commanded velocity, clips it to the field, and flags it `is_stale`. It
-   emits one `RobotDescription` per tracked robot, measured or predicted.
+2. **`KalmanMotionEstimator::update`** corrects each measured track, propagates each unmeasured one
+   to the frame stamp, and writes the predicted position back to `FrameIdAssigner` so association
+   follows the prediction. It emits one `RobotDescription` per track.
    An our-robot (`Group::OURS`) track unmeasured for longer than `our_robot_hold_window_s` is dropped
    from the output and forgotten instead of held. A window of 0 or below disables the decay.
 
 ## Persistent state
 
-Three per-`FrameId` maps survive across frames:
+Two per-`FrameId` stores survive across frames:
 
 - `FrameIdAssigner::last_position_per_frame_id_` (plus jump-reject counters): drives data association.
-- `last_description_per_frame_id_`: the last full pose of each tracked robot.
-- `last_timestamp_per_frame_id_`: the last time each robot appeared in the output, used only to compute
-  the `dt` for dead-reckoning.
+- The estimator's tracks: `our_ekf_tracks_` and `opponent_tracks_`, each holding its state,
+  covariance and last measured stamp.
 
 ## Why prediction is load-bearing
 
@@ -154,13 +150,12 @@ Keypoint heights correct the radial bias of flat-plane projection. Heights are p
 - Unmeasured tracks predict forward with growing covariance up to `max_coast_s` of track age, then hold position and heading. The opponent horizon is `opponent_max_coast_s` (`docs/experiments/control/2026-10-15_opponent_max_coast.md`).
 - Measurements older than the track state (perception latency) rewind to a stored snapshot, correct at the measurement's own stamp, and re-propagate.
 - The Python mirror in `auto_battlebot/perception/opponent_filter.py` must change with this arm. `tests/test_kalman_motion_estimator.cpp` holds the two to a golden fixture.
-- Our-robot track has two modes. `DEAD_RECKONING` applies the last commanded velocity directly, matching `DeadReckoningMotionEstimator`. `EKF` runs a 5-state EKF [x, y, theta, v, w] propagated through `JigPlantModel` with the issued-command history (normalized stick space, from `CommandFeedback::stick_commands`) read at t - delay, corrected by keypoint poses (position and heading) or blob centroids (position only). A heading innovation past pi/2 falls back to the position rows, because the front/back keypoint converter can flip and folding a flipped heading in would spin the whole state.
+- Our-robot track runs a 5-state EKF [x, y, theta, v, w] propagated through `JigPlantModel` with the issued-command history (normalized stick space, from `CommandFeedback::stick_commands`) read at t - delay, corrected by keypoint poses (position and heading). A heading innovation past pi/2 falls back to the position rows, because the front/back keypoint converter can flip and folding a flipped heading in would spin the whole state.
 - `coast()` renders every track advanced to the control-loop clock plus `render_lead_s()`, so the emitted state moves between perception frames instead of freezing at the last `correct()`.
 - Rewind history: 64 snapshots. At the 250 Hz control rate that is roughly 240 ms, because `coast()` commits an opponent snapshot every tick and a 30 Hz frame burns about nine slots. It covers the measured 63 ms perception latency with room to spare; `num_rewind_missed` reports when it does not.
 - Clock gaps: a single propagation step longer than `kMaxIntegrationStepS` (1.0 s) freezes position, because a clock gap that large is not motion to integrate. Covariance still grows, capped at that step.
 - Estimator config: `opponent_max_coast_s` and `max_coast_s` defaults. `max_coast_s` sits at the measured p90 to p95 of perception dropout gaps; predicting multi-second gaps with a short-horizon model is fiction.
-- Production configs stay on `DEAD_RECKONING`. Sim and playback experiments opt in to `EKF` through the extends chain.
-- Plant table required: every motion estimator needs the top-level `[plant]` table, because the stick-to-velocity scaling is the fit. `DEAD_RECKONING` needs it as much as `EKF`, since both arms scale sticks through the plant. A missing table is a config error, not a zero plant that freezes every prediction without saying so.
+- Plant table required: the estimator needs the top-level `[plant]` table, because the our-robot EKF propagates through it. A missing table is a config error, not a zero plant that freezes every prediction without saying so.
 - Every plant field is required. Dropping `delay_s` makes the parse refuse instead of defaulting a fitted physical parameter to zero.
 
 - Heading flip test: it only means something while the heading's own 2-sigma is inside pi/2, so it runs only while the theta variance is below `kFlipTestMaxVariance` (pi/4 squared). Past that, a measurement more than pi/2 away is as likely a turn the track did not see as a flip.

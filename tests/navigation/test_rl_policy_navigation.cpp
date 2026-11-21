@@ -37,12 +37,12 @@ double expected_linear_output(double gain, double value, double scale) {
     return std::tanh(gain * value / scale);
 }
 
-RlPolicyNavigationConfiguration config_for(
-    const std::filesystem::path &bundle, std::optional<OpponentMode> mode = OpponentMode::KALMAN) {
+RlPolicyNavigationConfiguration config_for(const std::filesystem::path &bundle,
+                                           bool has_opponent_filter = true) {
     RlPolicyNavigationConfiguration config;
     config.policy.bundle = bundle.string();
-    config.opponent_mode = mode;
-    config.opponent_mode_source = "the test";
+    config.has_opponent_filter = has_opponent_filter;
+    config.opponent_filter_source = "the test";
     return config;
 }
 
@@ -180,17 +180,11 @@ TEST(RlPolicyNavigationTest, PolicyDiagnosticsCarryOurStateForTheLockstepEkfFit)
     EXPECT_DOUBLE_EQ(value("our_measurement_age_s"), 0.02);
 }
 
-TEST(RlPolicyNavigationTest, RefusesHoldOpponentMode) {
-    const std::string error = start_error<ConfigValidationError>(
-        config_for(rl_test::constant_bundle(), OpponentMode::HOLD));
-    EXPECT_NE(error.find("opponent_mode = 'KALMAN'"), std::string::npos) << error;
-    EXPECT_NE(error.find("found opponent_mode HOLD"), std::string::npos) << error;
-}
-
-TEST(RlPolicyNavigationTest, RefusesAFilterWithNoOpponentMode) {
+TEST(RlPolicyNavigationTest, RefusesAFilterWithNoOpponentFilter) {
     const std::string error =
-        start_error<ConfigValidationError>(config_for(rl_test::constant_bundle(), std::nullopt));
-    EXPECT_NE(error.find("found opponent_mode not set"), std::string::npos) << error;
+        start_error<ConfigValidationError>(config_for(rl_test::constant_bundle(), false));
+    EXPECT_NE(error.find("type = 'KalmanMotionEstimator'"), std::string::npos) << error;
+    EXPECT_NE(error.find("found the test"), std::string::npos) << error;
 }
 
 TEST(RlPolicyNavigationTest, AFailedSelftestRefusesToStart) {
@@ -410,31 +404,21 @@ bundle = "data/models/nav_policies/rl_nav_test"
     EXPECT_THROW(parse_navigation_config(missing_parser), ConfigValidationError);
 }
 
-TEST(RlPolicyNavigationConfigTest, ReadsTheOpponentModeFromTheRobotFilter) {
+TEST(RlPolicyNavigationConfigTest, ReadsTheOpponentFilterFromTheRobotFilter) {
     RobotFrontBackFilterConfiguration front_back;
-    auto kalman = std::make_shared<KalmanMotionEstimatorConfiguration>();
-    kalman->opponent_mode = OpponentMode::KALMAN;
-    front_back.motion_estimator = kalman;
+    front_back.motion_estimator = std::make_shared<KalmanMotionEstimatorConfiguration>();
     RlPolicyNavigationConfiguration config;
     config.apply_robot_filter(front_back);
-    EXPECT_EQ(config.opponent_mode, OpponentMode::KALMAN);
-
-    kalman->opponent_mode = OpponentMode::HOLD;
-    config.apply_robot_filter(front_back);
-    EXPECT_EQ(config.opponent_mode, OpponentMode::HOLD);
-
-    front_back.motion_estimator = std::make_shared<DeadReckoningMotionEstimatorConfiguration>();
-    config.apply_robot_filter(front_back);
-    EXPECT_FALSE(config.opponent_mode.has_value());
-    EXPECT_NE(config.opponent_mode_source.find("DeadReckoningMotionEstimator"), std::string::npos);
+    EXPECT_TRUE(config.has_opponent_filter);
+    EXPECT_NE(config.opponent_filter_source.find("KalmanMotionEstimator"), std::string::npos);
 
     config.apply_robot_filter(GroundTruthRobotFilterConfiguration{});
-    EXPECT_FALSE(config.opponent_mode.has_value());
-    EXPECT_NE(config.opponent_mode_source.find("GroundTruthRobotFilter"), std::string::npos);
+    EXPECT_FALSE(config.has_opponent_filter);
+    EXPECT_NE(config.opponent_filter_source.find("GroundTruthRobotFilter"), std::string::npos);
 }
 
 TEST(RlPolicyNavigationConfigTest, MakeNavigationRunsTheStartupChecks) {
-    EXPECT_THROW(make_navigation(config_for(rl_test::constant_bundle(), OpponentMode::HOLD),
+    EXPECT_THROW(make_navigation(config_for(rl_test::constant_bundle(), false),
                                  std::make_shared<ManualClock>()),
                  ConfigValidationError);
     EXPECT_NE(

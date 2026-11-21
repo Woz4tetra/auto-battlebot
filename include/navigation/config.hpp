@@ -116,8 +116,8 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
 
 struct RlPolicyNavigationConfiguration : public NavigationConfiguration {
     rl_policy::RlPolicyConfiguration policy;
-    std::optional<OpponentMode> opponent_mode;
-    std::string opponent_mode_source = "no [robot_filter] config was applied";
+    bool has_opponent_filter = false;
+    std::string opponent_filter_source = "no [robot_filter] config was applied";
     double max_our_unmeasured_s = 0.15;
 
     bool hazard_barrier_enable = false;

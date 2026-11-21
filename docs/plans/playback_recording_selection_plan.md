@@ -108,8 +108,7 @@ New `include/config/recording_catalog.hpp` and `src/config/recording_catalog.cpp
 5. `main.cpp`: add the three flags and pass the overrides through both the `--print-config` and run
    paths.
 6. `run_replays.py`: pass `--recording` instead of writing `svo_file_path` and `svo_start_frame`
-   into the overlay. It still needs an overlay for `opponent_mode`, so keep the overlay for that
-   key only.
+   into the overlay.
 7. Docs:
    - `.claude/skills/replay/SKILL.md`: replace the scratch overlay step with `--recording`, remove
      the "no CLI override" line

@@ -72,13 +72,6 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
         size_t snapshot_count = 0;
     };
 
-    struct HeldTrack {
-        RobotDescription output_template;
-        double last_update_stamp = 0.0;
-        double last_measured_stamp = 0.0;
-        bool output_stale = false;
-    };
-
     struct OurEkfTrack {
         PlantState state;
         ekf::Mat<5, 5> covariance = ekf::Mat<5, 5>::Zero();
@@ -114,13 +107,9 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     std::shared_ptr<DiagnosticsModuleLogger> diagnostics_logger_;
 
     std::map<FrameId, OpponentTrack> opponent_tracks_;
-    std::map<FrameId, HeldTrack> held_opponent_tracks_;
-    std::map<FrameId, HeldTrack> our_tracks_;
     std::map<FrameId, OurEkfTrack> our_ekf_tracks_;
 
     std::unique_ptr<JigPlantModel> plant_model_;
-
-    JigPlantParams our_dr_plant_;
 
     CommandFeedback command_feedback_;
     CommandRingBuffer command_history_;
