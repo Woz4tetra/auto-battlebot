@@ -10,7 +10,7 @@ A table that holds only `from` loads its contents from another file. The file ho
 the same path, so one file can serve several sections:
 
 ```toml
-# config/mr_stabs_mk2_jetson.toml
+# config/mr_stabs_mk2_desktop.toml
 [plant]
 from = "robots/mr_stabs_mk2"
 

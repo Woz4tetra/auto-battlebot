@@ -2,7 +2,7 @@
 
 Field-mask segmentation: the model that tells the perception stack which pixels are
 arena floor. `DeepLabMaskModel` is what every real config selects
-(`config/_common.toml`, `_desktop.toml`, `_jetson.toml`), so this is a live deploy
+(`config/_common.toml`, `_desktop.toml`, `_zed_box.toml`), so this is a live deploy
 path, not an experiment. The deployed artifact is
 `data/models/field_deeplabv3p_r50_2026-07-29_*.engine`.
 

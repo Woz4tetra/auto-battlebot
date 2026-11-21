@@ -19,9 +19,8 @@ std::vector<std::string> offered_profiles() {
 
 TEST(ProfilePattern, OffersExactlyTheDeployableProfiles) {
     const std::vector<std::string> expected = {
-        "mr_stabs_mk2_aer_zed_box",    "mr_stabs_mk2_fid_rl_zed_box", "mr_stabs_mk2_fid_zed_box",
-        "mr_stabs_mk2_jetson",         "mr_stabs_mk2_sysid_zed_box",  "mrs_buff_mk3_aer_zed_box",
-        "mrs_buff_mk3_fid_rl_zed_box", "mrs_buff_mk3_jetson",
+        "mr_stabs_mk2_aer_zed_box", "mr_stabs_mk2_fid_zed_box", "mr_stabs_mk2_sysid_zed_box",
+        "mrs_buff_mk3_aer_zed_box", "mrs_buff_mk3_zed_box",
     };
     EXPECT_EQ(offered_profiles(), expected);
 }
@@ -29,7 +28,7 @@ TEST(ProfilePattern, OffersExactlyTheDeployableProfiles) {
 TEST(ProfilePattern, ExcludesBasesSectionFilesAndDesktopProfiles) {
     const std::vector<std::string> offered = offered_profiles();
     for (const std::string name :
-         {"_jetson", "_zed_box", "_common", "mr_stabs_mk2_desktop", "playback/_playback",
+         {"_zed_box", "_common", "mr_stabs_mk2_desktop", "playback/_playback",
           "transmitters/mr_stabs_mk2_espnow", "robots/mr_stabs_mk2", "profiles"}) {
         EXPECT_EQ(std::count(offered.begin(), offered.end(), name), 0) << name;
     }

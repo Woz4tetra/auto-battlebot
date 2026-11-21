@@ -1125,21 +1125,6 @@ def test_scripted_pursuit_matches_reference_control_law() -> None:
     assert action[0, 0] == 0.0
 
 
-def test_scripted_pursuit_defaults_match_mk2_profile() -> None:
-    nav = tomllib.loads((REPO / "config/mr_stabs_mk2_desktop.toml").read_text())["navigation"]
-    cfg = PursuitConfig()
-    for key in (
-        "angular_kp",
-        "angular_kd",
-        "max_linear_command",
-        "angle_threshold",
-        "velocity_ramp_far_distance",
-        "velocity_ramp_near_distance",
-        "velocity_ramp_min_scale",
-    ):
-        assert getattr(cfg, key) == nav[key], key
-
-
 def test_sidestep_keeps_orbit_side_across_centre_line() -> None:
     controller = Sidestep(1, "cpu", SidestepConfig())
 

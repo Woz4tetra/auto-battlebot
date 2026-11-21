@@ -10,8 +10,8 @@ after.
 | File | Values | Loaded by |
 | --- | --- | --- |
 | `config/robots/mrs_buff_mk3.toml` | Mrs Buff Mk3 Stage A jig fit, hand-edited (see below) | `_common.toml`, so every Mrs Buff profile |
-| `config/robots/mr_stabs_mk2.toml` | Mr Stabs Mk2 distilled MuJoCo fit | `mr_stabs_mk2_desktop`, `mr_stabs_mk2_jetson`, `playback/mr_stabs_mk2_playback`, `simulation/mr_stabs_mk2_kinematic_sim`, `simulation/mr_stabs_mk2_kinematic_sim_sensing` |
-| `config/robots/mr_stabs_mk2_geometry.toml` | Mr Stabs Mk2 drivetrain geometry estimate | `mr_stabs_mk2_aer_zed_box`, `mr_stabs_mk2_fid_zed_box` |
+| `config/robots/mr_stabs_mk2.toml` | Mr Stabs Mk2 distilled MuJoCo fit | `mr_stabs_mk2_desktop`, `playback/mr_stabs_mk2_playback`, `simulation/mr_stabs_mk2_kinematic_sim`, `simulation/mr_stabs_mk2_kinematic_sim_sensing` |
+| `config/robots/mr_stabs_mk2_geometry.toml` | Mr Stabs Mk2 drivetrain geometry estimate | `mr_stabs_mk2_aer_zed_box`, `mr_stabs_mk2_fid_zed_box`, `mr_stabs_mk2_sysid_zed_box` |
 
 `simulation/mrs_buff_mk3_rl_sim.toml` still writes its own `[plant]` inline. It merges key by key
 over the Mrs Buff file.

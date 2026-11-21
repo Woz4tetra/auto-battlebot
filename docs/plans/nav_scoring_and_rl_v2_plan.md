@@ -157,9 +157,8 @@ No retraining. `rl_nav_p4` stays as it is.
 
 ### 1.1 Slew limit off for RL
 
-- Set `max_motor_rpm_per_sec = 0` in `config/mr_stabs_mk2_fid_rl_zed_box.toml` and
-  `config/mrs_buff_mk3_fid_rl_zed_box.toml`. `_common.toml` already defaults it to 0, so this
-  overrides the inherited 2000.
+- Set `max_motor_rpm_per_sec = 0` in every profile that loads `navigation/mr_stabs_mk2_rl.toml`
+  or `navigation/mrs_buff_mk3_rl.toml`. `_common.toml` already defaults it to 0.
 - Blocked on the step test (0.2). The policy trained with no slew limit and a -0.05
   `command_change` penalty, so removing the limit matches training, but only if the real robot
   survives the steps the policy sends. If 0.2 says keep a limit, set that value here and in the
@@ -682,7 +681,7 @@ else is assumed.
 | WP-01 | Lockstep reproduction of 10/25 | 0.1 | `auto_battlebot/rl/lockstep_world.py` (slew and guard-scale stages), a new `playground/nav_eval/repro_1025.py`, report | none | Four-arm table of reverse-window duty against the field's -12%, written up |
 | WP-02 | Thermal trip and loosened guard | 0.3, 1.2 | `firmware/mr_stabs_mk2/`, guard fields in `firmware/shared/espnow_protocol/` | U2 for the threshold | Firmware builds; trip latches in a bench test with the threshold forced low; trip state in telemetry |
 | WP-03 | Step-test analysis and armature refit | 0.2 | `playground/nav_eval/step_test.py`, armature in `auto_battlebot/mujoco_sim/` | U1 | Pitch response per step size, refit armature, a keep-or-remove verdict on the slew limit |
-| WP-04 | RL profile slew setting | 1.1 | `config/*_fid_rl_zed_box.toml` | WP-03 | Value set per the WP-03 verdict; sim matches it |
+| WP-04 | RL profile slew setting | 1.1 | profiles loading `navigation/*_rl.toml` | WP-03 | Value set per the WP-03 verdict; sim matches it |
 | WP-05 | IMU yaw-rate fusion in the our-robot filter | 1.3 | `include/robot_filter/`, `src/robot_filter/`, the filter's Python mirror and fixture, tests | none | Correlation at least 0.7 on the three 10/25 MCAPs replayed; p99 inside the IMU's range; tests pass |
 | WP-06 | Fitted plant in the our-robot filter | 1.3 | same as WP-05, `include/plant/` | WP-05 merged, WP-14 | Paired lockstep A/B of `rl_nav_p4` with a ship or wait verdict |
 | WP-07 | PerformanceMonitor | 1.4 | new component (check `include/health/` first and extend it if it fits), `include/remote/protocol.hpp` rows, bundle hash in `auto_battlebot/rl/export/` | none | Mismatch blocks policy load and lists keys; both 10/25 setup problems fire in replay; warnings land in `/diagnostics` |

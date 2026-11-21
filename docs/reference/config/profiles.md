@@ -18,7 +18,6 @@ type swaps) are in `docs/reference/config/config_extends.md`.
 | --- | --- |
 | `_common.toml` | Root of every chain. Perception, filter, target, nav, and transmitter defaults for Mrs Buff Mk3 |
 | `_desktop.toml` | x86 dev machine with a ZED: x86 engines |
-| `_jetson.toml` | Jetson with a ZED 2i: aarch64 engines |
 | `_zed_box.toml` | ZED Box Mini with a ZED X One S (`docs/setup/zed_box_mini.md`) |
 | `playback/_playback.toml` | SVO replay on the desktop |
 | `playback/_video_playback.toml` | Replay of an MCAP that carries `/camera/video` |
@@ -52,11 +51,13 @@ Loaded with `from` (`config_extends.md`). Each holds one fact used by more than 
 | --- | --- |
 | `robots/mrs_buff_mk3.toml`, `robots/mr_stabs_mk2.toml`, `robots/mr_stabs_mk2_geometry.toml` | `[plant]`, see `robot_plant_files.md` |
 | `transmitters/mrs_buff_mk3_opentx.toml` | `_common` |
-| `transmitters/mr_stabs_mk2_opentx.toml` | `mr_stabs_mk2_desktop`, `mr_stabs_mk2_jetson` |
-| `transmitters/mr_stabs_mk2_espnow.toml` | `mr_stabs_mk2_aer_zed_box`, `mr_stabs_mk2_fid_zed_box` |
+| `transmitters/mr_stabs_mk2_opentx.toml` | `mr_stabs_mk2_desktop` |
+| `transmitters/mr_stabs_mk2_espnow.toml` | `mr_stabs_mk2_aer_zed_box`, `mr_stabs_mk2_fid_zed_box`, `mr_stabs_mk2_sysid_zed_box` |
 | `transmitters/playback.toml` | `playback/_playback`, `playback/_video_playback` |
+| `navigation/mr_stabs_mk2_rl.toml` | `mr_stabs_mk2_aer_zed_box`, `mr_stabs_mk2_fid_zed_box` |
+| `navigation/mrs_buff_mk3_rl.toml` | `mrs_buff_mk3_zed_box`, `mrs_buff_mk3_aer_zed_box` |
 | `navigation/motion_profile.toml` | `_common`, `simulation/mr_stabs_mk2_motion_profile_sim`, `playground/rl/lockstep_eval.py` |
-| `field_filters/fiducial_1p5m.toml` | `mr_stabs_mk2_fid_zed_box`, `mrs_buff_mk3_fid_rl_zed_box` |
+| `field_filters/fiducial_1p5m.toml` | `mr_stabs_mk2_fid_zed_box`, `mr_stabs_mk2_sysid_zed_box` |
 | `keypoint_models/mr_stabs_mk2_apriltag.toml` | `mr_stabs_mk2_sysid_zed_box`, `playback/mr_stabs_mk2_sysid_playback` |
 
 `playback/svo_start_frames.toml` is a data table, not a section file: the first match frame of each
@@ -163,13 +164,11 @@ live-vs-replay tag comparison shows the 15 Mbps default loses nothing.
 
 ## Robot profiles
 
-- `mr_stabs_mk2_desktop`, `mr_stabs_mk2_jetson`: `PursuitNavigation`, which predates the
-  plant-backed controller. `max_linear_command` is 0.25 on the desktop bench and 0.65 on the
-  Jetson.
+- The switcher offers `*_zed_box` profiles only. `config/default_profile` is `mrs_buff_mk3_zed_box`.
+- `mr_stabs_mk2_desktop`: the x86 bench with a ZED 2i, on `_common`'s `MotionProfileNavigation`.
 - `mr_stabs_mk2_fid_zed_box`, `mr_stabs_mk2_aer_zed_box`: ESP-NOW transmitter, fiducial and AER
-  fields.
-- `mr_stabs_mk2_fid_rl_zed_box`: `RlPolicyNavigation` on bundle `rl_nav_p4`, retrained from p3 with
-  sensing dropouts off. It trained in the sim's 2.4 m arena; this field is 1.5 m. It has no
+  fields, `RlPolicyNavigation` from `navigation/mr_stabs_mk2_rl.toml` on bundle `rl_nav_p4`,
+  retrained from p3 with sensing dropouts off. It trained in the sim's 2.4 m arena; this field is 1.5 m. It has no
   HazardAvoidance layer: walls and hazards reach it only through its observation.
 - `mr_stabs_mk2_sysid_zed_box`: system identification sessions (`docs/guides/sysid_guide.md`). The
   driver drives by hand in the 1.52 m test box under a tripod-mounted ZED X One S; the app records
@@ -184,7 +183,8 @@ live-vs-replay tag comparison shows the 15 Mbps default loses nothing.
   `mass_properties.toml` (`[tags.N]`): `rotation` is `R_body_tag` row-major, and with
   `translation_m` it maps the OpenCV marker frame (x right, y up in the printed image, z out of the
   face) into the body frame (FLU at the axle midpoint). 76 is on top and 41 underneath.
-- `mrs_buff_mk3_aer_zed_box`, `mrs_buff_mk3_fid_rl_zed_box`: `RlPolicyNavigation`, commands through
+- `mrs_buff_mk3_zed_box`, `mrs_buff_mk3_aer_zed_box`: `RlPolicyNavigation` from
+  `navigation/mrs_buff_mk3_rl.toml`, commands through
   the OpenTX transmitter (the handset relays them over ELRS through the trainer port), plant from
   `robots/mrs_buff_mk3`. Bundle `rl_nav_mk3_c_near` (queue job 58 on megamind, 2026-10-25), exported
   from `runs/rl_nav/rl_nav_mk3_c_near_s15_2026-10-25_18-11-33`. It trained with the weapon off,

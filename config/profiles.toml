@@ -1,4 +1,4 @@
 [profiles]
-pattern = "[^_].*_(jetson|zed_box)$"
+pattern = "[^_].*_zed_box$"
 
 selection_file = "$HOME/.local/state/auto_battlebot/selected_profile"

@@ -59,7 +59,7 @@ Code: `auto_battlebot/rl/envs/opponents.py`, `policy_opponents.py`, `trained_opp
 
 ## Scripted pursuit policy
 
-`auto_battlebot/rl/policies/scripted.py` registers `pursuit`, the toy's scripted baseline. It reads the opponent's body-frame position from the observation and steers at it with the same PD heading loop, angle threshold, distance ramp, turn scale and steer brake as `src/navigation/pursuit_navigation.cpp`. `PursuitConfig` defaults are the Mr Stabs Mk2 profile's (`config/mr_stabs_mk2_desktop.toml`, checked by `test_scripted_pursuit_defaults_match_mk2_profile`), except `max_linear_command`, which the evaluation sets per arm because 0.25 is a bench setting, not a fighting one.
+`auto_battlebot/rl/policies/scripted.py` registers `pursuit`, the toy's scripted baseline. It reads the opponent's body-frame position from the observation and steers at it with the same PD heading loop, angle threshold, distance ramp, turn scale and steer brake as `src/navigation/pursuit_navigation.cpp`. `PursuitConfig` defaults are the gains the Mr Stabs Mk2 bench profile ran before it moved to `MotionProfileNavigation`, except `max_linear_command`, which the evaluation sets per arm because 0.25 is a bench setting, not a fighting one.
 
 ## Workarounds
 

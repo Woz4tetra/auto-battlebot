@@ -19,15 +19,15 @@ There is NO `main.toml` or `playback.toml` (old flat names, removed). Configs co
 `playback/_playback` works from any subdir:
 ```
 _common.toml                       # shared base, never run directly
-  _desktop.toml / _jetson.toml     # platform bases (x86 dev vs Jetson aarch64)
-    mr_stabs_mk2_{desktop,jetson}.toml, mrs_buff_mk3_{desktop,jetson}.toml   # live hardware
+  _desktop.toml / _zed_box.toml    # platform bases (x86 dev vs ZED Box Mini)
+    mr_stabs_mk2_desktop.toml, <robot>_*zed_box.toml   # live hardware
     playback/_playback.toml -> playback/<robot>_playback.toml   # SVO replay (hardware-free)
     simulation/{_simulation,headless_sim}.toml
     experiments/{label_playback,eval_candidate,experiment_playback}.toml
 profiles.toml                      # standalone; UI profile switcher (excludes _-prefixed)
 ```
 - Hardware-free dev/regression: `config/playback/<robot>_playback.toml` (set
-  `[rgbd_camera] svo_file_path`). Deploy: `*_jetson.toml`.
+  `[rgbd_camera] svo_file_path`). Deploy: `*_zed_box.toml`.
 - Detector eval configs: `config/experiments/`. See project skills `/replay` and `/eval`.
 - Note: `main.toml` still appears as a stale fallback in `src/config/config.cpp` and
   `src/main.cpp` help text — treat as a latent bug, not current behavior.

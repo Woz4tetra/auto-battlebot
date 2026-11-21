@@ -15,7 +15,7 @@ Configs live in `config/` and compose via an `extends` chain resolved against th
 
 ```
 _common.toml                      # shared base, not run directly
-  _desktop.toml / _jetson.toml    # platform bases (x86 dev vs Jetson)
+  _desktop.toml / _zed_box.toml   # platform bases (x86 dev vs ZED Box Mini)
     <robot>_desktop.toml          # live hardware configs
     playback/_playback.toml       # extends _desktop; SVO source + PlaybackTransmitter
       playback/mr_stabs_mk2_playback.toml   # per-robot label mappings
