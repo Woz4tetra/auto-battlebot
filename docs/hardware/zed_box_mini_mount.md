@@ -1,13 +1,6 @@
 # ZED Box Mini mount
 
-These notes were moved out of source comments and docstrings in `hardware/` at commit
-`23e253c1`. Names, line numbers and numbers are as they were in the code then.
-
 ## Assembly page
-
-### `zed_box_mini_mount/assembly_page.py`
-
-Docstring at line 1:
 
 ```text
 Build the assembly review page for the ZED Box Mini cheese plate adapter.
@@ -22,32 +15,7 @@ the measured data injected) and one mesh JSON per part group for the 3D viewer, 
 out/step/: the adapter, cheese plate, and ZED Box Mini as STEP in the assembly frame.
 ```
 
-## Vendor STEP frames
-
-### `zed_box_mini_mount/assembly_page.py`
-
-Line 45, `above ZED_BASE_Y = 3.5`:
-
-```text
-STEP frame: X across the box, Y up (base sheet bottom at Y = 3.5), Z along the box (0..143).
-Adapter frame: X along the box, Y across, Z up, base sheet bottom on the adapter top face.
-```
-
-### `zed_box_mini_mount/zed_x_one_s_bracket.py`
-
-Line 62, `above CAM_FRONT_Y = -76.2705954`:
-
-```text
-Camera STEP frame: lens toward -Y, front face at Y = -76.2706, front M2 square centered on
-(X, Z) = (0.5142, -17.6945). Measured from the STEP; matches datasheet p.8 (25 x 25 body, 21 mm
-square). Solid 9 of the STEP is the FOV frustum surface, not hardware.
-```
-
 ## CP10 reference model
-
-### `zed_box_mini_mount/innorel_cp10.py`
-
-Docstring at line 1:
 
 ```text
 INNOREL CP10 cheese plate (Amazon B0DRYFL595): 200 x 100 x 10 mm 6061-T6 plate.
@@ -74,39 +42,7 @@ Open questions
 - Positions without a printed dimension carry about ±0.3 mm of image-scaling error.
 ```
 
-Line 43, `TAP_1_4_20 = 5.1`:
-
-```text
-#7 drill, fasteners.md
-5/16" drill
-measured from the drawing
-unlabeled on the drawing, measured
-```
-
-Line 89, `length: float = 200.0`:
-
-```text
-drawing
-drawing
-drawing
-not on the drawing
-drawing
-drawing
-estimated from photo 71aXTwjp85L, leaves a 3.5 mm lip
-drawing: 74.3 / 2 + 24.7 / 2
-drawing
-drawing
-measured
-drawing: 23.5 / 2 + 27 / 2
-drawing
-not on the drawing
-```
-
 ## Ball head reference model
-
-### `zed_box_mini_mount/smallrig_2948_ball_head.py`
-
-Docstring at line 1:
 
 ```text
 SmallRig 2948 mini ball head (Amazon B09G9PFQCN, sold as the 2948B two-pack), cold shoe removed.
@@ -138,32 +74,7 @@ Open questions
   length: the 1/2" set screw here puts 6.35 mm into it.
 ```
 
-Line 53, `body_h: float = 27.5`:
-
-```text
-photo scale
-photo scale
-photo scale, listing gives 25 across the cold shoe
-ball center above the bottom face, photo scale
-photo scale
-photo scale
-ball center to platform underside, photo scale
-photo scale, octagon across corners
-photo scale, metal plus rubber pad
-photo scale; 1/4-20 male
-1/4-20 major diameter
-1/4-20 tap drill, fasteners.md
-assumed
-neck + clearance
-photo scale
-from axis; 33 mm listed depth minus half the 23 mm body
-```
-
 ## Cheese plate adapter
-
-### `zed_box_mini_mount/zed_cheese_plate_adapter.py`
-
-Docstring at line 1:
 
 ```text
 ZED Box Mini to cheese plate adapter: a printed plate sandwiched between the ZED Box Mini
@@ -194,70 +105,13 @@ Spec
 Open questions
 - Measure the cheese plate's 1/4-20 Y spacing (61.7 mm here) before printing. The clearance
   holes are Ø7.0 so ±0.3 mm of image error still fits, and `plate_hole_y` is a Param.
-- The flange size is unverified: 80/20's drawing would not load. The counterbore assumes
-  a flange up to Ø0.60" (15.2 mm) and a head up to 0.15" (3.8 mm). Measure one; if it is
-  bigger, raise `cbore_d` / `cbore_depth` and `thickness` together to keep the 2.7 mm floor.
 - Insert hole Ø4.2 is a guess for a generic Ø5 knurl insert. Print a test hole if there is
   time; go to 4.0 if the insert drops in loose.
 - 1/4-20 engagement is the plate's full 10 mm (1.57 D), over the 1.5 D rule for aluminum.
   The 2.7 mm of PLA under each flange is the weak link.
 ```
 
-Line 63, `length: float = 143.0`:
-
-```text
-X: matches the ZED body length (STEP)
-Y: matches the ZED ears (STEP); overhangs the 100 mm plate 1.9/side
-Z: counterbore + 2.7 floor; the screw tip lands flush under the plate
-vertical corners
-elephant's foot relief, dfm/fdm.md
-```
-
-## Dimension sources
-
-### `zed_box_mini_mount/zed_cheese_plate_adapter.py`
-
-Line 50, `above @dataclass`:
-
-```text
-Mating hardware, used only by mates().
-INNOREL CP10
-ZED Box Mini STEP, main heatsink
-bottom sheet and ears, STEP
-ear span along X, total width across ears, STEP
-STEP
-80/20 3342, unverified
-80/20 3342
-fasteners.md; longest that fits
-```
-
-Line 69, `above insert_len: float = 6.0`:
-
-```text
-ZED Box Mini ear holes, STEP
-±, along the ZED's long axis (48 mm pitch)
-±, across (94.55 mm pitch in the STEP, rounded)
-Shop-stock M3 x 6 x Ø5 heat-set insert
-generic Ø5 knurl; print a test hole
-```
-
-Line 77, `above def features(p: Params) -> list[dict]:`:
-
-```text
-INNOREL CP10 1/4-20 holes used, from the plate drawing
-±, drawing: 74.3 / 2 + 24.7 / 2
-±, scaled from the drawing image; measure
-1/4-20 x 1/2 flanged button head, 80/20 3342
-6.75 free clearance (fasteners.md) + 0.25 FDM undersize
-flange up to 15.2 (unverified) + 0.8 clearance and FDM undersize
-head up to 3.8 (unverified) + 0.2 below the ZED sheet
-```
-
 ## Cheese plate adapter: feature plan
-
-### `zed_box_mini_mount/zed_cheese_plate_adapter.py`
-
-Docstring at line 87:
 
 ```text
 The part as 4 CAD features (recipe.py), replayed by build() and by the onshape skill.
@@ -267,27 +121,7 @@ which leaves the insert holes and Ø16 counterbores through. The counterbore flo
 the Ø7-Ø16 rings added back up to 2.7 mm, so no feature needs a sketch on the top face.
 ```
 
-Line 101, `above + [{"circle": (x, y, p.insert_hole)} for x, y in holes]`:
-
-```text
-M3 heat-set insert holes for the ZED ears, through so the screw length is free.
-```
-
-## Cheese plate adapter: modelling conventions
-
-### `zed_box_mini_mount/zed_cheese_plate_adapter.py`
-
-Line 155, `above ins = (`:
-
-```text
-Installed insert: brass melts into the hole wall, so it overlaps the part.
-```
-
 ## Camera mount options
-
-### `zed_box_mini_mount/zed_x_one_s_assembly.py`
-
-Docstring at line 1:
 
 ```text
 ZED Box Mini on the INNOREL CP10 cheese plate, with the ZED X One S on a ball head.
@@ -325,21 +159,7 @@ Ball head poses come from solving pan and spin numerically so the camera points 
 table says; `pan` also keeps the wing knob off the adapter and ZED Box Mini.
 ```
 
-## Camera bracket assembly: modelling conventions
-
-### `zed_box_mini_mount/zed_x_one_s_assembly.py`
-
-Line 202, `above ("quarter_insert", "ball_head"),`:
-
-```text
-The stud is 1/4-20 major diameter; the insert is modeled at its minor bore.
-```
-
 ## Camera bracket
-
-### `zed_box_mini_mount/zed_x_one_s_bracket.py`
-
-Docstring at line 1:
 
 ```text
 ZED X One S bracket: holds the camera by its Stereolabs front mount on a 1/4-20 ball head.
@@ -379,50 +199,7 @@ Open questions
   printing the bracket, since printed holes run 0.1 to 0.2 mm under.
 ```
 
-## Camera bracket dimensions); plate_t, plate_h, slot_x from front_mount.Params(
-
-### `zed_box_mini_mount/zed_x_one_s_bracket.py`
-
-Line 72, `width: float = 50.0`:
-
-```text
-matches the front mount's 50 mm length
-1/4-20 insert 7.62 + 0.38 skin under its tip (through hole)
-rear edge; 32 mm floor deep covers the Ø26 platform
-front mount back face; puts the camera's mass over the stud
-front mount, datasheet p.11
-front mount, datasheet p.11
-camera half width 12.5 + 0.7 clearance
-cheek depth 18 mm behind the plate
-covers the top insert (axis_z + 5 + 4.2 boss radius)
-front mount slots, datasheet p.11
-2 screws per slot at axis_z ± 5, inside the 20 mm slot
-94180A353: 0.208" max hole
-94180A353
-insert + 1 mm, fasteners.md
-93365A160: 0.349" max hole, drill S = 0.348"
-93365A160: 0.300"
-knurl OD, McMaster drawing range
-floor's vertical corners
-cheek back edges
-elephant's foot, dfm/fdm.md
-```
-
-## Camera bracket: fillets
-
-### `zed_box_mini_mount/zed_x_one_s_bracket.py`
-
-Line 122, `above {"op": "fillet", "name": "Cheek backs", "size": p.cheek_r, "tangent": False,`:
-
-```text
-Cheek back edges only; the cheek fronts stay sharp where the plate seats.
-```
-
 ## Front mount: store page vs drawing, notch estimate
-
-### `zed_box_mini_mount/zed_x_one_s_front_mount.py`
-
-Docstring at line 1:
 
 ```text
 Stereolabs ZED X One S front mount (ACC-151300): 50 x 30 x 4 mm aluminum plate.
@@ -448,8 +225,6 @@ Open questions
   the drawing's scale. They touch nothing in this assembly.
 ```
 
-## Workarounds
+## Assembly page mesh format
 
-- `zed_box_mini_mount/assembly_page.py:write_mesh`: each mesh is one JSON file, base64 int16
-  positions in units of `MESH_MM_PER_STEP` mm (Z up) and uint32 triangle indices. Artifacts serve
-  JSON but not GLB, and the viewer computes the normals.
+`assembly_page.py` writes each mesh as one JSON file: base64 int16 positions in units of `MESH_MM_PER_STEP` mm (Z up) and uint32 triangle indices. Artifacts serve JSON but not GLB, and the viewer computes the normals.

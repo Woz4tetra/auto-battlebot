@@ -1,13 +1,8 @@
 # Cage pack
 
-These notes were moved out of source comments and docstrings in `hardware/` at commit
-`23e253c1`. Names, line numbers and numbers are as they were in the code then.
+Design reference for the parts under `hardware/cage_pack/`.
 
 ## Battery clamp section
-
-### `cage_pack/battery_clamp.py`
-
-Docstring at line 1:
 
 ```text
 Battery clamp: a printed PETG plate that holds the battery holder and cells down and
@@ -33,10 +28,6 @@ Spec
 ```
 
 ## Frame and stack-up
-
-### `cage_pack/cage_layout.py`
-
-Docstring at line 1:
 
 ```text
 Shared layout for the cage pack: a printed enclosure on two SmallRig 4122C suction cups
@@ -69,52 +60,17 @@ Stack, glass outward:
 
 ## Dimension sources
 
-### `cage_pack/cage_layout.py`
-
-Line 38, `above CP10_PITCH = 153.5`:
-
-```text
-SmallRig 4122C (B&H page + dimension photo in ~/Downloads, 2026-11-07)
-rubber face, dimension photo
-overall width, B&H spec 139.7 x 106.7 x 50.8
-glass to the top of the NATO rail, dimension photo
-pump knob tip from the cup axis
-release tabs on the rim, each side of the pump; photos, +-20
-3/8-16 button head: diameter, height, fasteners.md
-McMaster 92141A051 under the head: OD, thickness
-The tray's old cup holes stay as a tripod mount: 153.5 apart on X = 0 matches the INNOREL
-CP10 cheese plate's 3/8-16 pair (zed_box_mini_mount/innorel_cp10.py).
-```
-
-Line 77, `HR10_PANEL_T = 1.8`:
-
-```text
-spot face around the HR10: catalog panel 0.7 to 2.0
-```
-
-### `cage_pack/cage_pack_assembly.py`
-
-Line 109, `above UPS_TOP = cl.UPS_Z0 + 1.6`:
-
-```text
-OpenUPS connectors (STEP solid centres, inspect_step.py), on the board's top face.
-```
-
-Line 131, `above FAKRA_PLUG_LEN = 26.0`:
+### cage pack assembly
 
 ```text
 FAKRA plug (Rosenberger 59Z114-000Z): 26 long from its nose, which sits FAKRA_ENGAGE back
 from the jack's tip, so the cable leaves 26 - FAKRA_ENGAGE past the tip.
 ```
 
-Line 135, `above FAKRA_CABLE_IN = 6.0`:
-
 ```text
 The STEP is the housing alone, bored Ø6.70 through; the cable's crimp ferrule sits this far
 inside its back end.
 ```
-
-Line 138, `above CAM_FAKRA_TIP = (3.30, -42.72, -23.75)`:
 
 ```text
 ZED X One S FAKRA jack in the camera STEP's frame (inspect_step.py, solid 6): axis along
@@ -122,16 +78,12 @@ the STEP's +Y (away from the lens) at (x, z) = (3.30, -23.75), 2.8 and 6.1 off t
 axis, tip at y = -42.72, 13.3 behind the body's back face.
 ```
 
-Line 384, `above UPS_J10 = cl.ups(6.2, 0.0, 77.5)[:2]`:
-
 ```text
 OpenUPS J10 (motherboard on/off) and J8 (start/stop) 2-pin headers, located from Mini-Box's
 connection diagram against the J5 and J7 connectors in the STEP (about +-1 mm).
 ```
 
-### `cage_pack/connectors.py`
-
-Docstring at line 1:
+### connectors
 
 ```text
 Cable connector envelopes for the cage pack assembly, traced from datasheet drawings.
@@ -158,9 +110,7 @@ the cable). `place(shape, origin, z_dir, x_dir)` puts one in the assembly.
 | Lever suction cup with 1/4-20 stud | generic 4.5" (114 mm) cup, e.g. Delvie's Plus |
 ```
 
-### `cage_pack/hr10.py`
-
-Docstring at line 1:
+### hr10
 
 ```text
 Hirose HR10 4-pin envelopes: HR10A-7R-4S panel receptacle and HR10A-7P-4P cable plug.
@@ -173,16 +123,12 @@ Frame: origin on the panel's front face at the receptacle axis, +Z into the encl
 thread and nut side), -Z out toward the mating plug.
 ```
 
-### `cage_pack/pcba_cage.py`
-
-Line 98, `above GH13V = "box:19.5x4.95x4.2"`:
+### pcba cage
 
 ```text
 KiCad's 9.0 library has no BM13B model here: the outline from the BM02-06 models' rule,
 1.25 n + 3.25 wide, 4.95 deep, 4.2 tall.
 ```
-
-Line 104, `SOT363 = "box:2.1x2.0x1.0"`:
 
 ```text
 2N7002DW dual N-FET
@@ -191,16 +137,7 @@ ESP32-S3-WROOM-1U: KiCad 9.0 has no model, so this is the datasheet outline (18.
 bulkhead in the enclosure's antenna wall.
 ```
 
-### `cage_pack/pcba_cage.py` placement table
-
-- `Placement(model, rot_deg, x, y)`: KiCad frames, mating face toward -Y, top +Z.
-- `BoxEnvelope(w, d, h)` stands in for a KiCad model where there is none, using the datasheet
-  outline: `SOP4` is the Toshiba TLP172A photoMOS and TLP293 optocoupler, SO4.
-- `MATERIAL = "fr4"` (1.85 g/cm3 in the skill density table).
-
-### `cage_pack/smallrig_4122c.py`
-
-Docstring at line 1:
+### smallrig 4122c
 
 ```text
 SmallRig 4122C 4" suction cup camera mount: an envelope traced from the B&H page.
@@ -224,40 +161,9 @@ Open questions
   size 14 wide x 12 radial x 9 tall, guessed.
 ```
 
-Line 28, `MASS_G = 264.0`:
-
-```text
-B&H spec
-"horizontal mounting": load normal to the surface
-"vertical mounting": load along the surface
-3/8-16, assumed: a 9/16" screw through 4.83 of plate engages 9.5
-3/8-16 tap drill (5/16"), fasteners.md
-```
-
-## Printing
-
-### `cage_pack/cage_layout.py`
-
-Line 51, `above PANEL_T = 3.0`:
-
-```text
-Enclosure tray: black PETG, printed on a Bambu P1S (256 x 256 x 256) with the panel's
-glass-side face on the bed and the walls rising from it (dfm/fdm.md).
-P1S build plate, X and Y
-each side; leaves no room for a brim
-```
-
 ## Tray sizing
 
-### `cage_pack/cage_layout.py`
-
-Line 56, `WALL_T = 2.4`:
-
 ```text
-six 0.4 perimeters
-back panel's glass-side face, level with the cups' rail tops
-its inner face
-spot face for a tripod screw's washer: Ø, depth; 1.6 under it
 Inside, packed round the parts. What sets each face:
 - -X: the ZED's RJ45 and TBP power plugs, their cables and the RJ45 tail running down
   beside the ZED Box Mini's -X face; also the battery, which must stay left of the lower
@@ -266,39 +172,9 @@ Inside, packed round the parts. What sets each face:
 - +Y: the ZED's WiFi jacks with 90° RP-SMA plugs and their cables.
 - -Y: the 4S1P battery holder (78 mm) under the ZED.
 - Depth: the ZED Box Mini (61.6 over the panel) plus a 5.4 mm gap for its top fan intake.
-panel inner face to the walls' front edge
-inside faces of the -X and +X walls
-inside faces of the bottom and top walls
 ```
 
-## Bosses and cup arm constants
-
-### `cage_pack/cage_layout.py`
-
-- Bosses on the panel take M3 heat-set inserts (McMaster 94180A333, 6.4 mm long). `INSERT_HOLE` is
-  the 94180A333 hole in plastic.
-- `BOSS_H = 8.0` clears the 3/8-16 button head plus washer (6.7 mm) under the ZED.
-  `test_zed_bosses_clear_tripod_screw_head_and_washer` holds it.
-- `BOSS_D = 8.0`: fasteners.md says an M3 insert needs at least 7.0.
-- `PCBA_Y1` leaves 2.2 mm to the ZED Box Mini body; `test_pcba_clears_zed_body` requires 2.0.
-- `CUP_X_NEG_POS` holds the -X and +X cup positions. `CUP_ROT_NEG_POS` rotates the cup model, whose
-  pump is on -X, so the pumps point -X and +X.
-- `ARM_WIDTH_Y` is the arm width along Y.
-- `ARM_PLATE_T` is the plate on the cup's rail, Z = `CUP_H` up. `ARM_TONGUE_T` is the tongue under the
-  panel, Z = `CUP_H` down.
-- `ARM_TONGUE` is the tongue length under the panel from the side wall's outside face.
-- `ARM_SCREW_IN` is where the panel screws go in, from the side wall's outside face. `ARM_SCREW_DY`
-  puts them at `CUP_Y` +- that.
-- `ARM_SPOT = SpotFace(27.0, 3.0)` is the washer spot face, diameter and depth, leaving 5.0 mm of the
-  plate under the washer. `ARM_SEAT_Z` is the cup washer underside.
-- `ARM_CBORE = SpotFace(6.5, 3.5)` is the M3 head counterbore from the tongue's underside.
-- `ARM_BOSS_H = 6.0`: panel bosses over the arm inserts, under the ZED Box Mini's 8 mm bosses.
-
 ## Cup placement
-
-### `cage_pack/cage_layout.py`
-
-Line 79, `above CUP_Y = -70.0`:
 
 ```text
 Cups beside the tray (cup_arm.py). The +X cup sits between the camera and its shield
@@ -308,20 +184,6 @@ of the cup's rail, and each release tab, on the cup's axis line, sits clear of t
 ```
 
 ## Lid
-
-### `cage_pack/cage_layout.py`
-
-Line 108, `above LID_T = 2.4`:
-
-```text
-Lid: flat 2.4 mm PETG plate on the walls' edges, printed outside face down, with a
-locating and light-sealing lip inside the walls; six M3 screws down into heat-set inserts
-in bosses hung from the walls' tops.
-```
-
-### `cage_pack/enclosure_lid.py`
-
-Docstring at line 1:
 
 ```text
 Cage pack enclosure lid: a flat black PETG plate over the tray's open front.
@@ -356,8 +218,6 @@ Spec
   screw holes and vents.
 ```
 
-Docstring at line 72:
-
 ```text
 Plate thinned to p.skin from the inside between 3 mm lands, on the tray panel's
 grid except x = 4.5, which falls between two vent slots where the spine's x = 0 would
@@ -366,10 +226,6 @@ display.
 ```
 
 ## Power button
-
-### `cage_pack/cage_layout.py`
-
-Line 153, `above SWITCH_X, SWITCH_Z = 72.0, 84.0`:
 
 ```text
 Power button: CIT AH1LBBG12 (19 mm anti-vandal, latching, black, green ring) through the
@@ -380,26 +236,13 @@ quick-connect version; the nut's thickness is not given (3 assumed).
 
 ## Power button, RJ45
 
-### `cage_pack/cage_layout.py`
-
-Line 158, `SWITCH_HOLE = 19.3`:
-
 ```text
-datasheet cut-out 19.00, +0.3 for a printed hole (fdm.md)
-front bezel, outside the wall: diameter, thickness
-actuator (button) diameter
-behind the bezel to the tab ends: 31.8 overall less the 2.0 bezel
-across corners, thickness (assumed)
 RJ45 panel jack (ModDIY CO905) through the bottom wall beside the button: (x, z) of its
 body's centre. Its 37.3 flange ends 12 short of the button's bezel; the body (22 tall)
 stays under the display bracket (z 105.6) and its 33 mm inside clears the PCBA's -Y edge.
 ```
 
 ## Battery
-
-### `cage_pack/cage_layout.py`
-
-Line 172, `above HOLDER_STEP = VENDOR / "mpd" / "BK-18650-PC8.step"`:
 
 ```text
 Battery: four Molicel P30B in an MPD BK-18650-PC8 holder (no spot welding), cells along Y,
@@ -410,31 +253,12 @@ BK-18650-PC8 drawing (rev N, 2024-08-21) and MPD's STEP: 77.98 along the cells, 
 across, 21.54 tall above the board, cells at ±9.65 and ±28.95 across, 3.2 mm PC pins.
 ```
 
-Line 179, `HOLDER = (78.84, 77.98, 21.54)`:
-
 ```text
-X (across cells), Y (along cells), Z
-PC pin length below the holder; clipped to 1.0 below the carrier
-from the holder's centre
-P30B, flat top
-holder base -> cell axis: cradle floor 1.6 under each cell
-```
-
-Line 185, `CARRIER = (80.0, 80.0)`:
-
-```text
-X, Y under the holder
 Pad tab off the +X edge, between the OpenUPS bosses and clear of the lower CP10 ring:
 B-, B1, B2, B3, B+ solder pads for the battery lead and the OpenUPS J6 balance cable.
-(x0, y0), (x1, y1); 0.8 off the CP10 ring
-pad under the carrier
 ```
 
 ## Display
-
-### `cage_pack/cage_layout.py`
-
-Line 215, `above DISP_STEP = VENDOR / "waveshare" / "2_8inch-capacitive-touch-lcd.stp"`:
 
 ```text
 Touch display: Waveshare 2.8inch Capacitive Touch LCD (SKU 27579), in the lid, landscape,
@@ -446,29 +270,16 @@ standoffs (Ø5.5) on 41 x 60, 4.0 proud of the PCB. STEP frame: glass front at z
 standoff ends at z = -9.3, connector end toward -y.
 ```
 
-### `cage_pack/cage_layout.py` display constants
-
-- `DISP_STANDOFFS` and `DISP_EARS` are offsets from `DISP_TOUCH_X`, `DISP_TOUCH_Y`. The ears are the
-  bracket screws.
-- `DISP_BRACKET_T = 2.6`: an M2.5 x 6 screw engages 3.4 mm of the brass standoff, over the 1.25 D
-  (3.125 mm) minimum. `test_display_screw_engages_brass_standoff_thread` holds the bracket to it.
-- `DISP_GH = (-29.5, -0.55)`: the module's GH1.25 13-pin connector (SM13B), centre; the mouth faces -X.
-- `DISP_GH_MOUTH_X = -32.42`: its mating face, from `DISP_TOUCH_X`.
-
 ## Camera
 
-### `cage_pack/cage_layout.py`
-
-Line 236, `above CAM_Y = -150.0`:
+### cage layout
 
 ```text
 Camera on the +X wall's outside. The ball head's base sits on the shield's spacer boss,
 its axis along +X at (CAM_Y, CAM_AXIS_Z); a 1/4-20 screw from inside the tray holds both.
 ```
 
-### `cage_pack/cage_pack_assembly.py`
-
-Line 98, `above HEAD = Location(`:
+### cage pack assembly
 
 ```text
 Ball head on the shield's spacer boss outside the +X wall, axis +X; its knob (head -X)
@@ -476,40 +287,13 @@ faces +Z, toward the viewer, and its drop notch the glass. Neck straight out (ti
 the platform's spin sets the aim.
 ```
 
-### `cage_pack/cage_layout.py` camera, shield and hood
-
-- `CAM_AXIS_Z = 58.0`: the head screw clears the panel, and the aim sweep clears the glass by 12 mm.
-- `CAM_SPIN = 240.0`: platform spin with the knob toward +Z and tilt 0 puts the lens into the glass,
-  30 degrees down.
-- `SHIELD_T = 3.0`: shield flange thickness, between the wall and the head.
-- `CAM_SPACER = 9.0`: boss on the flange; the head clears the wall at 90 degrees into its notch.
-- `HEAD_SEAT_X`: the ball head's base face.
-- `CAM_PAD = (30.0, 4.0, 106.0)`: inside pad on the +X wall, Y width, X depth, top Z.
-- `SHIELD_SCREW_Z = 100.0`: M3 anti-rotation screw through the flange and wall into an insert.
-- `GMSL_HOLE`: (y, z) of the FAKRA plug, which passes straight out through the +X wall.
-- Hood over the camera's back (+Z): its underside sits above the highest point the camera and its
-  FAKRA plug reach anywhere in the head's range (`camera_range.py`). It covers the camera at the
-  default aim. Ribs on its top face stiffen it, out of the camera's way.
-- `SWEEP_Z_MAX = 124.0` is the top of the swept envelope from `camera_range.py`, rounded up. `sweep("aim")` gave an envelope top
-  of 114.9 mm on 2026-11-19. The hood underside is `SWEEP_Z_MAX + 3.0`, 12 mm above that.
-  `test_shield_hood_above_camera_sweep` fails when the sweep rises above the constant.
-- `SHIELD_Y = (-198.0, -108.0)`: hood Y extent, the camera, bracket and front mount plus 10 mm.
-- `SHIELD_REACH = 86.0`: hood beyond the head's seat face, past the bracket's front plus 10 mm.
-- `SHIELD_RIB = 8.0`: rib height on the hood's top face.
-
 ## Cage glass
-
-### `cage_pack/cage_layout.py`
-
-Line 256, `above GLASS_T = 6.35`:
 
 ```text
 Glass (NHRL wiki, Cage Design page, 3 lb cage): two 1/4" polycarbonate sheets with a
 1" air gap, each wall one 4' x 8' sheet, outer sheet held by steel plates bolted to the
 welded 1" tube frame.
 ```
-
-Line 261, `above CUP_BELOW_EDGE = 130.0`:
 
 ```text
 Where the pack sits on the outer sheet: the frame origin is this far below the sheet's
@@ -518,10 +302,6 @@ CUP_BELOW_EDGE - CUP_Y below it. Assumed.
 ```
 
 ## Overview, wiring
-
-### `cage_pack/cage_pack_assembly.py`
-
-Docstring at line 1:
 
 ```text
 Cage pack: ZED Box Mini, battery and PCBA in a printed PETG enclosure on two SmallRig
@@ -565,44 +345,30 @@ What goes where
 
 ## Vendor STEP frames
 
-### `cage_pack/cage_pack_assembly.py`
-
-Line 153, `above HOLDER_AT = Location(`:
-
 ```text
 MPD's STEP has the cells along its X, height along Y from the pin tips (holder base at
 Y = 3.2), across the cells along Z. Placed with the cells along Y, base on the carrier.
 ```
-
-Line 277, `above def _gx12_jack() -> Compound:`:
 
 ```text
 GrabCAD "GX12 Aviation Connectors" (Nelson Stoldt), axis along the STEP's X, mating
 toward -X. connectors.py frame: origin on the wall's outer face, +Z outward.
 ```
 
-Docstring at line 280:
-
 ```text
 GX12-2 panel jack: front shroud and flange outside, nut and solder cups inside. The
 model's gasket face (x = 1.0) sits on the wall; its nut leaves a 2.0 panel gap.
 ```
-
-Line 309, `above RJ45_FLANGE_BACK = -11.55`:
 
 ```text
 ModDIY panel jack (GrabCAD "Panel Mount RJ45", traced from their CAB105): STEP axis X,
 jack mouth toward +X, flange back face at x = -11.55, cable stub out to x = -44.5.
 ```
 
-Docstring at line 316:
-
 ```text
 ModDIY panel-mount RJ45 jack: 7 mm flange outside the bottom wall, 21.4 x 22 body and
 the cable's moulded stub inside, two screws at 27.5 along X.
 ```
-
-Docstring at line 325:
 
 ```text
 Molex Mini-Fit Jr receptacle housing (Molex's STEP): mating face at its z = -10.8,
@@ -610,29 +376,21 @@ cavities centred on y = -5.0, latch +Y. connectors.minifit_plug frame: origin on
 header's base, +Z off the board, housing from 3.0 up.
 ```
 
-Docstring at line 332:
-
 ```text
 Same Sky TBP01P1W-508-02GR (Same Sky's STEP): mates along its +X (pin end at
 x = 17.5), poles along its Z at 0 and 5.08, 15 tall along Y. connectors.tbp_plug_2p
 frame: X along the poles, Y height, mating face at z = -8.
 ```
 
-Docstring at line 341:
-
 ```text
 Rosenberger 59Z114-000Z FAKRA Z-code plug housing (Rosenberger's STEP), 26 long,
 coded nose at its z = -0.2. connectors.fakra_plug frame: +Z outward from the jack.
 ```
 
-Docstring at line 349:
-
 ```text
 L-com HG2402RD-RSF tilt-swivel RP-SMA antenna (L-com's STEP), plug onto the bulkhead
 4 mm past the wall, whip folded 90° to +Y at its hinge (STEP x = 36.25).
 ```
-
-Docstring at line 364:
 
 ```text
 The extension's 90° plug in the ZED's jack: GrabCAD "RJ45_Ethernet_Plug" head (22.17
@@ -640,29 +398,13 @@ long, mouth at its z = 22.17, latch +Y), 15 in the jack with the latch up, plus 
 moulded right-angle boot turning the cable +Z.
 ```
 
-Docstring at line 395:
-
 ```text
 Mean Well GST120A (Mean Well's GS-120 case STEP): case x 65.53 to 233.11 in the
 STEP, DC cord end at +X, 67 x 35. The STEP's 100 mm cord stub is cut off at the case;
 charger_cord carries on from there.
 ```
 
-## Cable routing
-
-### `cage_pack/cage_pack_assembly.py`
-
-Line 411, `above out["usb_a_plug"] = cn.place(cn.usb_a_plug_90(), cl.ZED_USB_A, (1, 0, 0), (0, -1, 0))`:
-
-```text
-Head along +X, cable leaving -Y (away from the FAKRA plug above it).
-```
-
 ## Cables
-
-### `cage_pack/cage_pack_assembly.py`
-
-Line 634, `above fx, fy, fz = cl.ZED_FAKRA_A`:
 
 ```text
 GMSL: straight out of the ZED's FAKRA jack through the +X wall, up and over toward
@@ -671,46 +413,7 @@ points up (+Z) and +Y at the default aim. About 90 mm of the 0.3 m cable is slac
 for re-aiming.
 ```
 
-### `cage_pack/cage_pack_assembly.py` cable specs
-
-- `CABLES` rows are `CableSpec(od, min_bend_r, source)`: envelope diameter, minimum bend radius, and
-  where the radius comes from. The radii are static: installed once, not flexed in service.
-- `_run` places every corner at the cable's minimum bend radius. Unlike `cn.tube` it never shrinks the
-  radius to fit: a corner too tight for it raises `ValueError`, so a route that builds meets the bend
-  radius. `tests/python/test_cage_pack_cables.py` covers this.
-
-## Materials for the thread check
-
-### `cage_pack/cage_pack_assembly.py`
-
-Line 876, `"material": "brass",`:
-
-```text
-the M2.5 standoffs' threads
-```
-
-Line 906, `"material": "al6061",`:
-
-```text
-aluminium head: 1.5 D thread rule
-```
-
-## Interference waivers
-
-### `cage_pack/cage_pack_assembly.py`
-
-Line 1221, `("battery_clamp", "openups"),`:
-
-```text
-board seated on the clamp's tubes
-contact springs drawn uncompressed, cradle snap lips
-```
-
 ## Camera range check
-
-### `cage_pack/camera_range.py`
-
-Docstring at line 1:
 
 ```text
 Camera range check: sweeps the ZED X One S through the SmallRig 2948 ball head's whole
@@ -742,10 +445,6 @@ inside it. Exits 1 when any clearance is under MIN_CLEAR.
 ```
 
 ## Camera shield
-
-### `cage_pack/camera_shield.py`
-
-Docstring at line 1:
 
 ```text
 Camera light shield: a black PETG hood over the back of the ZED X One S, which hangs off
@@ -781,10 +480,6 @@ Open questions
 
 ## Cup arm
 
-### `cage_pack/cup_arm.py`
-
-Docstring at line 1:
-
 ```text
 Cup arm: a printed PETG arm that carries one suction cup off a side wall of the tray.
 
@@ -810,8 +505,7 @@ Spec
 - Holes:
   - cup screw: Ø10.3 (3/8" normal clearance, fasteners.md) at the cup's axis, CUP_OUT
     from the wall, in a Ø27 x 3.0 washer spot face. That leaves 5.0 under the washer, so a
-    3/8-16 x 5/8" screw engages the cup's thread by 9.4, as the old 1/2" screw did through
-    the tray's 1.6.
+    3/8-16 x 5/8" screw engages the cup's thread by 9.4.
   - panel screws: 2 x Ø3.4 (M3 normal clearance) 28 in from the wall, 24 apart, each
     under a Ø6.5 x 3.5 counterbore for an M3 socket head from the glass side. M3 x 12
     engages the panel's 6.4 mm inserts by 5.5 (86 %).
@@ -830,10 +524,6 @@ Open questions
 ```
 
 ## Display bracket
-
-### `cage_pack/display_bracket.py`
-
-Docstring at line 1:
 
 ```text
 Display bracket: a printed PETG frame behind the touch display that clamps its glass
@@ -860,10 +550,6 @@ Spec
 ```
 
 ## Enclosure tray
-
-### `cage_pack/enclosure.py`
-
-Docstring at line 1:
 
 ```text
 Cage pack enclosure tray: the one part that carries everything, printed in black PETG.
@@ -893,8 +579,7 @@ Spec
     sits under a Ø8 x 6 boss on the panel's inside; the +X pair is under the ZED Box
     Mini's edge, 2 mm below its underside. M3 x 12 socket heads come up through each arm's
     tongue.
-  - Tripod (CP10): 2 x Ø10.3 (3/8" normal clearance) at (0, 0) and (0, -153.5), where the
-    cups used to bolt on, each in a Ø27 x 1.4 washer spot face. A 3/8-16 x 1/2" button head
+  - Tripod (CP10): 2 x Ø10.3 (3/8" normal clearance) at (0, 0) and (0, -153.5), each in a Ø27 x 1.4 washer spot face. A 3/8-16 x 1/2" button head
     over a 1" washer from inside reaches a CP10 cheese plate under the panel.
   - Bosses Ø8 with Ø4.0 x 7.4 holes for M3 x 6.4 heat-set inserts (94180A333): four 8 mm
     under the ZED Box Mini's ears, four 8 mm under the PCBA, four 25 mm under the battery
@@ -930,30 +615,7 @@ Open questions
   unchecked. Raise `floor` to 1.6 for about +10 g if a test print feels soft.
 ```
 
-## Dimension sources, HR10
-
-### `cage_pack/hr10.py`
-
-Line 16, `PANEL_HOLE = 8.1`:
-
-```text
-catalog 8.1 +0.1
-key slot to centre, catalog
-catalog 1.6 +0.1
-catalog 0.7 to 2.0
-receptacle in front of the panel, catalog
-M8 x 0.5 thread behind the panel, catalog
-HR10A-7P plug body, catalog p.6
-plug body with strain relief, catalog p.6
-not in the catalog, assumed
-not in the catalog, assumed
-```
-
 ## PCBA
-
-### `cage_pack/pcba_cage.py`
-
-Docstring at line 1:
 
 ```text
 Custom PCBA for the cage pack: an ESP32-S3 board with the USB bridge, the power button's
@@ -1004,36 +666,12 @@ Spec
   pair on the same side, or part-hole overlap, in plan view.
 ```
 
+## Onshape constants
+
+`enclosure.py` grows a land circle by 0.1 mm when it only touches a cell's edge (`TOUCHING_LAND_GROWTH`). A land that touches leaves a pocket whose boundary meets itself at a point, and Onshape's kernel will not extrude that. The case that hit it: the PCBA's (25.5, -107.5) boss land touched the y = -114.5 cell edge. The grown land crosses the edge instead.
+
+A lid boss is a 9 x 9 block under the wall's edge, its underside a 50 degree gusset back into the wall (`BOSS_WALL_OVERLAP`). The profile starts 0.2 mm inside the wall so the block fuses, and the gusset drops 0.2 mm extra. Top and bottom walls sketch on Right (Y, Z), the +X and -X walls on Front (X, Z).
+
 ## Printing
 
-### `cage_pack/petg_p1s.ini`
-
-Lines 1-3:
-
-```text
-PrusaSlicer overrides for print_mass.py: black PETG on the Bambu P1S, 0.4 nozzle.
-Match these in Bambu Studio when printing, or the slicer masses no longer hold.
-Keys left out take PrusaSlicer's defaults.
-```
-
-## Workarounds
-
-All unverified unless noted: the CAD builds are too heavy to rerun for a comment purge.
-
-- `cage_pack/cage_layout.py:OUTER_CORNER_R`: the outside vertical corners. The inside ones are
-  `OUTER_CORNER_R - WALL_T`.
-- `cage_pack/cage_pack_assembly.py:_hr10_plug`: the GrabCAD "Hirose HR10 6 pin plug end" STEP, the
-  same size-7 shell as the 4-pin HR10A-7P-4P. The body's front face sits on the receptacle's 7.8 mm
-  front, plus 40 mm of cable, in the `hr10.py` frame (+Z into the enclosure). Only the body is
-  placed: the nose and pins sit inside the receptacle.
-- `cage_pack/camera_shield.py:_rib_profile`: the rib ends one corner radius short of the hood's end.
-- `cage_pack/dynamics.py`: the rotational inertia `J` is that of a box about its own CG, roughly
-  160 x 100 x 100 mm.
-- `cage_pack/enclosure.py:TOUCHING_LAND_GROWTH`: a land circle that only touches a cell's edge
-  leaves a pocket whose boundary meets itself at a point, which Onshape's kernel will not extrude
-  (the PCBA's (25.5, -107.5) boss land touched the y = -114.5 cell edge). Such a land grows by
-  0.1 mm so it crosses.
-- `cage_pack/enclosure.py:BOSS_WALL_OVERLAP`: a lid boss is a 9 x 9 block under the wall's edge,
-  its underside a 50 degree gusset back into the wall. The profile starts 0.2 mm inside the wall
-  so the block fuses, and the gusset drops 0.2 mm extra. Top and bottom walls sketch on Right
-  (Y, Z), the +X and -X walls on Front (X, Z). Not verified without the overlap.
+`petg_p1s.ini` holds the PrusaSlicer overrides `print_mass.py` uses: black PETG on the Bambu P1S, 0.4 mm nozzle. Match them in Bambu Studio when printing, or the sliced masses no longer hold. Keys left out take PrusaSlicer's defaults.

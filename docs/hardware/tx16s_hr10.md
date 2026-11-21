@@ -1,13 +1,6 @@
 # TX16S HR10 trainer-port parts
 
-These notes were moved out of source comments and docstrings in `hardware/` at commit
-`23e253c1`. Names, line numbers and numbers are as they were in the code then.
-
 ## Bar scan
-
-### `tx16s_hr10_handle_clamp/bar_scan.py`
-
-Docstring at line 1:
 
 ```text
 Cut cross-sections of the TX16S MK2 carry-handle bar out of the full-radio scan.
@@ -22,22 +15,7 @@ section centroid (5 deg bins, median radius, then a 3-bin circular mean).
     ~/.local/share/build123d-part/venv/bin/python         hardware/tx16s_hr10_handle_clamp/bar_scan.py         ~/Downloads/radiomaster-tx16-1.snapshot.2.zip
 ```
 
-## Handle clamp: bar scan station range and crop
-
-### `tx16s_hr10_handle_clamp/bar_scan.py`
-
-Line 22, `STATIONS = np.arange(58.0, 80.01, 2.0)`:
-
-```text
-straight run of the right end; the corner bends from x 80
-bar lies behind the radio body (back face y ~ 22)
-```
-
 ## Handle clamp: render_context usage
-
-### `tx16s_hr10_handle_clamp/render_context.py`
-
-Docstring at line 1:
 
 ```text
 Render the HR10 handle clamp, receptacle and mated plug on the full scanned TX16S.
@@ -50,10 +28,6 @@ check_assembly.py first.
 ```
 
 ## Handle clamp
-
-### `tx16s_hr10_handle_clamp/tx16s_hr10_handle_clamp.py`
-
-Docstring at line 1:
 
 ```text
 TX16S MK2 HR10 handle clamp: holds an HR10A-7R-4S receptacle on the carry-handle bar.
@@ -112,49 +86,7 @@ Open questions
 - Key tab length and nut thickness are catalog gaps; same caveats as ../tx16s_hr10_mount.
 ```
 
-## Handle clamp dimensions
-
-### `tx16s_hr10_handle_clamp/tx16s_hr10_handle_clamp.py`
-
-Line 89, `half: str = "top"`:
-
-```text
-"top" or "bottom"
-Clamp, radio frame
-clamp left end
-clamp right end, short of the corner bend at x 80
-widest point of the section
-between the halves on the bar
-constant-section bore at the right end
-radial, about the scan's own accuracy; the 0.8 gap still closes
-the lead widens by this much more over its run to the end face
-bore walls stand at full section width this far into each half
-entry chamfer at both end faces
-2.25 wall outside the front counterbore
-2.25 wall outside the back counterbore
-4.3 over the bar's crown (z -21.3)
-3.8 under the bar's lowest point at x 61 (z -33.7)
-```
-
-Line 105, `above hole_d: float = 8.3`:
-
-```text
-Tower, radio frame
-over the bar's corner; arm at x 83..88
-over the bar's crown (y 59.5)
-hex flat 5.05 + 2.95 wall; tower meets the clamp at x 77
-hex corner 5.83 + 2.0 wall
-over the corner's scan peak (z -21.1)
-scan, max z under the tower footprint
-Receptacle, HR10 catalog (see ../tx16s_hr10_mount)
-catalog max, for a 1.2 web under the counterbore
-```
-
 ## Handle clamp bore
-
-### `tx16s_hr10_handle_clamp/tx16s_hr10_handle_clamp.py`
-
-Docstring at line 145:
 
 ```text
 The handle bar from x 58 to 80, radio frame, lofted through the scan sections.
@@ -163,18 +95,7 @@ Ruled like the bore tools, so the two differ only by bore_clear; a smooth loft b
 up to 0.2 mm past the ruled one between stations.
 ```
 
-Line 217, `above last = stations[-1][1]`:
-
-```text
-The lead widens toward the end: the bar's x 78 section pokes 0.1 past the x 76 one
-in places, and a bore that widens toward an end face meets it at an obtuse angle.
-```
-
 ## Handle clamp: raw-scan verification
-
-### `tx16s_hr10_handle_clamp/verify_scan.py`
-
-Docstring at line 1:
 
 ```text
 Check both clamp halves and a mated plug against the raw TX16S scan.
@@ -188,10 +109,6 @@ scan, so this measures every scan vertex near the clamp.
 
 ## Shell mount: render_context usage
 
-### `tx16s_hr10_mount/render_context.py`
-
-Docstring at line 1:
-
 ```text
 Render the HR10 mount, receptacle and mated plug on the full scanned TX16S.
 
@@ -202,10 +119,6 @@ so page.py embeds them with the other renders. Run check.py first.
 ```
 
 ## Scan and radio frame
-
-### `tx16s_hr10_mount/scan_patch.py`
-
-Docstring at line 1:
 
 ```text
 Cut the TX16S MK2 top-right height map out of the full-radio scan.
@@ -225,20 +138,7 @@ Frame fit, done once on the full scan:
     venv/bin/python hardware/tx16s_hr10_mount/scan_patch.py         ~/Downloads/radiomaster-tx16-1.snapshot.2.zip
 ```
 
-Line 27, `FRONT_NORMAL = np.array([0.99840818, 0.05007949, -0.02594522])`:
-
-```text
-scanner frame
-side-wall cluster pointing out of the top, scanner YZ plane
-Top-right block window, radio frame (mm). Covers the mount footprint, the two outer
-toggles, the handle hinge and the back edge drop.
-```
-
 ## Shell mount
-
-### `tx16s_hr10_mount/tx16s_hr10_mount.py`
-
-Docstring at line 1:
 
 ```text
 TX16S MK2 HR10 trainer-port mount: holds an HR10A-7R-4S receptacle on top of the radio.
@@ -302,114 +202,7 @@ Open questions
 - AUX1 connector type and pin order: meter the port before wiring the pigtail.
 ```
 
-Line 252, `above trim_dir = (to_part * Pos(0, -1, 0)).position - (to_part * Pos(0, 0, 0)).position`:
-
-```text
-Round the trim's two side edges: square ones meet the tilted base in a sharp
-three-way corner.
-```
-
-Line 265, `above hexagon = RegularPolygon(p.nut_af / 2, 6, major_radius=False)`:
-
-```text
-Captive-nut cavity under the panel, open through the base. A flat faces the wire
-groove (part -Y): a groove leaving through a hex corner leaves knife edges.
-```
-
-Line 273, `above o = axis_origin(p)`:
-
-```text
-Wire groove from the cavity out the back wall. The roof is flat in the part frame,
-square to the hex flat it leaves through (a roof following the shell meets that flat
-at an acute angle), and sits at the lowest roof that keeps groove_h over the shell
-along the whole run. The groove is as wide as the hex flat, so its walls carry on
-from the neighbouring hex faces with no short edges between.
-```
-
-Line 286, `above base = block.faces().filter_by(GeomType.BSPLINE).sort_by(lambda f: f.area)[-1]`:
-
-```text
-Edge break around the contoured base. The walls run along the tilted axis and the
-shell slopes away under them, so the base meets them at down to 55 deg: a feather
-edge that tears off the tape. Chamfer every edge of the base face, cavity rim included.
-The base is the largest B-spline face; the trim fillets come out as B-splines too.
-```
-
-## Shell mount dimensions
-
-### `tx16s_hr10_mount/tx16s_hr10_mount.py`
-
-Line 96, `above r_corner: float = 3.0`:
-
-```text
-Placement, radio frame (scan_patch.py)
-between hinge arm and toggle A's boss (from x 102)
-nearer toggle B (y -20, flank x 106) than A (y +2, flank x 102)
-plug leans back, away from the pilot
-vertical front wall, ahead of the dome roll-off at y -26
-Footprint across the axis: u along radio X, v toward the back
-hex 11.66 across corners + 1.67 walls
-front trim crosses the bed here, so the bed edge stays square
-back edge, short of the shell's back drop at y = 11
-back-right taper starts here...
-...and ends here at v_back: toggle A's boss flank reaches x 102
-```
-
-Line 108, `r_taper_corner: float = 0.6`:
-
-```text
-back-right: arc starts outboard of the groove wall (x 2.92)
-front trim's side edges; 2.0 leaves the base chamfer no room
-Bond
-3M VHB 5952 thickness
-breaks the acute edges where the tilted base meets the walls
-Receptacle, HR10 catalog
-catalog 0.7 to 2.0; the max, for a 1.2 web under the counterbore
-8.1 +0.1 catalog, +0.2 FDM undersize (fdm.md)
-key tab tip r 5.1, +0.1 catalog, +0.1 FDM
-tab <= 0.7, the catalog's thinnest panel
-10 AF nut, snug sliding fit (fdm.md)
-tape face to panel: 7.7 behind the panel + wire bend
-Wire exit
-least clear height over the shell along the groove; 3.5 OD cable
-elephant's foot on the bed edge, fdm.md
-```
-
-Line 310, `above key = Pos(0, -4.45, 0) * Box(1.5, 1.1, 0.7, align=C_MIN)`:
-
-```text
-Key tab: r 3.9 to 5.0, 1.5 wide, 0.7 long; it ends up wherever the thread stops.
-```
-
-## Shell mount surface fit
-
-### `tx16s_hr10_mount/tx16s_hr10_mount.py`
-
-Line 179, `above SURFACE_X = (86.5, 107.0)`:
-
-```text
-Height map region the base follows. Outside it the slab continues flat from its edge, so
-the tilted prism always ends inside the slab; a B-spline through the real back-edge drop
-and toggle bosses overshoots by centimetres. Inside, the spline is within 0.3 mm of the
-map except the y = -27.5 and 8.5 edge rows (0.5 to 0.9 mm above it: a gap, never a clash).
-```
-
-## Printing
-
-### `tx16s_hr10_mount/tx16s_hr10_mount.py`
-
-Line 246, `above front = Pos(p.axis_x, p.front_y, -60) * Box(`:
-
-```text
-Vertical front wall in the radio frame. It leans 20 deg from the print axis, toward
-the part, so it prints without support.
-```
-
 ## Shell mount: raw-scan verification
-
-### `tx16s_hr10_mount/verify_scan.py`
-
-Docstring at line 1:
 
 ```text
 Check the HR10 mount and a mated plug against the raw TX16S scan, not the height map.
@@ -423,10 +216,6 @@ plug envelope in the radio frame and measures every scan vertex near them.
 
 ## Rod clamp: render_context usage
 
-### `tx16s_hr10_rod_clamp/render_context.py`
-
-Docstring at line 1:
-
 ```text
 Render the HR10 rod clamp, receptacle and mated plug on the full scanned TX16S.
 
@@ -438,10 +227,6 @@ check_assembly.py first.
 ```
 
 ## Rod clamp
-
-### `tx16s_hr10_rod_clamp/tx16s_hr10_rod_clamp.py`
-
-Docstring at line 1:
 
 ```text
 TX16S MK2 HR10 rod clamp: holds an HR10A-7R-4S receptacle on the bare handle rod.
@@ -464,7 +249,7 @@ Spec
   0.15 mm, so the rod bends in one plane (n = 0).
 - Bore: Ø5.2 (FDM close fit, dfm/fdm.md: holes print 0.1-0.2 under) with the halves 0.8
   apart, so the screws close each half 0.1 onto the rod and still leave 0.6 of squeeze.
-- Run position: unknown inside the old sheath. Centred it would sit at v +0.2; flush with
+- Run position: unknown inside the sheath. Centred it would sit at v +0.2; flush with
   the sheath's back face, as the arm sat flush with its outer face, at v -3.1. The run's
   groove is a slot from v -3.4 to +0.5, tight in n only.
 - Bend radius: unknown, it was inside the sheath. The corner is a pocket clear of the rod
@@ -491,52 +276,7 @@ Open questions
   run sits inside the slot; if the clamp slides along the arm, shim the slot.
 ```
 
-## Rod clamp scan fit
-
-### `tx16s_hr10_rod_clamp/tx16s_hr10_rod_clamp.py`
-
-Line 77, `above ARM_POINT = np.array([85.552, 37.0, -34.645])`:
-
-```text
-Cylinder fit to the bare arm (see docstring): a point on its axis and its direction.
-```
-
-## Rod clamp dimensions
-
-### `tx16s_hr10_rod_clamp/tx16s_hr10_rod_clamp.py`
-
-Line 85, `half: str = "top"`:
-
-```text
-"top" or "bottom"
-scan fit
-rod + 0.2, FDM close fit
-between halves on the rod
-each half's outer face from the rod plane: 3.4 over the bore
-Run slot: rod centre anywhere from flush-back to centred (docstring)
-```
-
-Line 93, `bend_max: float = 10.0`:
-
-```text
-corner pocket clears centreline radii up to this
-grip on the run ends at u 27 (radio x 59)
-grip on the arm ends at v 26 (radio y 33, clear of the body)
-outside the bore, in plane
-Screws, rod frame (u, v)
-```
-
-Line 117, `above rod_v: float = -1.45`:
-
-```text
-Rod shown in the mates, rod frame (unknowns: any value inside the ranges above)
-```
-
 ## Rod clamp checks
-
-### `tx16s_hr10_rod_clamp/verify_scan.py`
-
-Docstring at line 1:
 
 ```text
 Check the rod clamp halves, the plug and a hex driver against the raw TX16S scan.

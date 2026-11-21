@@ -1,13 +1,6 @@
 # Mr Stabs Mk2 CAD
 
-These notes were moved out of source comments and docstrings in `hardware/` at commit
-`23e253c1`. Names, line numbers and numbers are as they were in the code then.
-
 ## BOOT/RST sleeve
-
-### `mr_stabs_mk2_boot_sleeve/mr_stabs_mk2_boot_sleeve.py`
-
-Docstring at line 1:
 
 ```text
 Mr Stabs Mk2 BOOT/RST sleeve: insulating cap over the H1 1x3 jumper header (IO0 / GND / EN).
@@ -49,44 +42,7 @@ Open questions
 - PETG assumed. TPU would grip harder but holds Ø1.3 holes poorly.
 ```
 
-## BOOT/RST sleeve dimension sources
-
-### `mr_stabs_mk2_boot_sleeve/mr_stabs_mk2_boot_sleeve.py`
-
-Line 61, `body_x: float = 7.62`:
-
-```text
-header STEP
-header STEP
-body top off the board, header STEP
-pin tip off the board, header STEP
-header STEP
-press, fdm.md
-body length inside the pocket
-0.91 pin diagonal + free clearance (0.4), fdm.md
-hole floor past the pin tip
-closed end, minimum wall (fdm.md)
-1.2 minimum (fdm.md) plus the 0.3 mouth chamfer
-vertical edges
-elephant's foot, fdm.md
-lead-in on the pocket
-Placement and chassis, board frame (../mr_stabs_mk2_pcb.py)
-H1, pcba/gen_placement.py
-H1, pcba/gen_placement.py
-wedge face at z -1.6
-chassis guide face y at z 0, chassis.stl
-dy/dz, = INSTALL_DIR in ../mr_stabs_mk2_pcb.py
-guide wall's outboard face, chassis.stl
-chassis.stl
-chassis.stl
-FDM tolerance on a 0.6 mm-class print, fdm.md
-```
-
 ## Main PCB fit study
-
-### `mr_stabs_mk2_pcb/mr_stabs_mk2_pcb.py`
-
-Docstring at line 1:
 
 ```text
 Mr Stabs Mk2 main PCB placeholder: the largest board that fits the chassis electronics bay.
@@ -155,137 +111,9 @@ Open questions
   a 3/8 screw tip at 4.93, short of the 5.0 pilot bore.
 ```
 
-## Chassis STEP measurements
-
-### `mr_stabs_mk2_pcb/mr_stabs_mk2_pcb.py`
-
-Line 102, `above TILT_DEG = math.degrees(math.atan2(0.16655509, 0.98603215))`:
-
-```text
-Hole axes in the chassis STEP lean (0, -0.16656, 0.98603): 9.588 deg about X.
-```
-
-Line 104, `above CHASSIS_SHIFT = (0.0, 7.4276, -10.314653658)`:
-
-```text
-Hole-pattern center on the boss faces, in the tilted frame (chassis STEP, measured).
-```
-
-Line 117, `wings: bool = True`:
-
-```text
-user: use the ESC pockets, as E3 did
-user
-side walls at ±13.0 (chassis STEP), 0.3 gap
-rear wall at 15.0 (chassis STEP), 0.3 gap
-front wall -20.62 (chassis STEP), 0.3 gap; wire bay beyond
-Ear edges, measured by sweeping each edge along INSTALL_DIR (chassis STEP), 0.3 gap:
-ledge under the board edge at y -4.89
-motor clamp boss starts at x 35.5
-clamp boss at board level reaches y -10.71
-outer wall at x 46.92 along the install path
-```
-
-Line 128, `26.5`:
-
-```text
-wing front wall starts at x 27.0; the 0.5 inside fillet needs the extra 0.2
-```
-
-Line 130, `ear_front_y: float = -17.37`:
-
-```text
-wing front wall lip, y -17.67 along the install path
-1 mm router bit
-rear corners pass the wall steps on the way in
-boss pilot holes (chassis STEP)
-#6 close clearance, fasteners.md
-assumed, user's printed countersunk washer
-assumed; puts the 3/8 screw tip 0.1 short of the pilot floor
-wall below the board at |x| 13.3 (chassis STEP), 0.3 gap
-#6 x 3/8 flat head plastite, overall (assembly STEP)
-assembly STEP
-#6 plastite major, approximate
-```
-
-## Install path
-
-### `mr_stabs_mk2_pcb/mr_stabs_mk2_pcb.py`
-
-Line 106, `above INSTALL_DIR = (0.0, -0.328457, -0.944519)`:
-
-```text
-The board goes in through the wedge-plate opening along the plate's normal, 19.2 deg off
-the board's own axis (wedge plate STEP). Straight along -Z, the rear cross member under the
-stem's last 8.4 mm and the rear screws' driver path are both blocked.
-```
-
-## Keep-out sizes
-
-### `mr_stabs_mk2_pcb/mr_stabs_mk2_pcb.py`
-
-Line 193, `("crossfire_nano_rx", "top", 0.0, 0.0, 18.0, 11.0, 3.0),`:
-
-```text
-TBS: 18 x 11, height assumed
-LGA-28 5.2 x 3.8 + 32 kHz crystal + caps
-16-18 AWG solder pads
-```
-
-Line 199, `("esp32_s3", "bottom", 0.0, 0.0, 10.0, 10.0, 1.2),`:
-
-```text
-QFN-56 7 x 7 + flash + crystal
-2.4 GHz chip antenna, rear edge
-2512, 1 mohm
-VSSOP-10 3 x 3 + caps
-TPS54202 + inductor + AP2112K
-left/right DShot + GND
-```
-
-Line 206, `("neopixel", "bottom", -7.3, 2.0, 3.5, 3.5, 1.0),`:
-
-```text
-SK6812 3535 status LED
-USB D+/D-/5V/GND pigtail pads
-```
-
-Line 211, `("crossfire_nano_rx", "top", 0.0, 0.0, 18.0, 11.0, 3.0),`:
-
-```text
-TBS: 18 x 11, height assumed
-LGA-28 5.2 x 3.8 + 32 kHz crystal + caps
-16-18 AWG solder pads
-```
-
-Line 217, `("esp32_s3", "top", -27.5, -11.28, 13.0, 11.5, 1.2),`:
-
-```text
-QFN-56 + flash + crystal + RF match
-2.4 GHz chip antenna, no copper past x -40.5
-TPS54202 + inductor + caps + AP2112K
-2512, 1 mohm
-VSSOP-10 3 x 3 + caps
-SK6812 3535 status LED
-Molex 505567 vertical, mated
-same part, USB pigtail
-```
-
-## Board mount: plastite pilots, expected interference
-
-### `mr_stabs_mk2_pcb/mr_stabs_mk2_pcb.py`
-
-Line 342, `above "allow_interference": [f"screw_{i}" for i in range(4)],`:
-
-```text
-The plastite threads form in the TPU pilot holes, so the screws overlap the chassis.
-```
-
 ## Render models
 
-### `mr_stabs_mk2_pcb/pcba/art/models/fnr4030_inductor.py`
-
-Docstring at line 1:
+### fnr4030 inductor
 
 ```text
 FNR4030S100MT 10 uH shielded power inductor (L1, LCSC C167879): render model only.
@@ -302,9 +130,7 @@ Open questions
 - Height is the series maximum, 3.0 mm; the roof headroom over it is 0.78 mm.
 ```
 
-### `mr_stabs_mk2_pcb/pcba/art/models/nano_rx.py`
-
-Docstring at line 1:
+### nano rx
 
 ```text
 TBS Crossfire Nano RX standing on the board's 1x4 header (H2): render model only.
@@ -324,9 +150,7 @@ Open questions
 - Board thickness and component height are estimates; TBS gives only 18 x 11.
 ```
 
-### `mr_stabs_mk2_pcb/pcba/art/models/ra_header_1x4.py`
-
-Docstring at line 1:
+### ra header 1x4
 
 ```text
 HX PZ2.54-1x4P WT right-angle SMD pin header (H2, LCSC C46061677): render model only.
@@ -347,22 +171,7 @@ Open questions
   the drawing; pins at 1.25 mm, the insulator's centre, assume it sits on the board.
 ```
 
-Line 30, `pitch: float = 2.54`:
-
-```text
-drawing
-drawing, square
-insulator section, drawing
-B - 0.2 for 4 pins, drawing table
-insulator's near face from the pads, EasyEDA courtyard
-mating pin past the insulator, drawing
-foot end: tail 4.8 mm from the insulator (drawing)
-foot thickness on the pad
-```
-
-### `mr_stabs_mk2_pcb/pcba/art/models/ufl_plug.py`
-
-Docstring at line 1:
+### ufl plug
 
 ```text
 Mated U.FL plug with its 1.13 mm cable for the ESP32-S3-MINI-1U antenna: render model only.
@@ -385,22 +194,9 @@ Open questions
 - 0.10 mm over the shield is not a working clearance; a 0.81 mm cable antenna leaves 0.42 mm.
 ```
 
-Line 31, `socket_z: float = 0.8`:
-
-```text
-module PCB top above the host board, estimate
-Hirose U.FL mated height, max
-plug cap
-Molex 146153 cable
-ESP32-S3-MINI-1U module height
-socket at board y +5.1 to 3 mm past the front edge at y -20.3
-```
-
 ## Silkscreen art
 
-### `mr_stabs_mk2_pcb/pcba/art/render_robot.py`
-
-Docstring at line 1:
+### render robot
 
 ```text
 Line-art render of the Mr Stabs Mk2 CAD for the silkscreen icon.
@@ -412,9 +208,7 @@ robot_lines.png (white lines on black) for silk.py to vectorize.
     ~/.local/share/pcba-design/venv/bin/python art/render_robot.py [--preview]
 ```
 
-### `mr_stabs_mk2_pcb/pcba/art/vectorize.py`
-
-Docstring at line 1:
+### vectorize
 
 ```text
 Turn the silkscreen images into polygons in mm: the Mk2 line renders and the BWBots logo.
@@ -433,17 +227,7 @@ points in mm with the origin at the image centre, u right and v up as the image 
 draws robot_top_silk.json on F.SilkS and the others on B.SilkS, mirrored so they read from below.
 ```
 
-Line 29, `MIN_LINE = 0.18`:
-
-```text
-mm; JLCPCB silk minimum is 0.15
-```
-
 ## Keep-outs
-
-### `mr_stabs_mk2_pcb/pcba/cad/make_keepout.py`
-
-Docstring at line 1:
 
 ```text
 Write cad/keepout.json: what each board face must clear, in the placeholder's board frame.
