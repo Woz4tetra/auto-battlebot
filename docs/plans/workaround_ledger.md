@@ -1,171 +1,51 @@
 # Workaround ledger
 
-Every workaround the phase 1 comment audit found, with its root-cause fix where one is known. Fix
-rows one at a time: the root cause goes, the workaround goes with it, and the row is deleted.
-
-As of 2026-11-20 no comment defends any of these in code. Each reason now sits in a "Workarounds"
-section of the subsystem's reference or setup doc. Where a batch extracted the workaround, the
-function or constant name says what it guards. File line numbers below are from the 2026-11-15
-audit and have moved since; search for the symbol. Built from the 322 `HACK` rows of the audit CSV,
-deleted 2026-11-20 and still in git history at `docs/plans/comment_purge_audit.csv`.
+Every workaround the phase 1 comment audit found (2026-11-15, 322 rows), with its root-cause fix. The audit CSV was deleted on 2026-11-20 and is still in git history at `docs/plans/comment_purge_audit.csv`. Fixed rows were deleted as they landed; their commits carry the details.
 
 ## Status 2026-11-20
 
-Batches retired every row that could be settled on the dev box: deleted, fixed, or pinned by a test that fails with the workaround removed. Checks that need a device moved to `docs/plans/hardware_checks.md` (section "Ledger rows that need a device"). What is left:
+Every row that could be settled on the dev box is gone. It was either deleted, fixed, or pinned by a test that fails with the workaround removed. Checks that need a device are in `docs/plans/hardware_checks.md` ("Ledger rows that need a device"). Three accepted rules stay as comments, listed in `docs/reference/tools/comment_budget.md`.
 
-- "Blocked on a decision or hardware": rows waiting on a decision, a missing asset, or a tool
-- `espressif32@6.13.0` platform pins: deferred to Mk4
+What is left:
 
-## How to read it
+- Two rows deferred to Mk4
+- Four rows owned by active plans
+- Seven rows kept by decision
+- The follow-up doc purge below
 
-- **Verified?** starts with `yes:`, `no:`, or `unverified:`. Auditors read code paths and installed
-  library sources. They did not build C++, run the app, flash firmware, or touch hardware, so most
-  `unverified` rows need one of those to settle.
-- 124 rows are verified, 10 failed verification, 186 are unverified, and 2 carry no tag. 83 rows
-  have no known root-cause fix.
-- By area: `training/` 76, `firmware/` 39, `src/` 31, `tests/` 30, `hardware/` 27, `scripts/` +
-  `install/` + `service/` + `web/` + `CMakeLists.txt` + `mypy.ini` + `docker/` 59, `playground/` +
-  `simulation/` + `logo/` 31, `auto_battlebot/` 16, `include/` 13.
+## Deferred to Mk4
 
-## Claims that failed verification
+One root-cause fix retires both: port DShot to the IDF 5 `rmt_tx` driver and pin the IDF 5 platform explicitly.
 
-Phase 5 pilot, 2026-11-19. Each row got one confirming run.
-
-| Location | Outcome |
-| --- | --- |
-| `training/deeplab/semantic_train.py:51` | Fixed: `seed_worker` deleted. torch 2.10 seeds Python `random` per worker; a 2-worker DataLoader drew 8 distinct values |
-| `web/src/lib/image.ts:65` | Fixed: `CompressedMessage.data` is typed `Uint8Array<ArrayBuffer>`, so the Blob takes it without the `slice()` copy; `npm run check` passes |
-| `mypy.ini:63` | Fixed: `[mypy-nhrl_common]` and `[mypy-nhrl_audit]` deleted; mypy passes (`mypy_path` itself was removed later) |
-| `install/install_python_environment.sh:229`, `mypy.ini:17`, `mypy.ini:108`, `mypy.ini:112`, `tests/python/test_gpu_queue.py:18` | Fixed: the shared modules moved into `auto_battlebot/`; the `.pth` writer, `mypy_path` and both `ignore_missing_imports` sections are gone, and the test imports `auto_battlebot.gpu_queue` normally |
-| `firmware/espnow_dongle/scripts/upload:2` | Fixed: defaults to `/dev/espnow_dongle`. Before, with both plugged in, it flashed the robot |
-| `firmware/espnow_dongle/platformio.ini:25`, `firmware/mr_stabs_mk2/platformio.ini:30` | Claim wrong, overrides kept: the board file sets `use_1200bps_touch` and `wait_for_upload_port` true and `build_flags` never reach upload settings. Reasons in `docs/reference/robot_link/firmware_build.md` |
-
-## Repeated workarounds
-
-One root-cause fix retires several rows each.
-
-- **ESP32 platform pin.** `espressif32@6.13.0` in `firmware/mr_stabs_mk2/platformio.ini:15`,
-  `firmware/espnow_dongle/platformio.ini:8`, and the 250-byte frame limit in
-  `espnow_protocol.h:22`, plus `DShot.cpp:8` writing into NeoPixel's private
-  `rmt_reserved_channels[]`. Fix: port DShot to the IDF 5 `rmt_tx` driver.
-- **libnvjpeg symbol clash.** Fixed: the dlopen plugin is the fix, and the comments went once a
-  test guarded it. CTest `NoNvjpegLink` runs `scripts/check_no_nvjpeg_link.sh` on the direct
-  `NEEDED` entries of `auto_battlebot_lib` and `auto_battlebot_test`, and a POST_BUILD step runs it
-  on `auto_battlebot` and `viz_relay`. Any `libnvjpeg` or `libauto_battlebot_nvjpg` entry fails.
-  Reasons are in `docs/reference/recording/foxglove_recording_format.md` ("NVJPG plugin").
-- **Eigen `FromTwoVectors` `-Wmaybe-uninitialized` on GCC 13.** Fixed: the four sites call
-  `rotation_between()` in `transform_utils`. It builds the quaternion directly with a
-  fixed antiparallel axis, so no SVD runs and no `#pragma` is needed. Unit tests cover it.
-- **ZED SDK 5.2 quirks.** `src/rgbd_camera/zed_one_rgb_camera.cpp` has five, including the
-  setting nudge at `:394` and `_Exit` on a wedged `grab()` at `:51`. Most may go with an SDK upgrade.
-- **BlenderProc segmentation pass indices.** Fixed: `synthgen/pass_index.py` `assign_pass_index()`
-  runs as each mesh is created, and the distractor re-arm is gone. The 9 "must be first import"
-  comments are gone too: BlenderProc enforces it (`SetupUtility.py:389`) and `pyproject.toml`
-  keeps the order. Reasons in `docs/reference/tools/synthgen_render.md`.
-- **ESP DTR/RTS reset.** Fixed: `auto_battlebot/robot_link/esp32_serial.py` `open_esp32_serial()`
-  serves all three scripts (DTR and RTS high before `open()`); the reason is in
-  `docs/reference/robot_link/espnow_link.md`. The `usb_dashboard.py` variant was not deliberate.
-- **Camera retry and cancel.** Fixed: no camera's `initialize()` clears `cancel_open_` any more
-  (it is set at construction only, and `cancel_initialize()` is terminal), and `Runner` no longer
-  drains commands before the retry open.
-- **`sys.path` routes around the package rule.** Fixed 2026-11-19. `gpu_queue` moved to `auto_battlebot/gpu_queue.py`, `seg_to_bbox` and `clear_image_cache` to `auto_battlebot/datasets/`, `gen_splash_animation` to `auto_battlebot/branding/splash_animation.py`, and the kinematic sim (`camera_utils`, `hazards`, `kinematic_sim_server`, `mujoco_window`, `policy_opponent`, `protocol`, `rl_eval_server`, `viewer`, `config/`, `plants/`) to `auto_battlebot/kinematic_sim/`. The old paths under `training/`, `logo/` and `simulation/` are thin entry points. The `auto_battlebot.pth` writer, the `mypy_path` line, the `seg_to_bbox` and `clear_image_cache` mypy sections, the test `sys.path` inserts and the path loaders are gone. Left alone: Blender-run scripts under `training/synthetic/` still import each other by top-level name, and `tests/python/conftest.py` `load_training` still loads `training/` CLI scripts by path.
-
-## Bugs found during the audit
-
-Defects in code, not workarounds.
-
-Fixed 2026-11-19:
-
-- `scripts/run_simulation.sh`: the fallback assigned the same missing per-robot config; it now
-  falls back to `config/simulation/kinematic_sim.toml` (`86c44dab`).
-- `firmware/velocity_jig/scripts/console.py` and `firmware/velocity_jig/README.md`: IMU scale now
-  0.140 dps and 0.000488 g per LSB, matching `include/config.h`; a test pins the console to the
-  header (`86c44dab`).
-- `src/field_filter/point_cloud_field_filter.cpp`: the degenerate-plane fallback now returns
-  (0, 0, 1), the same z >= 0 convention as the flip and `field_pose.cpp`, with tests (`75c48602`).
-- `include/tensorrt_inference/trt_engine.hpp`: `ScopedQuietLogging` nesting is `thread_local`, so
-  probing on one thread no longer demotes errors on others (`86c44dab`).
-- `auto_battlebot/perception/trt_yolo.py`: `preprocess_frame` requires `letterbox_padding`
-  (`86c44dab`).
-- `hardware/cage_pack/camera_boot.py`: deleted (`86c44dab`).
-- `CMakeLists.txt`: the ZED debug override passes `-U_DEBUG` instead of `-Wno-extra -Wno-error`;
-  those sources build under `-Werror` (`86c44dab`).
-- Missing docs: the test citation of `docs/robot_filter_decay_plan.md` was already gone; the stage0
-  report now points at `our_robot_hold_window_s` in `docs/reference/config/profiles.md`. No
-  remaining reference to `docs/velocity_jig_wiring.md` or `docs/hardware/README.md`.
-
-Fixed 2026-11-19, found during phase 2:
-
-- `src/transmitter/espnow_transmitter.cpp`: enabling autonomy while SA is already on now ramps
-  from standstill; the first command after `enable()` used to skip the slew limit. Test
-  `EspNowTransmitterPtyTest.ReEnablingWithSaOnRampsFromStandstill`.
-- `include/robot_filter/ekf_math.hpp` `wrap_angle`: returns `(-pi, pi]` as documented; `-pi` maps
-  to `pi`.
-- `src/mask_model/deeplab_mask_model.cpp`: feeds RGB with the training corpus statistics. The
-  audit found the ImageNet normalization; the eval found the bigger defect, 3-channel BGR frames
-  passed to the network unswapped. Macro IoU 0.9219 to 0.9440
-  (`docs/experiments/perception/2026-11-19_deeplab_preprocessing_fix.md`).
-- `playground/opponent_prediction/run_replays.py`: start frames come from
-  `config/playback/svo_start_frames.toml` through `auto_battlebot.recording.svo_start_frames`, so
-  14-12-27 replays from 3000, not the script's own 1540. `make_eval_dataset.py` uses the same loader.
-- `scripts/nhrl_to_recordings.py`: a clip skipped as already converted now advances the start
-  stamp, so a re-run gives new clips the stamps a full run would. The one converted set on disk,
-  `BrettZone_2026-05` (6 clips), had no overlapping stamps.
-- `scripts/convert_ros1_mcap.py`: `--check` now flags a `/diagnostics` array whose log time
-  reaches no per-module topic, so a dropped array fails the check; before, only a module with more
-  messages than the source failed it.
-- `src/mcap_recorder/mcap_recorder.cpp`: the recorder takes its output directory from
-  `McapRecorderConfig::recordings_dir` (default `data/recordings`), and every recorder test writes
-  to a per-test temp dir. Before, `HoldingDirectoryScanSurvivesAnUnreadableEntry` evicted real
-  recordings (about 283 test MCAPs and 10 replay MCAPs on 2026-11-19) and the toggle tests left
-  `toggle_*_test` files there. Test `McapRecorderToggleTest.EvictsOnlyFromItsOwnDirectoryAndNeverFromAnother`
-  keeps a 1.1 GB sentinel outside the recorder's directory.
-- `src/robot_filter/front_back_keypoint_converter.cpp` `get_pose_from_points`: the pose is a
-  rotation about z by the front-back heading. It was the 3D shortest arc from +x, which for a
-  robot facing near -x with the keypoints at different heights came out upside down (roll pi,
-  yaw still right). Every consumer reads yaw only, so filtered poses do not change. Test
-  `FrontBackKeypointConverterTest.PoseStaysUprightWhenTheKeypointsDifferInHeight`.
-
-| Location | What the code does | What the comment claims would break | Verified? | Root-cause fix |
-| --- | --- | --- | --- | --- |
-| `firmware/espnow_dongle/platformio.ini:8` | Pins platform = espressif32@6.13.0 (Arduino core on IDF 4.4). | An unpinned espressif32 resolves to the globally installed pioarduino 55.x (IDF 5), which changes ESP-NOW frame limits the wire format assumes. | unverified: matches project memory note pioarduino-shadows-espressif32; did not build unpinned. | Port to IDF 5 (ESP-NOW v2 frames, rmt_tx DShot on mr_stabs_mk2) and pin to that platform explicitly. |
-| `firmware/mr_stabs_mk2/platformio.ini:15` | Pins platform = espressif32@6.13.0 (Arduino core 2.x, IDF 4.4). | pioarduino 55.x (IDF 5) removes NeoPixel's rmt_reserved_channels and deprecates the legacy RMT driver DShot.cpp uses. | yes: DShot.cpp:10,62 use rmt_reserved_channels from .pio/libdeps/local/Adafruit NeoPixel/esp.c:154 and the legacy rmt_config/rmt_write_items API; did not build on IDF 5. | Port DShot to IDF 5 rmt_tx/rmt_rx with its channel allocator. |
-
-## TEST rows deferred
-
-Rows from the `TEST` verdict batches that could not get a test in a headless build. The comment is
-gone and the claim is in a reference doc; the test is still owed.
-
-| Location | What the code does | What the comment claims would break | Verified? | Root-cause fix |
-| --- | --- | --- | --- | --- |
-
-## Rows that could not be tested (phase 2, 2026-11-19)
-
-The comment is gone and the claim is in a reference doc. The test is owed once the seam, hardware or
-harness named in the last column exists.
-
-| Location | Claim | What blocks a test |
+| Location | What the code does | What breaks without it |
 | --- | --- | --- |
+| `firmware/espnow_dongle/platformio.ini:8` | Pins `platform = espressif32@6.13.0` (Arduino core on IDF 4.4) | An unpinned `espressif32` resolves to the globally installed pioarduino 55.x (IDF 5), which changes the ESP-NOW frame limits the wire format assumes (250 bytes, `espnow_protocol.h`) |
+| `firmware/mr_stabs_mk2/platformio.ini:15` | Pins `platform = espressif32@6.13.0` (Arduino core 2.x, IDF 4.4) | IDF 5 removes NeoPixel's `rmt_reserved_channels` and deprecates the legacy RMT driver `DShot.cpp` uses |
 
-## Blocked on a decision or hardware
+## Owned by a plan
 
-Rows a batch could not settle. Each needs the action in the last column first.
+The row closes when the named step lands.
 
-| Location | Needs |
+| Location | Plan and step |
 | --- | --- |
-| `auto_battlebot/mujoco_sim/onshape_export.py:1` | Decide whether purchased parts get real mass in the Onshape part studio, or export mass per part through the Onshape API; needs the Onshape exporter |
-| `include/mask_model/fixed_mask_model.hpp:8` | Replace `FixedMaskModel` with `FieldFilterInterface::requires_mask()` (false for `FixedFieldFilter`), gate the Runner on it, switch the three sim TOMLs to `NoopMaskModel`. Needs `docs/reference/simulation/kinematic_sim_config.md`, which has uncommitted edits |
-| `include/rl_policy/policy_interface.hpp:14` | Decide whether navigation outputs a `NormalizedCommand` type; it changes every navigation implementation |
-| `include/robot_descriptions_cache.hpp:9` (`Resolved` lifetime) | Deleted with `RobotDescriptionsCache` in step 3 of `docs/plans/measurement_chain_simplification_plan.md` |
-| `tests/python/test_tag_pose_smoother.py:578` | Kept: retune declined 2026-11-20 |
-| `training/model_eval/score_size_ladder.sh:97-98` | Needs the `cage_high_x50_conf044/d40000` eval set (not in the main checkout), or confirmation that `nhrl_cage_high_eval` replaces it; that set has `reviewed: []` |
-| `hardware/cage_pack/enclosure.py:221` | The failure is in Onshape, not OCC: with the constant at 0 the build123d enclosure is valid. Settle with one Onshape push of the enclosure at 0 (costs Onshape API calls from the yearly budget) |
-| `hardware/cage_pack/enclosure.py:295` | The failure is in Onshape, not OCC: with the constant at 0 the build123d enclosure is valid. Settle with one Onshape push of the enclosure at 0 (costs Onshape API calls from the yearly budget) |
-| `src/navigation/rl_policy_navigation.cpp:189` | Zero-command path is tested; the coasted spin and motion-blur claim needs a recording. Decide between decaying coasted yaw rate in the robot filter and training the policy on observation age |
-| `hardware/zed_box_mini_mount/assembly_page.py:62` | Needs a test of GLB handling on the artifact host, which means an upload; decide whether to allow one |
-| `tests/test_kalman_motion_estimator.cpp` (`make_our_pose_measurement`, `make_opponent_pose_measurement`) | Needs a `heading_measured` field on `RobotDescription` (today inferred from `keypoints.empty()` in `kalman_motion_estimator.cpp`), touching the tracker, estimator and scene adapter. A perception behaviour change: decide whether to make it |
-| `include/mcap_recorder/mcap_recorder.hpp` (start_file_locked, mutex_) | Clang `-Wthread-safety` rejects `std::mutex` under libstdc++ as a non-capability type. Decide whether to add an annotated Mutex wrapper and lock guard to these classes |
-| `include/rgbd_camera/video_encoder.hpp`, `zed_rgbd_camera.hpp` (lock discipline) | Clang `-Wthread-safety` rejects `std::mutex` under libstdc++ as a non-capability type. Decide whether to add an annotated Mutex wrapper and lock guard to these classes |
+| `tests/test_kalman_motion_estimator.cpp` (`make_our_pose_measurement`, `make_opponent_pose_measurement`) | `docs/plans/measurement_chain_simplification_plan.md` step 1: delete the blob path, so every measurement carries a yaw and the dummy keypoint goes |
+| `include/robot_descriptions_cache.hpp` (`Resolved` lifetime) | `docs/plans/measurement_chain_simplification_plan.md` step 3: `RobotDescriptionsCache` is deleted |
+| `src/navigation/rl_policy_navigation.cpp` (coasted spin after the robot is lost) | `docs/plans/measurement_chain_simplification_plan.md` step 3: zero velocity once the mean stops at `max_coast_s`, and tracks expire |
+| `include/rl_policy/policy_interface.hpp` (navigation outputs stick values in `VelocityCommand`) | `docs/plans/command_units_plan.md`: navigation outputs real units and `CommandShaper` converts them to sticks |
+
+## Kept by decision
+
+Each workaround stays. Its reason is in the subsystem doc until the follow-up purge removes it.
+
+| Location | Decision |
+| --- | --- |
+| `include/mask_model/fixed_mask_model.hpp` | Kept 2026-11-20. The kinematic sim's fake 2x2 mask gets the runner past its empty-mask check |
+| `hardware/cage_pack/enclosure.py:221` | Kept 2026-11-20. Settling it needs an Onshape push, which costs API calls from the yearly budget |
+| `hardware/cage_pack/enclosure.py:295` | Kept 2026-11-20, as above |
+| `hardware/zed_box_mini_mount/assembly_page.py:62` | Kept 2026-11-20. Testing GLB handling on the artifact host needs an upload |
+| `tests/python/test_tag_pose_smoother.py:578` | Kept 2026-11-20. Retune declined |
+| `auto_battlebot/mujoco_sim/onshape_export.py` (wheels-only mass lumping) | Skipped 2026-11-20. Purchased parts have no real mass in the Onshape part studio |
+| `training/model_eval/score_size_ladder.sh:97-98` | Skipped 2026-11-20. Needs the `cage_high_x50_conf044/d40000` eval set, which is only on megamind |
 
 ## Follow-up: purge the relocated comments from docs
 
