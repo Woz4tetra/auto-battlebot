@@ -68,13 +68,7 @@ struct MotionProfileNavigationConfiguration : public NavigationConfiguration {
     MotionProfileNavigationConfiguration() { type = "MotionProfileNavigation"; }
 
     void apply_plant(const PlantConfiguration &plant_config) override {
-        if (!plant_config.params.has_value()) {
-            throw ConfigValidationError(
-                "navigation type = 'MotionProfileNavigation' requires the top-level [plant] table; "
-                "see "
-                "docs/reference/control/plant_backed_control.md");
-        }
-        plant = *plant_config.params;
+        plant = plant_config.params;
     }
 
     // clang-format off
@@ -121,17 +115,12 @@ struct RlPolicyNavigationConfiguration : public NavigationConfiguration {
 
     bool hazard_barrier_enable = false;
     double hazard_prediction_horizon_s = 0.25;
-    std::optional<JigPlantParams> plant;
+    JigPlantParams plant;
 
     RlPolicyNavigationConfiguration() { type = "RlPolicyNavigation"; }
 
     void apply_plant(const PlantConfiguration &plant_config) override {
         plant = plant_config.params;
-        if (hazard_barrier_enable && !plant.has_value()) {
-            throw ConfigValidationError(
-                "type = 'RlPolicyNavigation' with hazard_barrier_enable = true requires the "
-                "top-level [plant] table; see docs/reference/control/plant_backed_control.md");
-        }
     }
 
     void parse_fields(ConfigParser &parser) override {

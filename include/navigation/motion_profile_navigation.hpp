@@ -102,6 +102,7 @@ class MotionProfileNavigation : public NavigationInterface {
 
     std::shared_ptr<DiagnosticsModuleLogger> logger_;
     std::shared_ptr<ClockInterface> clock_;
+    JigPlantParams plant_;
 
     int committed_turn_sign_ = 0;
     double prev_angle_error_ = 0.0;

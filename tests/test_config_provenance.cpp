@@ -35,6 +35,24 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )";
 
 class ConfigProvenanceTest : public ::testing::Test {
@@ -74,7 +92,7 @@ TEST_F(ConfigProvenanceTest, NamesTheFileAndLineThatSetEachValue) {
 
     ResolvedConfig resolved = resolve(profile);
 
-    EXPECT_EQ(source(resolved, "health", "sample_period_ms"), "base.toml:30");
+    EXPECT_EQ(source(resolved, "health", "sample_period_ms"), "base.toml:48");
     EXPECT_EQ(source(resolved, "health", "enable"), "child.toml:4");
     EXPECT_EQ(resolved.find("health", "sample_period_ms")->value, "900");
 }
@@ -131,7 +149,7 @@ TEST_F(ConfigProvenanceTest, FormattedOutputReloadsAsTheSameValues) {
     const size_t line_start = text.find("sample_period_ms = 700");
     ASSERT_NE(line_start, std::string::npos) << text;
     const std::string line = text.substr(line_start, text.find('\n', line_start) - line_start);
-    EXPECT_NE(line.find("# p.toml:30"), std::string::npos) << line;
+    EXPECT_NE(line.find("# p.toml:48"), std::string::npos) << line;
 }
 
 TEST(FormatTomlValue, PrintsShortestRoundTripDoubles) {

@@ -49,7 +49,8 @@ PlantConfiguration load_plant_from_toml(const toml::table &toml_data,
     PlantConfiguration config;
     const toml::table *section = toml_data["plant"].as_table();
     if (!section) {
-        return config;
+        throw ConfigValidationError(
+            "Missing required section [plant]; see docs/reference/control/plant_backed_control.md");
     }
     ConfigParser parser(*section, "plant");
     config.params = parse_params(parser);

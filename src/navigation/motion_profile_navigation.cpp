@@ -9,6 +9,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "enums/frame_id.hpp"
 #include "hazards/hazard_geometry.hpp"
+#include "plant/plant_params.hpp"
 #include "transform_utils.hpp"
 
 namespace {
@@ -82,7 +83,8 @@ MotionProfileNavigation::MotionProfileNavigation(const MotionProfileNavigationCo
       wall_reverse_min_speed_(config.wall_reverse_min_speed),
       wall_heading_threshold_rad_(config.wall_heading_threshold_rad),
       logger_(DiagnosticsLogger::get_logger("motion_profile_nav")),
-      clock_(std::move(clock)) {}
+      clock_(std::move(clock)),
+      plant_(config.plant) {}
 
 void MotionProfileNavigation::reset_trajectory_state() {
     hazards_.reset();
@@ -269,7 +271,8 @@ VelocityCommand MotionProfileNavigation::compute_command(const Pose2D &our_pose,
                        {"target_x_steered", clamped_target.x},
                        {"target_y_steered", clamped_target.y},
                    });
-    return cmd;
+    return plant_stick_to_body_velocity(
+        {.forward = cmd.forward_mps, .lateral = 0.0, .yaw = cmd.yaw_rate_radps}, plant_);
 }
 
 double MotionProfileNavigation::measure_forward_speed(const RobotDescription &robot,

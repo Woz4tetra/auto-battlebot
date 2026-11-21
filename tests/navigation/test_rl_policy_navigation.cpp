@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "command_shaper/plant_command_shaper.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "navigation/config.hpp"
 #include "navigation/rl_policy_navigation.hpp"
@@ -37,9 +38,22 @@ double expected_linear_output(double gain, double value, double scale) {
     return std::tanh(gain * value / scale);
 }
 
+JigPlantParams test_plant() {
+    JigPlantParams plant;
+    plant.k_fwd = 4.9;
+    plant.k_rev = 4.4;
+    plant.k_ang = 31.7;
+    return plant;
+}
+
+StickCommand to_sticks(const VelocityCommand &command) {
+    return plant_body_velocity_to_stick(command, test_plant());
+}
+
 RlPolicyNavigationConfiguration config_for(const std::filesystem::path &bundle,
                                            bool has_opponent_filter = true) {
     RlPolicyNavigationConfiguration config;
+    config.plant = test_plant();
     config.policy.bundle = bundle.string();
     config.has_opponent_filter = has_opponent_filter;
     config.opponent_filter_source = "the test";
@@ -108,8 +122,8 @@ TEST(RlPolicyNavigationTest, AReturningRobotStepsThePolicyOnTheSameTick) {
     EXPECT_EQ(nav->update(robots_of({}), field(), TargetSelection{}).forward_mps, 0.0);
 
     const VelocityCommand resumed = nav->update(robots_of({ours}), field(), TargetSelection{});
-    EXPECT_DOUBLE_EQ(resumed.forward_mps, 0.3);
-    EXPECT_DOUBLE_EQ(resumed.yaw_rate_radps, -0.1);
+    EXPECT_DOUBLE_EQ(to_sticks(resumed).forward, 0.3);
+    EXPECT_DOUBLE_EQ(to_sticks(resumed).yaw, -0.1);
 }
 
 TEST(RlPolicyNavigationTest, PolicyDiagnosticsCarryOurStateForTheLockstepEkfFit) {
@@ -189,9 +203,9 @@ TEST(RlPolicyNavigationTest, ConstantPolicyDrivesItsActionUnedited) {
     target.pose = Pose2D{1.0, 0.5, 0.0};
     const VelocityCommand command =
         nav->update(robots_of({robot_at(FrameId::OUR_ROBOT_1, -0.2, 0.1)}), field(), target);
-    EXPECT_DOUBLE_EQ(command.forward_mps, 0.3);
-    EXPECT_DOUBLE_EQ(command.lateral_mps, 0.0);
-    EXPECT_DOUBLE_EQ(command.yaw_rate_radps, -0.1);
+    EXPECT_DOUBLE_EQ(to_sticks(command).forward, 0.3);
+    EXPECT_DOUBLE_EQ(to_sticks(command).lateral, 0.0);
+    EXPECT_DOUBLE_EQ(to_sticks(command).yaw, -0.1);
 
     const auto &viz = nav->get_last_visualization();
     ASSERT_TRUE(viz.path.has_value());
@@ -199,15 +213,40 @@ TEST(RlPolicyNavigationTest, ConstantPolicyDrivesItsActionUnedited) {
     EXPECT_DOUBLE_EQ(viz.path->our_y, 0.1);
     EXPECT_DOUBLE_EQ(viz.path->target_x, 1.0);
     EXPECT_DOUBLE_EQ(viz.path->target_y, 0.5);
-    EXPECT_DOUBLE_EQ(viz.command.forward_mps, 0.3);
+    EXPECT_DOUBLE_EQ(to_sticks(viz.command).forward, 0.3);
+}
+
+TEST(RlPolicyNavigationTest, ThePlantScaledActionShapesBackToThePolicyActionExactly) {
+    auto nav = make_nav(config_for(rl_test::constant_bundle()));
+    nav->initialize();
+    const VelocityCommand command =
+        nav->update(robots_of({robot_at(FrameId::OUR_ROBOT_1, -0.2, 0.1)}), field(), {});
+    EXPECT_DOUBLE_EQ(command.forward_mps, 0.3 * test_plant().k_fwd);
+    EXPECT_DOUBLE_EQ(command.yaw_rate_radps, -0.1 * test_plant().k_ang);
+
+    const StickCommand shaped = PlantCommandShaper(test_plant(), 1.0).shape(command);
+    EXPECT_NEAR(shaped.forward, 0.3, 1e-15);
+    EXPECT_NEAR(shaped.yaw, -0.1, 1e-15);
+}
+
+TEST(RlPolicyNavigationTest, ANegativeActionScalesByTheReverseGain) {
+    const auto bundle = rl_test::write_linear_bundle("nav_reverse", 1, 138, 0.5, 0.0, "obs.vector",
+                                                     kOurSpeed, kOurYawRate);
+    auto nav = make_nav(config_for(bundle));
+    nav->initialize();
+    RobotDescription our = robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0);
+    our.velocity = Velocity2D{-1.0, 0.0, 0.0};
+    const VelocityCommand command = nav->update(robots_of({our}), field(), TargetSelection{});
+    const double action = expected_linear_output(0.5, -1.0, 2.5);
+    ASSERT_LT(action, 0.0);
+    EXPECT_NEAR(command.forward_mps, action * test_plant().k_rev, 1e-6);
+    EXPECT_NEAR(PlantCommandShaper(test_plant(), 1.0).shape(command).forward, action, 1e-6);
 }
 
 TEST(RlPolicyNavigationTest, TheHazardBarrierClipsDrivingTowardAHole) {
     RlPolicyNavigationConfiguration config = config_for(rl_test::constant_bundle());
     config.hazard_barrier_enable = true;
-    JigPlantParams plant;
-    plant.k_fwd = 4.9;
-    plant.k_rev = 4.4;
+    JigPlantParams plant = test_plant();
     plant.tau_lin_d = 0.2;
     plant.delay_s = 0.05;
     config.apply_plant(PlantConfiguration{plant, {}});
@@ -222,19 +261,13 @@ TEST(RlPolicyNavigationTest, TheHazardBarrierClipsDrivingTowardAHole) {
 
     const VelocityCommand toward =
         nav->update(robots_of({robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0)}), with_hole, {});
-    EXPECT_LT(toward.forward_mps, 0.3)
+    EXPECT_LT(to_sticks(toward).forward, 0.3)
         << kRimGapM << " m rim gap is too short to stop from 0.3 of 4.9 m/s";
-    EXPECT_DOUBLE_EQ(toward.yaw_rate_radps, -0.1);
+    EXPECT_DOUBLE_EQ(to_sticks(toward).yaw, -0.1);
 
     const VelocityCommand away = nav->update(
         robots_of({robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0, kFacingAwayYaw)}), with_hole, {});
-    EXPECT_DOUBLE_EQ(away.forward_mps, 0.3);
-}
-
-TEST(RlPolicyNavigationConfigTest, TheHazardBarrierNeedsAPlant) {
-    RlPolicyNavigationConfiguration config = config_for(rl_test::constant_bundle());
-    config.hazard_barrier_enable = true;
-    EXPECT_THROW(config.apply_plant(PlantConfiguration{}), ConfigValidationError);
+    EXPECT_DOUBLE_EQ(to_sticks(away).forward, 0.3);
 }
 
 std::filesystem::path write_gru_bundle(const std::string &name) {
@@ -292,10 +325,11 @@ TEST(RlPolicyNavigationTest, TargetChangeResetsPolicy) {
     };
     const VelocityCommand first = tick(FrameId::THEIR_ROBOT_1);
     const VelocityCommand second = tick(FrameId::THEIR_ROBOT_1);
-    ASSERT_NE(first.forward_mps, second.forward_mps) << "the policy carries no recurrent state";
+    ASSERT_NE(to_sticks(first).forward, to_sticks(second).forward)
+        << "the policy carries no recurrent state";
 
     const VelocityCommand switched = tick(FrameId::THEIR_ROBOT_2);
-    EXPECT_DOUBLE_EQ(switched.forward_mps, first.forward_mps)
+    EXPECT_DOUBLE_EQ(to_sticks(switched).forward, to_sticks(first).forward)
         << "the policy kept the previous opponent's hidden state";
 }
 
@@ -312,16 +346,16 @@ TEST(RlPolicyNavigationTest, StepsThePolicyEveryPeriodAndHoldsTheActionBetween) 
     };
 
     const VelocityCommand first = tick(1.0, 3.0);
-    EXPECT_NEAR(first.forward_mps, expected_linear_output(0.5, 1.0, 2.5), 1e-6);
-    EXPECT_NEAR(first.yaw_rate_radps, expected_linear_output(0.5, 3.0, 15.0), 1e-6);
+    EXPECT_NEAR(to_sticks(first).forward, expected_linear_output(0.5, 1.0, 2.5), 1e-6);
+    EXPECT_NEAR(to_sticks(first).yaw, expected_linear_output(0.5, 3.0, 15.0), 1e-6);
     for (int i = 0; i < kPolicyPeriodTicks - 1; ++i) {
         const VelocityCommand held = tick(2.0, -3.0);
-        EXPECT_DOUBLE_EQ(held.forward_mps, first.forward_mps) << "tick " << i + 1;
-        EXPECT_DOUBLE_EQ(held.yaw_rate_radps, first.yaw_rate_radps) << "tick " << i + 1;
+        EXPECT_DOUBLE_EQ(to_sticks(held).forward, to_sticks(first).forward) << "tick " << i + 1;
+        EXPECT_DOUBLE_EQ(to_sticks(held).yaw, to_sticks(first).yaw) << "tick " << i + 1;
     }
     const VelocityCommand next = tick(2.0, -3.0);
-    EXPECT_NEAR(next.forward_mps, expected_linear_output(0.5, 2.0, 2.5), 1e-6);
-    EXPECT_NEAR(next.yaw_rate_radps, expected_linear_output(0.5, -3.0, 15.0), 1e-6);
+    EXPECT_NEAR(to_sticks(next).forward, expected_linear_output(0.5, 2.0, 2.5), 1e-6);
+    EXPECT_NEAR(to_sticks(next).yaw, expected_linear_output(0.5, -3.0, 15.0), 1e-6);
 }
 
 double forward_for_mode(BehaviorMode mode) {
@@ -335,7 +369,7 @@ double forward_for_mode(BehaviorMode mode) {
     target.mode = mode;
     auto nav = make_nav(config_for(bundle));
     nav->initialize();
-    return nav->update(robots, field(), target).forward_mps;
+    return to_sticks(nav->update(robots, field(), target)).forward;
 }
 
 TEST(RlPolicyNavigationTest, AttackTargetsTheOpponentNearestTheSelection) {

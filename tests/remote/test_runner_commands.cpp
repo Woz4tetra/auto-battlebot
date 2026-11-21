@@ -16,7 +16,7 @@
 #include <vector>
 
 #include "../scratch_recordings.hpp"
-#include "command_shaper/identity_command_shaper.hpp"
+#include "command_shaper/plant_command_shaper.hpp"
 #include "control_loop/config.hpp"
 #include "control_loop/stepped_control_loop.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
@@ -35,6 +35,7 @@
 
 namespace auto_battlebot {
 namespace {
+const JigPlantParams kUnitGainPlant{.k_fwd = 1.0, .k_rev = 1.0, .k_ang = 1.0};
 
 constexpr auto kRecordingToggleTimeout = std::chrono::seconds(2);
 constexpr auto kReopenBlockLimit = std::chrono::seconds(10);
@@ -123,7 +124,8 @@ class RunnerCommandsTest : public ::testing::Test {
         auto keypoint_model = std::make_shared<NoopKeypointModel>();
         auto loop = std::make_shared<ControlLoop>(
             std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
-            std::make_shared<NoopNavigation>(), std::make_shared<IdentityCommandShaper>(1.0),
+            std::make_shared<NoopNavigation>(),
+            std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
             std::make_shared<NoopTransmitter>(), std::make_shared<ManualClock>(), nullptr);
         loop_ = loop;
         RunnerRemote remote;
@@ -404,7 +406,8 @@ class CameraSettingsCommandsTest : public ::testing::Test {
         auto keypoint_model = std::make_shared<NoopKeypointModel>();
         auto loop = std::make_shared<ControlLoop>(
             std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
-            std::make_shared<NoopNavigation>(), std::make_shared<IdentityCommandShaper>(1.0),
+            std::make_shared<NoopNavigation>(),
+            std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
             std::make_shared<NoopTransmitter>(), nullptr, nullptr);
         RunnerRemote remote;
         commands_ = remote.commands;
@@ -542,7 +545,8 @@ class RunnerRecordingOrderTest : public ::testing::Test {
         auto keypoint_model = std::make_shared<NoopKeypointModel>();
         auto loop = std::make_shared<ControlLoop>(
             std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
-            std::make_shared<NoopNavigation>(), std::make_shared<IdentityCommandShaper>(1.0),
+            std::make_shared<NoopNavigation>(),
+            std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
             std::make_shared<NoopTransmitter>(), nullptr, nullptr);
         RunnerRemote remote;
         commands_ = remote.commands;
@@ -677,7 +681,8 @@ TEST_F(RunnerCommandsTest, StalledControlLoopCutsAutonomyAndLogsOnce) {
     auto keypoint_model = std::make_shared<NoopKeypointModel>();
     auto loop = std::make_shared<ControlLoop>(
         std::make_shared<NoopRobotFilter>(), std::make_shared<NoopTarget>(),
-        std::make_shared<NoopNavigation>(), std::make_shared<IdentityCommandShaper>(1.0),
+        std::make_shared<NoopNavigation>(),
+        std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
         std::make_shared<NoopTransmitter>(), nullptr, nullptr);
     Runner stalled(
         RunnerConfiguration{}, camera_, std::make_shared<HealthLogger>(HealthConfiguration{}),

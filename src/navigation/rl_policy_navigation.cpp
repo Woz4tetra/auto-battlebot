@@ -13,6 +13,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "directories.hpp"
 #include "hazards/hazard_geometry.hpp"
+#include "plant/plant_params.hpp"
 #include "transform_utils.hpp"
 
 namespace auto_battlebot {
@@ -54,15 +55,15 @@ RlPolicyNavigation::RlPolicyNavigation(const RlPolicyNavigationConfiguration &co
     : config_(config),
       clock_(std::move(clock)),
       logger_(DiagnosticsLogger::get_logger("rl_policy_nav")) {
-    if (config_.hazard_barrier_enable && config_.plant.has_value()) {
+    if (config_.hazard_barrier_enable) {
         HazardAvoidanceSettings settings;
         settings.tangent_enable = false;
         settings.reverse_distance = 0.0;
         settings.prediction_horizon_s = config_.hazard_prediction_horizon_s;
-        settings.max_linear_speed_fwd = config_.plant->k_fwd;
-        settings.max_linear_speed_rev = config_.plant->k_rev;
-        settings.barrier_horizon_s = config_.plant->tau_lin_d + config_.plant->delay_s;
-        settings.barrier_delay_s = config_.plant->delay_s;
+        settings.max_linear_speed_fwd = config_.plant.k_fwd;
+        settings.max_linear_speed_rev = config_.plant.k_rev;
+        settings.barrier_horizon_s = config_.plant.tau_lin_d + config_.plant.delay_s;
+        settings.barrier_delay_s = config_.plant.delay_s;
         if (settings.barrier_horizon_s <= 0.0) {
             spdlog::warn(
                 "RlPolicyNavigation hazard barrier is off: [plant] tau_lin_d + delay_s is 0, so "
@@ -229,6 +230,9 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
                             {"bound", std::min(barrier.approach_speed_bound_mps, 99.0)}});
         }
     }
+    command = plant_stick_to_body_velocity(
+        {.forward = command.forward_mps, .lateral = 0.0, .yaw = command.yaw_rate_radps},
+        config_.plant);
     last_visualization_.path =
         NavigationPathSegment{our_pose.x, our_pose.y, target.pose.x, target.pose.y};
     last_visualization_.command = command;

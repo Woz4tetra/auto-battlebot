@@ -32,8 +32,11 @@ lockstep, and the split matters:
 3. `robot_filter_->correct(...)`, only when a new perception frame landed. This runs the
    association front-end and then `MotionEstimatorInterface::update`.
 4. `target_selector_->get_target(...)` picks the goal pose.
-5. `navigation_->update(...)` returns a `VelocityCommand`.
-6. `transmitter_->send(command)`, which is what step 1 reads back on the next tick.
+5. `navigation_->update(...)` returns a `VelocityCommand` in m/s and rad/s.
+6. `command_shaper_->shape(command)` turns it into a `StickCommand`. `PlantCommandShaper`
+   divides linear by `k_fwd` or `k_rev` by sign and yaw by `k_ang`, the inverse of
+   `plant_stick_to_body_velocity()`, then saturates.
+7. `transmitter_->send(stick)`, which is what step 1 reads back on the next tick.
 
 ## Estimator: the plant run forward
 
@@ -179,8 +182,7 @@ Nothing in C++ defaults to a fit, so a test that default-constructs a config get
 ## Config handling
 
 - `apply_plant` hands the shared top-level `[plant]` table to a config after `parse_fields`. It is separate from parsing because the plant is a top-level section and the config's own parser never sees it. Controllers and estimators that do not model the plant (pursuit, fixed velocity, dead reckoning) keep the no-op.
-- A missing `[plant]` is not an error at parse time (`plant/config.hpp`): a profile that runs neither the EKF nor `MotionProfileNavigation` needs no plant, and those that do raise their own error when they find it missing.
-- `MotionProfileNavigation` throws on a missing `[plant]`. Every plant term it inverts comes from the fit, so there is nothing sensible to fall back on: a defaulted plant would brake and feedforward against a drivetrain no experiment measured.
+- A missing `[plant]` fails at parse time (`src/plant/config.cpp`). Every profile needs one, because the command shaper converts every navigator's m/s output to sticks with its gains. A defaulted plant would brake, feedforward and convert against a drivetrain no experiment measured. `PlantCommandShaper` also rejects a `k_fwd`, `k_rev` or `k_ang` that is not positive.
 
 ## Plant parameters
 

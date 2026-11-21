@@ -83,11 +83,6 @@ struct KalmanMotionEstimatorConfiguration : public MotionEstimatorConfiguration 
     void apply_plant(const PlantConfiguration &plant_config) override {
         plant = plant_config.params;
         plant_noise = plant_config.noise;
-        if (!plant.has_value()) {
-            throw ConfigValidationError(
-                "type = 'KalmanMotionEstimator' requires the top-level [plant] table; see "
-                "docs/reference/control/plant_backed_control.md");
-        }
     }
 };
 

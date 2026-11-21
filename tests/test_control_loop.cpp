@@ -9,7 +9,7 @@
 #include <thread>
 #include <vector>
 
-#include "command_shaper/identity_command_shaper.hpp"
+#include "command_shaper/plant_command_shaper.hpp"
 #include "control_loop/config.hpp"
 #include "control_loop/control_loop.hpp"
 #include "control_loop/stepped_control_loop.hpp"
@@ -24,6 +24,7 @@
 
 namespace auto_battlebot {
 namespace {
+const JigPlantParams kUnitGainPlant{.k_fwd = 1.0, .k_rev = 1.0, .k_ang = 1.0};
 
 constexpr StickCommand kNormalizedStickFeedback{0.3, 0.0, 0.15};
 constexpr int kOurPeriod = 40;
@@ -247,7 +248,7 @@ TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
         ASSERT_TRUE(filter.initialize(1));
         RecordingNavigation navigation;
         RecordingTransmitter transmitter;
-        const IdentityCommandShaper shaper(1.0);
+        const PlantCommandShaper shaper(kUnitGainPlant, 1.0);
         auto clock = std::make_shared<ManualClock>();
 
         for (const auto &m : measurements) {
@@ -271,9 +272,9 @@ TEST(ControlLoopTest, SteppedZeroRateMatchesInlineSequence) {
         auto navigation = std::make_shared<RecordingNavigation>();
         auto transmitter = std::make_shared<RecordingTransmitter>();
         auto clock = std::make_shared<ManualClock>();
-        auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation,
-                                                  std::make_shared<IdentityCommandShaper>(1.0),
-                                                  transmitter, clock, nullptr);
+        auto loop = std::make_shared<ControlLoop>(
+            filter, nullptr, navigation, std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
+            transmitter, clock, nullptr);
         SteppedControlLoop driver(loop, 0.0);
         driver.start();
 
@@ -310,9 +311,9 @@ TEST(ControlLoopTest, ZeroRateRunsExactlyOneCyclePerAdvance) {
     auto navigation = std::make_shared<RecordingNavigation>();
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation,
-                                              std::make_shared<IdentityCommandShaper>(1.0),
-                                              transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(
+        filter, nullptr, navigation, std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
+        transmitter, clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
 
     const auto measurements = make_measurements(10);
@@ -340,9 +341,9 @@ TEST(ControlLoopTest, NoCycleReadsClockBeforeFirstFrame) {
     auto navigation = std::make_shared<RecordingNavigation>();
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto clock = std::make_shared<CountingClock>();
-    auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation,
-                                              std::make_shared<IdentityCommandShaper>(1.0),
-                                              transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(
+        filter, nullptr, navigation, std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
+        transmitter, clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
 
     for (int i = 0; i < 5; ++i) driver.advance_to(1.0 + i);
@@ -358,9 +359,9 @@ TEST(ControlLoopTest, NonZeroRateRunsMultipleCyclesPerFrame) {
     auto navigation = std::make_shared<RecordingNavigation>();
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation,
-                                              std::make_shared<IdentityCommandShaper>(1.0),
-                                              transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(
+        filter, nullptr, navigation, std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
+        transmitter, clock, nullptr);
     SteppedControlLoop driver(loop, kLoopHz);
 
     const auto measurements = make_measurements(10);
@@ -382,9 +383,9 @@ TEST(ControlLoopTest, MeasurementIsCorrectedExactlyOnce) {
     auto navigation = std::make_shared<RecordingNavigation>();
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation,
-                                              std::make_shared<IdentityCommandShaper>(1.0),
-                                              transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(
+        filter, nullptr, navigation, std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
+        transmitter, clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
 
     const auto measurements = make_measurements(2);
@@ -412,9 +413,9 @@ TEST(ControlLoopTest, BehaviorModeReachesSelectorAndOutput) {
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto selector = std::make_shared<RecordingTargetSelector>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop = std::make_shared<ControlLoop>(filter, selector, navigation,
-                                              std::make_shared<IdentityCommandShaper>(1.0),
-                                              transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(
+        filter, selector, navigation, std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
+        transmitter, clock, nullptr);
     loop->set_behavior_mode(BehaviorMode::RUN_AWAY);
     SteppedControlLoop driver(loop, 0.0);
     driver.start();
@@ -445,9 +446,9 @@ TEST(ControlLoopTest, BehaviorModeIsLoggedEveryCycle) {
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto selector = std::make_shared<RecordingTargetSelector>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop = std::make_shared<ControlLoop>(filter, selector, navigation,
-                                              std::make_shared<IdentityCommandShaper>(1.0),
-                                              transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(
+        filter, selector, navigation, std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
+        transmitter, clock, nullptr);
 
     loop->set_behavior_mode(BehaviorMode::RUN_AWAY);
     SteppedControlLoop driver(loop, 0.0);
@@ -481,9 +482,9 @@ TEST(ControlLoopTest, TargetOverrideBypassesSelectorUntilCleared) {
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto selector = std::make_shared<RecordingTargetSelector>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop = std::make_shared<ControlLoop>(filter, selector, navigation,
-                                              std::make_shared<IdentityCommandShaper>(1.0),
-                                              transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(
+        filter, selector, navigation, std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
+        transmitter, clock, nullptr);
     loop->set_behavior_mode(BehaviorMode::RUN_AWAY);
     loop->set_target_override(Pose2D{.x = 0.4, .y = -0.3, .yaw = 0.0});
     SteppedControlLoop driver(loop, 0.0);
@@ -520,7 +521,7 @@ TEST(ControlLoopTest, HeldTargetResumesAfterAnOverrideClears) {
     auto selector = std::make_shared<RecordingTargetSelector>();
     auto clock = std::make_shared<ManualClock>();
     auto loop = std::make_shared<ControlLoop>(
-        filter, selector, navigation, std::make_shared<IdentityCommandShaper>(1.0),
+        filter, selector, navigation, std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
         std::make_shared<RecordingTransmitter>(), clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
     driver.start();
@@ -552,7 +553,7 @@ TEST(ControlLoopTest, ReusedTargetCarriesTheCurrentBehaviorMode) {
     auto selector = std::make_shared<RecordingTargetSelector>();
     auto clock = std::make_shared<ManualClock>();
     auto loop = std::make_shared<ControlLoop>(
-        filter, selector, navigation, std::make_shared<IdentityCommandShaper>(1.0),
+        filter, selector, navigation, std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
         std::make_shared<RecordingTransmitter>(), clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
     driver.start();
@@ -582,7 +583,7 @@ TEST(ControlLoopTest, WatchdogStampAdvancesWhileWaitingForTheField) {
     auto clock = std::make_shared<ManualClock>();
     auto loop =
         std::make_shared<ControlLoop>(filter, nullptr, std::make_shared<RecordingNavigation>(),
-                                      std::make_shared<IdentityCommandShaper>(1.0),
+                                      std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
                                       std::make_shared<RecordingTransmitter>(), clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
     driver.start();
@@ -597,7 +598,7 @@ TEST(ControlLoopTest, SubmitMeasurementReplacesUnconsumed) {
     auto clock = std::make_shared<ManualClock>();
     auto loop =
         std::make_shared<ControlLoop>(filter, nullptr, std::make_shared<RecordingNavigation>(),
-                                      std::make_shared<IdentityCommandShaper>(1.0),
+                                      std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
                                       std::make_shared<RecordingTransmitter>(), clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
     driver.start();
@@ -614,8 +615,9 @@ TEST(ControlLoopTest, InitialAutonomyStateReachesTransmitter) {
     auto make_loop = [](std::shared_ptr<RecordingTransmitter> transmitter) {
         return std::make_shared<ControlLoop>(
             std::make_shared<OrderRecordingFilter>(), nullptr,
-            std::make_shared<RecordingNavigation>(), std::make_shared<IdentityCommandShaper>(1.0),
-            std::move(transmitter), std::make_shared<ManualClock>(), nullptr);
+            std::make_shared<RecordingNavigation>(),
+            std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0), std::move(transmitter),
+            std::make_shared<ManualClock>(), nullptr);
     };
 
     auto enabled_transmitter = std::make_shared<RecordingTransmitter>();
@@ -638,8 +640,8 @@ TEST(ControlLoopTest, SteppedPumpInputLatchesInitButtonWithoutCycling) {
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto loop = std::make_shared<ControlLoop>(
         std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
-        std::make_shared<IdentityCommandShaper>(1.0), transmitter, std::make_shared<ManualClock>(),
-        nullptr);
+        std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0), transmitter,
+        std::make_shared<ManualClock>(), nullptr);
     SteppedControlLoop driver(loop, 0.0);
     transmitter->init_button_pressed = true;
     driver.pump_input();
@@ -666,8 +668,8 @@ TEST(ControlLoopTest, SteppedCatchUpCappedAfterStall) {
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto loop = std::make_shared<ControlLoop>(
         std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
-        std::make_shared<IdentityCommandShaper>(1.0), transmitter, std::make_shared<ManualClock>(),
-        nullptr);
+        std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0), transmitter,
+        std::make_shared<ManualClock>(), nullptr);
     constexpr int kCap = 5;
     SteppedControlLoop driver(loop, 240.0, kCap);
 
@@ -682,8 +684,8 @@ TEST(ControlLoopTest, ThreadedResyncsAfterOverrun) {
     auto transmitter = std::make_shared<TimestampingTransmitter>();
     auto loop = std::make_shared<ControlLoop>(
         std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
-        std::make_shared<IdentityCommandShaper>(1.0), transmitter, std::make_shared<ManualClock>(),
-        nullptr);
+        std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0), transmitter,
+        std::make_shared<ManualClock>(), nullptr);
     ThreadedControlLoop driver(loop, 250.0, 20.0);
     loop->submit_measurement(make_measurements(1)[0]);
     ASSERT_TRUE(driver.start());
@@ -702,8 +704,8 @@ TEST(ControlLoopTest, ThreadedPumpInputLeavesTheTransmitterToTheControlThread) {
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto loop = std::make_shared<ControlLoop>(
         std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
-        std::make_shared<IdentityCommandShaper>(1.0), transmitter, std::make_shared<ManualClock>(),
-        nullptr);
+        std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0), transmitter,
+        std::make_shared<ManualClock>(), nullptr);
     ThreadedControlLoop driver(loop, 250.0, 20.0);
     driver.pump_input();
     EXPECT_EQ(transmitter->update_calls, 0);
@@ -713,8 +715,8 @@ TEST(ControlLoopTest, ThreadedStartInitializesTransmitterBeforeFirstCycle) {
     auto transmitter = std::make_shared<SlowInitTransmitter>();
     auto loop = std::make_shared<ControlLoop>(
         std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
-        std::make_shared<IdentityCommandShaper>(1.0), transmitter, std::make_shared<ManualClock>(),
-        nullptr);
+        std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0), transmitter,
+        std::make_shared<ManualClock>(), nullptr);
     ThreadedControlLoop driver(loop, 250.0, 20.0);
     loop->submit_measurement(make_measurements(1)[0]);
     EXPECT_TRUE(driver.start());
@@ -729,8 +731,8 @@ TEST(ControlLoopTest, ThreadedForwardersSurviveConcurrentCallers) {
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto loop = std::make_shared<ControlLoop>(
         std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
-        std::make_shared<IdentityCommandShaper>(1.0), transmitter, std::make_shared<ManualClock>(),
-        nullptr);
+        std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0), transmitter,
+        std::make_shared<ManualClock>(), nullptr);
     ThreadedControlLoop driver(loop, 250.0, 20.0);
     loop->submit_measurement(make_measurements(1)[0]);
     ASSERT_TRUE(driver.start());
@@ -762,7 +764,7 @@ TEST(ControlLoopTest, FilterCorrectsBeforeItPredicts) {
     auto clock = std::make_shared<ManualClock>();
     auto loop =
         std::make_shared<ControlLoop>(filter, nullptr, std::make_shared<RecordingNavigation>(),
-                                      std::make_shared<IdentityCommandShaper>(1.0),
+                                      std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
                                       std::make_shared<RecordingTransmitter>(), clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
     driver.start();
@@ -782,9 +784,9 @@ TEST(ControlLoopInterfaceTest, ForwardersAreSafeToCallFromSeveralThreadsWhileThe
     auto navigation = std::make_shared<RecordingNavigation>();
     auto transmitter = std::make_shared<RecordingTransmitter>();
     auto clock = std::make_shared<ManualClock>();
-    auto loop = std::make_shared<ControlLoop>(filter, nullptr, navigation,
-                                              std::make_shared<IdentityCommandShaper>(1.0),
-                                              transmitter, clock, nullptr);
+    auto loop = std::make_shared<ControlLoop>(
+        filter, nullptr, navigation, std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
+        transmitter, clock, nullptr);
     SteppedControlLoop driver(loop, 0.0);
     ControlLoopInterface &forwarders = driver;
     forwarders.start();

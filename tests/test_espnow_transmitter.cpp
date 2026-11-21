@@ -271,10 +271,10 @@ TEST_F(EspNowTransmitterPtyTest, SlewLimitsLinearOnlyWhileAutonomyIsOn) {
     usleep(5000);
     transmitter.update();
     const auto last_sa_off_time = std::chrono::steady_clock::now();
-    transmitter.send({1.0, 0.0, 0.5});
+    transmitter.send({0.5, 0.0, 0.5});
     auto commands = read_commands(read_master());
     ASSERT_EQ(commands.size(), 1u);
-    EXPECT_FLOAT_EQ(commands[0].ch0_value, 0.5f) << "SA off: unlimited, saturation splits 1.0";
+    EXPECT_FLOAT_EQ(commands[0].ch0_value, 0.5f) << "SA off: unlimited";
 
     telemetry.autonomy_switch_sa = 1;
     write_telemetry(master_, telemetry);

@@ -5,12 +5,13 @@ What each config field means, per section. Values and their source per profile c
 
 ## `[command_shaper]`
 
-Optional. The control loop passes every navigation command through the shaper before
-`transmitter.send`, so all transmitters, the sim included, see the same saturated sticks.
+Optional. Navigation outputs body velocity in m/s and rad/s. The control loop passes it through
+the shaper before `transmitter.send`, so every transmitter, the sim included, gets the same
+saturated sticks in [-1, 1].
 
 | Field | Meaning |
 | --- | --- |
-| `type` | `IdentityCommandShaper` (the default when the section is absent) |
+| `type` | `PlantCommandShaper` (the default when the section is absent): linear divided by `[plant]` `k_fwd` or `k_rev` by sign, yaw by `k_ang`, then saturated |
 | `velocity_saturation_limit` | Combined budget `\|linear\| + \|angular\| <= limit`. Angular takes priority and linear fills the headroom. 0 clamps each channel to [-1, 1] on its own. Default 1.0 |
 
 ## `[transmitter]`
@@ -60,7 +61,7 @@ carries no arm authority (`firmware/mr_stabs_mk2/README.md`).
 
 ### `MotionProfileNavigation`
 
-Requires the top-level `[plant]` table. See `docs/reference/control/plant_backed_control.md`.
+Reads the top-level `[plant]` table. See `docs/reference/control/plant_backed_control.md`.
 
 | Field | Meaning |
 | --- | --- |
@@ -167,7 +168,7 @@ Board geometry defaults match the manufactured board.
 
 ## `[robot_filter.motion_estimator]`
 
-`type` selects the implementation, and `KalmanMotionEstimator` is the only one. It takes its plant from the top-level `[plant]` table, not from this section. `apply_plant` stamps it in and throws when the table is missing.
+`type` selects the implementation, and `KalmanMotionEstimator` is the only one. It takes its plant from the top-level `[plant]` table, not from this section. `apply_plant` stamps it in; the loader has already failed if the table is missing.
 
 ### `KalmanMotionEstimator`
 
@@ -263,9 +264,9 @@ An absent `[control_loop]` section selects `SteppedControlLoop` with `rate_hz = 
 
 ## `[plant]`
 
-The jig-fitted drivetrain, one table for the EKF and `MotionProfileNavigation`
-(`docs/reference/control/plant_backed_control.md`). Absent is not a parse error. A consumer that
-needs it throws. Provenance of the values is in `docs/reference/config/robot_plant_files.md`.
+The jig-fitted drivetrain, one table for the EKF, `MotionProfileNavigation`, the RL action scale
+and `[command_shaper]` (`docs/reference/control/plant_backed_control.md`). Required: a profile
+without it fails at parse. Provenance of the values is in `docs/reference/config/robot_plant_files.md`.
 
 Every field in the table is required. A partly defaulted plant would predict with a mix of fit and
 zero that no experiment produced. A ladder rung disables a term by writing it as zero, as the fit

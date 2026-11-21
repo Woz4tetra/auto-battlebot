@@ -2,7 +2,6 @@
 
 #include <toml++/toml.h>
 
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -11,7 +10,7 @@
 namespace auto_battlebot {
 
 struct PlantConfiguration {
-    std::optional<JigPlantParams> params;
+    JigPlantParams params;
 
     JigPlantNoiseParams noise;
 };

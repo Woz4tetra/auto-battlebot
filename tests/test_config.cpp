@@ -89,6 +89,24 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )";
 
 TEST_F(ConfigTest, NoopRgbdCameraConfiguration) {
@@ -119,6 +137,24 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
 
     auto config = load_classes_from_config(temp_config_file.string());
@@ -157,6 +193,24 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
 
     auto config = load_classes_from_config(temp_config_file.string());
@@ -202,6 +256,24 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
 
     auto config = load_classes_from_config(temp_config_file.string());
@@ -244,6 +316,24 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
 
     auto config = load_classes_from_config(temp_config_file.string());
@@ -287,6 +377,24 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
 
     auto config = load_classes_from_config(temp_config_file.string());
@@ -328,6 +436,24 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
 
     expect_config_error_mentioning(temp_config_file.string(), "depth_mode");
@@ -361,6 +487,24 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
 
     EXPECT_THROW(
@@ -405,6 +549,24 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
 
     EXPECT_THROW(
@@ -461,6 +623,24 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
 
     auto config = load_classes_from_config(temp_config_file.string());
@@ -516,6 +696,24 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
 
     auto config = load_classes_from_config(temp_config_file.string());
@@ -556,6 +754,24 @@ reverse_right_channel = true
 
 [publisher]
 type = "NoopPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
 
     EXPECT_THROW(
@@ -599,6 +815,24 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
 
     auto config = load_classes_from_config(temp_config_file.string());
@@ -642,6 +876,24 @@ enable = true
 tegrastats_enable = true
 x86_tools_enable = true
 sample_period_ms = 1200
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
 
     auto config = load_classes_from_config(temp_config_file.string());
@@ -744,6 +996,24 @@ extends = "mid"
 
 [transmitter]
 type = "NoopTransmitter"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
 
     auto config = load_classes_from_config(leaf.string(), temp_dir);
@@ -866,6 +1136,24 @@ TEST_F(ConfigFromTest, ParsesIntoClassConfiguration) {
     write_robot_file(R"(
 [transmitter]
 type = "NoopTransmitter"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
     write_named_config("base.toml", kBaseConfig);
     auto child = write_named_config("child.toml", R"(
@@ -1200,6 +1488,24 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
 
     auto config = load_classes_from_config(temp_config_file.string());
@@ -1238,6 +1544,24 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "UnknownPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )");
 
     EXPECT_THROW(
@@ -1542,9 +1866,7 @@ TEST_F(ConfigTest, MotionEstimatorWithoutPlantTableNamesThePlantTableInTheError)
         FAIL() << "KalmanMotionEstimator loaded without a [plant] table";
     } catch (const ConfigValidationError &error) {
         const std::string message = error.what();
-        EXPECT_NE(message.find("KalmanMotionEstimator"), std::string::npos) << message;
-        EXPECT_NE(message.find("requires the top-level [plant] table"), std::string::npos)
-            << message;
+        EXPECT_NE(message.find("Missing required section [plant]"), std::string::npos) << message;
     }
 }
 
@@ -1649,7 +1971,7 @@ TEST_F(ConfigTest, MotionProfileNavigationReadsTheSharedPlantTable) {
 TEST_F(ConfigTest, MotionProfileNavigationWithoutPlantTableThrows) {
     write_config_file(config_with_noop_filter_and_motion_profile_nav(kNoPlantTable));
 
-    expect_config_error_mentioning(temp_config_file.string(), "MotionProfileNavigation");
+    expect_config_error_mentioning(temp_config_file.string(), "Missing required section [plant]");
 }
 
 namespace {
@@ -1687,6 +2009,24 @@ TEST_F(ConfigTest, RunnerBehaviorModeDefaultsToAttack) {
     write_config_file(config_with_transmitter(R"(
 [transmitter]
 type = "PlaybackTransmitter"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )"));
 
     auto config = load_classes_from_config(temp_config_file.string());
@@ -1700,6 +2040,24 @@ type = "PlaybackTransmitter"
 
 [runner]
 default_behavior_mode = "RUN_AWAY"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )"));
 
     auto config = load_classes_from_config(temp_config_file.string());
@@ -1710,6 +2068,24 @@ TEST_F(ConfigTest, RunnerAutoTrackingDefaultsOn) {
     write_config_file(config_with_transmitter(R"(
 [transmitter]
 type = "PlaybackTransmitter"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )"));
     EXPECT_TRUE(
         load_classes_from_config(temp_config_file.string()).runner.auto_tracking_by_default);
@@ -1720,6 +2096,24 @@ type = "PlaybackTransmitter"
 
 [runner]
 auto_tracking_by_default = false
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )"));
     EXPECT_FALSE(
         load_classes_from_config(temp_config_file.string()).runner.auto_tracking_by_default);
@@ -1732,6 +2126,24 @@ type = "PlaybackTransmitter"
 
 [runner]
 default_behavior_mode = "FLEE"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )"));
 
     EXPECT_THROW(load_classes_from_config(temp_config_file.string()), std::invalid_argument);
@@ -1742,6 +2154,24 @@ TEST_F(ConfigTest, TransmitterBehaviorModeKeyIsRejected) {
 [transmitter]
 type = "PlaybackTransmitter"
 behavior_mode = "RUN_AWAY"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )"));
 
     EXPECT_ANY_THROW(load_classes_from_config(temp_config_file.string()));
@@ -1774,6 +2204,24 @@ type = "NoopTransmitter"
 
 [publisher]
 type = "NoopPublisher"
+
+[plant]
+dz_lin_fwd = 0.0
+dz_lin_rev = 0.0
+dz_ang_l = 0.0
+dz_ang_r = 0.0
+k_fwd = 1.0
+k_rev = 1.0
+k_ang = 1.0
+tau_lin_a = 0.0
+tau_lin_d = 0.0
+tau_ang_a = 0.0
+tau_ang_d = 0.0
+delay_s = 0.0
+c_sb = 0.0
+c_ad = 0.0
+c_drift = 0.0
+c_drift_bias = 0.0
 )";
 }
 
