@@ -114,10 +114,14 @@ struct EspNowTransmitterConfiguration : public TransmitterConfiguration {
     double max_motor_rpm = 1500.0;
     std::optional<double> max_motor_rpm_per_s;
 
+    double reconnect_interval_s = 1.0;
+
     EspNowTransmitterConfiguration() { type = "EspNowTransmitter"; }
 
     void parse_fields(ConfigParser &parser) override {
         dongle_serial_path = parser.get_optional_string("dongle_serial_path", dongle_serial_path);
+        reconnect_interval_s =
+            parser.get_optional_double("reconnect_interval_s", reconnect_interval_s);
         drive_processor = parser.get_optional_string("drive_processor", drive_processor);
         velocity_saturation_limit =
             parser.get_optional_double("velocity_saturation_limit", velocity_saturation_limit);

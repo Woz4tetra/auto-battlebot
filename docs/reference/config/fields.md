@@ -36,6 +36,7 @@ carries no arm authority (`firmware/mr_stabs_mk2/README.md`).
 | Field | Meaning |
 | --- | --- |
 | `dongle_serial_path` | A udev symlink (`install/install_udev_rules.sh`), not a raw ttyACM path: the handset also enumerates as ttyACM and the order is not stable |
+| `reconnect_interval_s` | Minimum time between dongle open attempts, and how long a silent dongle stays open before it is closed and reopened |
 
 ### `SimTransmitter`
 
@@ -308,6 +309,7 @@ ZED X One S (or any ZED X One) over GMSL2 through `sl::CameraOne`, as on the ZED
 | --- | --- |
 | `camera_resolution` | `RES_1920x1200` is the full sensor, `RES_1920x1080` crops it, `RES_960x600` bins it (up to 120 fps). Anything else fails at open |
 | `video_bitrate_kbps` | H.264 bitrate. 15000 is about 6.8 GB per hour and 340 MB for a three-minute match |
+| `capture_thread_join_timeout_s` | How long the destructor waits for a capture thread stuck in `grab()` before the process exits with a failure |
 
 ### `VideoPlaybackCamera`
 

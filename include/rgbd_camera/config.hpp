@@ -81,6 +81,7 @@ struct ZedOneRgbCameraConfiguration : public RgbdCameraConfiguration {
     int camera_fps = 60;
     bool video_recording = true;
     int video_bitrate_kbps = 15000;
+    double capture_thread_join_timeout_s = 3.0;
 
     ZedOneRgbCameraConfiguration() { type = "ZedOneRgbCamera"; }
 
@@ -90,6 +91,7 @@ struct ZedOneRgbCameraConfiguration : public RgbdCameraConfiguration {
         PARSE_FIELD(camera_fps)
         PARSE_FIELD_BOOL(video_recording)
         PARSE_FIELD(video_bitrate_kbps)
+        PARSE_FIELD_DOUBLE(capture_thread_join_timeout_s)
     )
     // clang-format on
 };

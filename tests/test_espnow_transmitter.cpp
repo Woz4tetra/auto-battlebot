@@ -152,6 +152,7 @@ TEST(EspNowTransmitterReopenTest, ReopenAttemptsAreRateLimited) {
 
     EspNowTransmitterConfiguration config;
     config.dongle_serial_path = path.string();
+    config.reconnect_interval_s = 0.25;
     EspNowTransmitter transmitter(config, nullptr, nullptr);
     int opens = 0;
     const auto drain_opens = [&] {
@@ -166,7 +167,7 @@ TEST(EspNowTransmitterReopenTest, ReopenAttemptsAreRateLimited) {
         }
     };
     const auto start = std::chrono::steady_clock::now();
-    while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(1800)) {
+    while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(450)) {
         transmitter.update();
         drain_opens();
         usleep(10000);
@@ -181,6 +182,7 @@ TEST(EspNowTransmitterReopenTest, ReopenAttemptsAreRateLimited) {
 TEST_F(EspNowTransmitterPtyTest, SilentDongleIsNotClosedBeforeTheReopenIntervalElapses) {
     EspNowTransmitterConfiguration config;
     config.dongle_serial_path = path_;
+    config.reconnect_interval_s = 0.7;
     EspNowTransmitter transmitter(config, nullptr, nullptr);
     auto logger = DiagnosticsLogger::get_logger("espnow_transmitter");
     ASSERT_TRUE(transmitter.initialize());
@@ -193,15 +195,16 @@ TEST_F(EspNowTransmitterPtyTest, SilentDongleIsNotClosedBeforeTheReopenIntervalE
             usleep(10000);
         }
     };
-    run_for(std::chrono::milliseconds(800));
+    run_for(std::chrono::milliseconds(600));
     EXPECT_FALSE(logged_silent_reconnect());
-    run_for(std::chrono::milliseconds(500));
+    run_for(std::chrono::milliseconds(300));
     EXPECT_TRUE(logged_silent_reconnect());
 }
 
 TEST_F(EspNowTransmitterPtyTest, ReopensTheDongleOnlyAfterItGoesSilent) {
     EspNowTransmitterConfiguration config;
     config.dongle_serial_path = path_;
+    config.reconnect_interval_s = 0.25;
     EspNowTransmitter transmitter(config, nullptr, nullptr);
     auto logger = DiagnosticsLogger::get_logger("espnow_transmitter");
     ASSERT_TRUE(transmitter.initialize());
@@ -213,14 +216,14 @@ TEST_F(EspNowTransmitterPtyTest, ReopensTheDongleOnlyAfterItGoesSilent) {
                                                           reinterpret_cast<const uint8_t *>(&stats),
                                                           sizeof(stats), frame);
     const auto start = std::chrono::steady_clock::now();
-    while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(1200)) {
+    while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(600)) {
         ASSERT_EQ(write(master_, frame, n), static_cast<ssize_t>(n));
         usleep(100000);
         transmitter.update();
     }
     EXPECT_FALSE(logged_silent_reconnect());
 
-    usleep(1100000);
+    usleep(600000);
     transmitter.update();
     EXPECT_TRUE(logged_silent_reconnect());
 }

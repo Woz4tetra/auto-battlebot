@@ -29,7 +29,6 @@ CameraSettings default_manual_settings(const CameraSettingLimits &limits) {
 constexpr auto kGrabErrorWindow = std::chrono::seconds(10);
 constexpr double kGrabErrorExitThreshold = 0.70;
 constexpr auto kGetWaitTimeout = std::chrono::milliseconds(100);
-constexpr auto kCaptureThreadJoinTimeout = std::chrono::seconds(3);
 constexpr const char *kVideoTopic = "/camera/video";
 }  // namespace
 
@@ -53,7 +52,10 @@ ZedOneRgbCamera::~ZedOneRgbCamera() {
     stop_thread_.store(true);
     data_cv_.notify_all();
     if (capture_thread_.joinable()) {
-        const auto deadline = std::chrono::steady_clock::now() + kCaptureThreadJoinTimeout;
+        const auto deadline =
+            std::chrono::steady_clock::now() +
+            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                std::chrono::duration<double>(config_.capture_thread_join_timeout_s));
         while (!capture_thread_done_.load() && std::chrono::steady_clock::now() < deadline) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
@@ -61,7 +63,7 @@ ZedOneRgbCamera::~ZedOneRgbCamera() {
             spdlog::critical(
                 "[ZedOneRgbCamera] Capture thread stuck in grab() for {} s at "
                 "shutdown; exiting",
-                kCaptureThreadJoinTimeout.count());
+                config_.capture_thread_join_timeout_s);
             spdlog::default_logger()->flush();
             std::_Exit(EXIT_FAILURE);
         }

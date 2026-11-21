@@ -241,7 +241,9 @@ TEST(VizSinkTest, DeliversClientMessagesToHandler) {
 TEST(VizSinkTest, StalledRelayStillDeliversCommandsAndLetsGo) {
     const auto path = test_socket_path();
     FakeRelay relay(path);
-    auto sink = std::make_unique<VizSink>(path);
+    VizSinkTiming timing;
+    timing.send_stall_timeout = std::chrono::milliseconds(500);
+    auto sink = std::make_unique<VizSink>(path, timing);
     std::atomic<int> commands{0};
     sink->set_client_message_handler(
         [&](const std::string&, const std::byte*, size_t) { commands.fetch_add(1); });
@@ -451,12 +453,14 @@ TEST(VizSinkTest, ReconnectReadvertisesAllChannels) {
     EXPECT_EQ(advertised, (std::vector<uint32_t>{status, image}));
 }
 
-TEST(VizSinkTest, RefusingRelayIsRetriedOncePerSecond) {
+TEST(VizSinkTest, RefusingRelayIsRetriedOncePerReconnectInterval) {
     const auto path = test_socket_path();
     FakeRelay relay(path);
-    VizSink sink(path);
+    VizSinkTiming timing;
+    timing.reconnect_interval = std::chrono::milliseconds(200);
+    VizSink sink(path, timing);
     sink.advertise("/status/system", "json", kStatusSchema, false);
-    const int attempts = relay.refuse_for(std::chrono::milliseconds(2500));
+    const int attempts = relay.refuse_for(std::chrono::milliseconds(500));
     EXPECT_GE(attempts, 2);
     EXPECT_LE(attempts, 4);
 }

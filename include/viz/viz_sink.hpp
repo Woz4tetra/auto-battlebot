@@ -18,12 +18,19 @@
 
 namespace auto_battlebot {
 
+struct VizSinkTiming {
+    std::chrono::milliseconds reconnect_interval{1000};
+    std::chrono::milliseconds send_stall_timeout{2000};
+    std::chrono::milliseconds refused_vs_lost_settle_time{1000};
+};
+
 class VizSink {
    public:
     using ClientMessageHandler =
         std::function<void(const std::string& topic, const std::byte* data, size_t len)>;
 
-    explicit VizSink(std::string socket_path = viz::default_socket_path());
+    explicit VizSink(std::string socket_path = viz::default_socket_path(),
+                     VizSinkTiming timing = {});
     ~VizSink();
 
     VizSink(const VizSink&) = delete;
@@ -69,6 +76,7 @@ class VizSink {
     void clear_queues_locked();
 
     std::string socket_path_;
+    VizSinkTiming timing_;
     int fd_ = -1;
     int wake_fd_ = -1;
 

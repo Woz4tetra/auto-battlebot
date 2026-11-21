@@ -160,6 +160,7 @@ TEST_F(ZedSvoPlaybackCameraTest, SvoEndOfFile) {
     config.camera_fps = 30;
     config.camera_resolution = Resolution::RES_1280x720;
     config.depth_mode = DepthMode::ZED_NEURAL;
+    config.svo_real_time_mode = false;
 
     ZedSvoPlaybackCamera camera(config);
     ASSERT_TRUE(camera.initialize());

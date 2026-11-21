@@ -19,9 +19,6 @@ namespace auto_battlebot {
 namespace {
 constexpr size_t kMaxBulkBytes = 32u * 1024u * 1024u;
 constexpr size_t kMaxPriorityBytes = 4u * 1024u * 1024u;
-constexpr auto kReconnectInterval = std::chrono::seconds(1);
-constexpr auto kSendStallTimeout = std::chrono::seconds(2);
-constexpr auto kRefusedVsLostSettleTime = std::chrono::seconds(1);
 constexpr int kPollMs = 50;
 
 bool is_bulk_schema(const std::string& name) {
@@ -30,7 +27,8 @@ bool is_bulk_schema(const std::string& name) {
 }
 }  // namespace
 
-VizSink::VizSink(std::string socket_path) : socket_path_(std::move(socket_path)) {
+VizSink::VizSink(std::string socket_path, VizSinkTiming timing)
+    : socket_path_(std::move(socket_path)), timing_(timing) {
     wake_fd_ = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
     thread_ = std::thread([this] { run(); });
 }
@@ -157,13 +155,13 @@ void VizSink::lose_connection(const char* reason, bool closed_by_relay) {
         } else {
             spdlog::warn(
                 "[VizSink] viz_relay closed this connection at once (another app attached?); "
-                "retrying every {} s",
-                kReconnectInterval.count());
+                "retrying every {} ms",
+                timing_.reconnect_interval.count());
         }
         sink_thread_state_.lost_warned_ = true;
     }
     disconnect();
-    sink_thread_state_.retry_at_ = std::chrono::steady_clock::now() + kReconnectInterval;
+    sink_thread_state_.retry_at_ = std::chrono::steady_clock::now() + timing_.reconnect_interval;
 }
 
 bool VizSink::relay_has_read() const {
@@ -282,7 +280,7 @@ void VizSink::run() {
                     std::lock_guard<std::mutex> lock(mutex_);
                     clear_queues_locked();
                 }
-                sink_thread_state_.retry_at_ = now + kReconnectInterval;
+                sink_thread_state_.retry_at_ = now + timing_.reconnect_interval;
                 continue;
             }
             sink_thread_state_.unreachable_warned_ = false;
@@ -308,7 +306,7 @@ void VizSink::run() {
 
         const auto now = std::chrono::steady_clock::now();
         if (!sink_thread_state_.settled_ &&
-            now - sink_thread_state_.connected_at_ >= kRefusedVsLostSettleTime &&
+            now - sink_thread_state_.connected_at_ >= timing_.refused_vs_lost_settle_time &&
             relay_has_read()) {
             sink_thread_state_.settled_ = true;
             if (sink_thread_state_.lost_warned_) {
@@ -319,7 +317,7 @@ void VizSink::run() {
             }
         }
         const bool sending = sink_thread_state_.out_sent_ < sink_thread_state_.out_.size();
-        if (sending && now - sink_thread_state_.last_send_progress_ > kSendStallTimeout) {
+        if (sending && now - sink_thread_state_.last_send_progress_ > timing_.send_stall_timeout) {
             lose_connection("relay stopped reading");
             continue;
         }

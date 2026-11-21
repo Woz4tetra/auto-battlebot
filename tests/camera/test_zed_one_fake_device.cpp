@@ -377,7 +377,10 @@ TEST(ZedOneFakeDeviceDeathTest, DestructorExitsWhenTheCaptureThreadIsStuckInGrab
         {
             auto state = std::make_shared<OneState>();
             state->block_grab = true;
-            auto camera = make_camera(state);
+            ZedOneRgbCameraConfiguration config = make_config(false);
+            config.capture_thread_join_timeout_s = 0.3;
+            auto camera = std::make_unique<ZedOneRgbCamera>(
+                config, nullptr, std::make_unique<FakeZedOneDevice>(state), nullptr);
             camera->initialize();
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             camera.reset();

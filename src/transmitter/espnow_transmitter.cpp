@@ -11,7 +11,6 @@
 
 namespace auto_battlebot {
 namespace {
-constexpr auto kReconnectInterval = std::chrono::seconds(1);
 constexpr auto kDongleLinkStatsPeriod = std::chrono::milliseconds(100);
 constexpr auto kDongleSilence = 5 * kDongleLinkStatsPeriod;
 constexpr auto kHealthPeriod = std::chrono::seconds(1);
@@ -346,7 +345,9 @@ bool EspNowTransmitter::reconnect_if_needed() {
     }
 
     if (now < next_reconnect_attempt_) return false;
-    next_reconnect_attempt_ = now + kReconnectInterval;
+    next_reconnect_attempt_ =
+        now + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                  std::chrono::duration<double>(config_.reconnect_interval_s));
 
     if (!dongle_.open(config_.dongle_serial_path)) {
         logger_->debug("dongle_not_found", {{"path", config_.dongle_serial_path}});
