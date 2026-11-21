@@ -10,22 +10,22 @@
 
 | Field | Meaning |
 | --- | --- |
-| `meters_per_count` | E4, metres per quadrature count. Every linear measurement depends on it. It is the slope of counts against distance, not a fit through the origin: each pass has a fixed offset (coasting past the mark, or backlash taken up at the start) that the slope cancels. Fit with `fit_encoder_scale.py`. |
-| `r_enc_perp` | E5, the encoder wheel's offset perpendicular to the forward axis, metres. Removed from the speed measurement so combined linear-plus-angular runs are usable instead of discarded. Regress encoder rate against gyro yaw rate over pure spins; the slope is this. |
+| `meters_per_count` | E4, metres per quadrature count. Every linear measurement depends on it. It is the slope of counts against distance, not a fit through the origin. Fit with `fit_encoder_scale.py`. |
+| `r_enc_perp` | E5, the encoder wheel's offset perpendicular to the forward axis, metres. Removed from the speed measurement so combined linear-plus-angular runs are usable. Regress encoder rate against gyro yaw rate over pure spins; the slope is this. |
 | `rate_limit` | E5, yaw rate in rad/s above which the encoder wheel scrubs sideways instead of rolling. Caps the amplitude of every angular waveform through `angular_cap`. Stop and lower it if the wheel chatters or leaves a scrub mark. |
 
 ### `[gyro]`
 
 | Field | Meaning |
 | --- | --- |
-| `scale` | E3, integrated gyro angle against a known rotation. A scale factor, not a mounting sign: the two spin directions agree. Fit with `fit_gyro_scale.py`. The runbook bar is 1%. Peak rate during the fit was 875 deg/s, inside the +/-2294 deg/s the header reports, but a driven spin reaches higher rates. Switch the gyro to 4000 dps before recording angular steps. |
-| `bias_dps`, `arw_deg_sqrt_hr`, `bias_instability_dps`, `bias_tau_s`, `rrw_deg_per_s_sqrt_s` | E2, stationary-gyro noise model from `fit_gyro_noise.py`, per axis for `bias_dps`. Nothing reads them until the noise model is incorporated into the plant fitting script. |
+| `scale` | E3, integrated gyro angle against a known rotation. A scale factor, not a mounting sign. Fit with `fit_gyro_scale.py`. The runbook bar is 1%. Peak rate during the fit was 875 deg/s, inside the +/-2294 deg/s the header reports. Switch the gyro to 4000 dps before recording angular steps. |
+| `bias_dps`, `arw_deg_sqrt_hr`, `bias_instability_dps`, `bias_tau_s`, `rrw_deg_per_s_sqrt_s` | E2, stationary-gyro noise model from `fit_gyro_noise.py`, per axis for `bias_dps`. Nothing reads them yet. |
 
 ### `[imu]`
 
 | Field | Meaning |
 | --- | --- |
-| `r_imu` | E5, the IMU's offset from the yaw axis, metres. Regress measured lateral acceleration against yaw rate squared over pure spins; the slope is this. Kept as a check against a tape measure. The slip detector fits the lever-arm terms per run instead, because a single scalar cannot say which of two terms an offset lands on. |
+| `r_imu` | E5, the IMU's offset from the yaw axis, metres. Regress measured lateral acceleration against yaw rate squared over pure spins; the slope is this. Kept as a check against a tape measure. The slip detector fits the lever-arm terms per run instead. |
 
 ## `playground/calibration/waveforms.toml`
 
@@ -37,39 +37,39 @@
 | `channel` | `linear`, `angular`, `combined` |
 | `role` | `fit` (trains the model) or `holdout` (validates it, never fitted) |
 
-Amplitudes are normalized to [-1, 1]. Deadzone is not compensated anywhere, because the physical deadzone is one of the things being measured.
+Amplitudes are normalized to [-1, 1]. Deadzone is not compensated, because the physical deadzone is one of the things being measured.
 
-`reverse_cap` on a step or coast waveform scales the reverse half of the ladder to that peak and leaves forward alone. Use it when the robot misbehaves in one direction only. Set it per waveform, not in `[defaults]`: on an angular waveform it would shrink right turns against left ones and bias `k_ang`.
+`reverse_cap` on a step or coast waveform scales the reverse half of the ladder to that peak and leaves forward alone. Set it per waveform, not in `[defaults]`: on an angular waveform it would shrink right turns against left ones and bias `k_ang`.
 
 ### `[defaults]`
 
 | Field | Meaning |
 | --- | --- |
-| `hold_s` | Step hold time. The runbook asks for 2 s. A shorter hold is justified by floor length, since a full-command step costs distance including the coast to a stop. Precision on `k_fwd` and `k_rev` comes from segment count, not segment length, so add reps before lengthening a hold. Angular waveforms override it because a spin costs no floor. |
-| `coast_s` | Coast tail length. Coasting starts after the robot has stopped travelling under command, so a long tail costs a fixed distance regardless of the command. |
-| `angular_cap` | Cap on angular amplitudes. The encoder wheel scrubs sideways through every spin, so the bench `rate_limit` caps every angular run. Set it to `rate_limit / k_ang`, with `k_ang` from your own fit. Assumes `rate_limit` is a real E5 measurement. Stop the moment the encoder wheel chatters or leaves a scrub mark. |
+| `hold_s` | Step hold time. The runbook asks for 2 s. Precision on `k_fwd` and `k_rev` comes from segment count, not segment length. Angular waveforms override it. |
+| `coast_s` | Coast tail length. |
+| `angular_cap` | Cap on angular amplitudes. Set it to `rate_limit / k_ang`, with `k_ang` from your own fit. |
 
 ### Linear entries
 
 | Entry | Meaning |
 | --- | --- |
-| `lin_deadzone` | Staircase from 0.001 to 0.030 in 0.001 steps, both directions. It starts at 0.001, not 0.01, because resolution is the step size: 0.01 steps can only report +/- 0.0098, and a crossing below the first rung is an extrapolation. It stops at 0.030 because the crossing is under 0.01, so higher rungs measure nothing the step runs do not cover. Rungs run back to back with no return to zero, so distance accumulates across all 30. |
-| `lin_step_full` | Shuttle steps at 1.0, 0.75, 0.5, 0.25. `reverse_cap = 0.4` scales the reverse ladder to [0.1, 0.2, 0.3, 0.4]. At and above 0.5 reverse the robot breaks into an uncommanded spin. A spun hold is not a straight-line steady state: the encoder wheel scrubs sideways, so the reported arc length is not the distance travelled, and the `r_enc_perp` correction assumes rolling and cannot recover it. Nothing downstream catches this, because `held_segments` gates on the commanded angular channel, which is zero through a linear run. Spun rungs would feed `k_rev`, the pooled `tau_lin_a` and both drift terms as clean data. 0.4 rather than 0.45 leaves margin, since the spin threshold was observed, not measured, and moves with floor and pack voltage. Raise it once the underlying asymmetry is fixed, because until then the reverse gain is measured over a shorter lever arm. `trim = false`: this is the run the straight-line drift is measured from, so correcting the arc would remove the signal. |
-| `lin_coast` | Coast tails from 0.5. Reverse entries drop to 0.4 for the same spin threshold as `lin_step_full`. The decel constant is read off the tail, and a tail that starts from a spin decays with the scrub in it. |
+| `lin_deadzone` | Staircase from 0.001 to 0.030 in 0.001 steps, both directions. Rungs run back to back with no return to zero. |
+| `lin_step_full` | Shuttle steps at 1.0, 0.75, 0.5, 0.25. `reverse_cap = 0.4` scales the reverse ladder to [0.1, 0.2, 0.3, 0.4]. At and above 0.5 reverse the robot breaks into an uncommanded spin, which feeds `k_rev`, `tau_lin_a` and both drift terms with bad data. |
+| `lin_coast` | Coast tails from 0.5. Reverse entries drop to 0.4. The decel constant is read off the tail. |
 
 ### Angular entries
 
 | Entry | Meaning |
 | --- | --- |
-| `ang_deadzone` | Same staircase as `lin_deadzone`. Pivoting in place costs no floor, so the runbook's 2 s hold is free. The left crossing needs the range and the right crossing needs the resolution. |
+| `ang_deadzone` | Same staircase as `lin_deadzone`. |
 | `ang_step_full` | Shuttle steps at 0.25, 0.5, 0.75, 1.0 with `cap = 1.0`, 3 s hold and 3 s coast. |
-| `ang_coast` | Dedicated excitation for the angular decel constant. Without it that constant is fitted from the drops at the end of angular steps alone. Add this run when the constant comes back weak. |
+| `ang_coast` | Dedicated excitation for the angular decel constant. Without it that constant is fitted from the drops at the end of angular steps alone. |
 
 ### Coupling entry
 
 | Entry | Meaning |
 | --- | --- |
-| `coupling_grid` | Linear tops out at 0.76, not 1.0, so no cell asks for more authority than the mix can deliver. `to_channels` gives angular priority and clips linear to `1 - abs(ang)`, so a 1.0 cell at the 0.24 cap goes out as 0.76. The 0.24 gap between commanded and measured trips the contamination gate at 0.05 and discards the run as a leaning stick. The angular axis spans both signs, and that is load-bearing: steer-brake and angular droop flip with turn direction while straight-line drift does not. A grid that turns one way cannot separate them and folds the drift into the droop coefficient. |
+| `coupling_grid` | Linear tops out at 0.76 because `to_channels` gives angular priority and clips linear to `1 - abs(ang)`. The angular axis spans both signs: steer-brake and angular droop flip with turn direction while straight-line drift does not, so a one-way grid folds the drift into the droop coefficient. |
 
 ### Holdout entries
 
@@ -77,12 +77,12 @@ Holdouts test the model and are never fitted.
 
 | Entry | Meaning |
 | --- | --- |
-| `lin_prbs` | Amplitude 0.4, not 0.6. A PRBS is symmetric by construction, so 0.6 commands -0.6 on every reverse bit, past the amplitude where the robot spins uncommanded. A holdout that fails for that reason looks exactly like a model error. Capping only the reverse half is not an option: an asymmetric PRBS has different spectral content and a DC bias that walks the robot down the floor over 30 s. The cost is excitation amplitude, so prediction error is measured against a smaller signal. Raise it once the reverse asymmetry is fixed. `bit_ms = 60` sets the bandwidth, roughly 0.2 to 8 Hz, which brackets the 58-78 ms plant time constants and the 33 ms frame period. |
-| `lin_chirp` | Frequency-domain cross-check on a time constant fitted from steps. A first-order model with tau 58 ms has its corner near 2.7 Hz. |
-| `lin_sine` | Amplitude 0.4 for the same reason as `lin_prbs`: a sine is symmetric, so a larger amplitude drives the reverse half into the spin. |
-| `operator` | Emits nothing. The operator drives, and the radio's own mixer output is the command log, which is why the readback exists. |
-| `trim` | Low and slow, to measure how far the robot arcs before committing to a long straight run. |
-| `ang_prbs`, `combined_prbs`, `ang_chirp`, `lin_triangle` | No rationale beyond `kind`, `channel` and `role`. |
+| `lin_prbs` | Amplitude 0.4. A PRBS is symmetric, so a larger amplitude commands the reverse bits past the uncommanded-spin threshold. `bit_ms = 60` gives roughly 0.2 to 8 Hz. |
+| `lin_chirp` | Frequency-domain cross-check on a time constant fitted from steps. |
+| `lin_sine` | Amplitude 0.4, same as `lin_prbs`. |
+| `operator` | Emits nothing. The operator drives, and the radio's own mixer output is the command log. |
+| `trim` | Low and slow, to measure how far the robot arcs before a long straight run. |
+| `ang_prbs`, `combined_prbs`, `ang_chirp`, `lin_triangle` | Defined by `kind`, `channel` and `role` alone. |
 
 ## `playground/calibration/write_plant_configs.py`
 
