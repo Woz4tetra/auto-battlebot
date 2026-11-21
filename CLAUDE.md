@@ -166,6 +166,8 @@ longer than one line. One-line docstrings are allowed and do not count.
 - A block that needs explaining: a named function
 - History ("previously", "no longer") and plan checkpoints: nowhere
 - A workaround that needs a comment to survive review needs a test or a fix instead
+- A comment moved into a doc is still a comment. Docs hold measurements and how the code works
+  now, never a defense of a specific line. No `Workarounds` sections
 
 Exempt forms count zero and carry no prose:
 
