@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,7 @@ MAX_FAILS_PER_FINDING = 2
 VERDICT_PREFIX = "VERDICT "
 HANDBACK_TOOL = "SubagentHandback"
 TEST_DIRS = {"tests", "test"}
+DETACHING = re.compile(r"\b(nohup|setsid|disown|sleep)\b|(?<![&>|<])&(?![&>])")
 CPP_TEST_SUFFIXES = {".cpp", ".cc", ".c", ".hpp", ".h"}
 MUTANT_DIR = Path(".claude/worktrees")
 ISOLATION_PLUGIN = "mutant_isolation"
@@ -55,6 +57,20 @@ def touch(event: dict[str, Any], root: Path) -> int:
     cwd = Path(event["cwd"]) if event.get("cwd") else None
     state.record_touch(root, session, path, cwd)
     return 0
+
+
+def bash_guard(event: dict[str, Any]) -> tuple[int, str]:
+    """PreToolUse on Bash: the verifier runs every command in the foreground, once."""
+    if event.get("agent_type") != VERIFIER_AGENT:
+        return 0, ""
+    tool_input = event.get("tool_input") or {}
+    command = str(tool_input.get("command", ""))
+    if tool_input.get("run_in_background") or DETACHING.search(command):
+        return 2, (
+            "verifier: no run_in_background, nohup, setsid, disown, sleep or trailing &. "
+            "Run the command in the foreground with the Bash timeout set to 600000."
+        )
+    return 0, ""
 
 
 def verifier_request(session: str, change: str) -> str:
@@ -279,12 +295,19 @@ def change_report(root: Path, session: str) -> str:
     lines = [
         f"change hash: {state.content_hash(root, touched)}",
         f"base commit: {base}",
+        suites_line(root, state.content_hash(root, touched)),
         "touched files:",
         *[f"  {'test ' if is_test_path(p) else 'code '}{p}" for p in touched],
         "",
         state.change_diff(root, base, touched),
     ]
     return "\n".join(lines)
+
+
+def suites_line(root: Path, change: str) -> str:
+    if state.pass_marker(root, change).exists():
+        return "suites: passed for this hash (Stop hook, scripts/verify --fast --changed)"
+    return "suites: not run for this hash"
 
 
 def link_missing(source: Path, target: Path) -> None:
@@ -343,6 +366,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("touch", help="PostToolUse hook (event JSON on stdin)")
     sub.add_parser("stop", help="Stop hook (event JSON on stdin)")
     sub.add_parser("subagent-stop", help="SubagentStop hook (event JSON on stdin)")
+    sub.add_parser("bash-guard", help="PreToolUse hook on Bash (event JSON on stdin)")
     for name, text in (
         ("change", "Print the change hash, touched files, and diff"),
         ("mutant", "Make a worktree with the change's non-test files reverted"),
@@ -357,6 +381,8 @@ def main(argv: list[str] | None = None) -> int:
         return emit(*stop(read_input(), root))
     if args.command == "subagent-stop":
         return emit(*subagent_stop(read_input(), root))
+    if args.command == "bash-guard":
+        return emit(*bash_guard(read_input()))
     if args.command == "change":
         print(change_report(root, args.session))
         return 0

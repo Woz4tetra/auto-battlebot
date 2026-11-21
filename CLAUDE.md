@@ -284,6 +284,12 @@ this session edited with the edit tools, and a failure blocks the stop. A change
 agent (`.claude/agents/verifier.md`); the blocked stop says which session id and change hash to
 give it, along with the user's request verbatim.
 
+While a verifier runs, do not edit files. Any edit changes the change hash, so the verifier
+re-reads a moving diff and its verdict lands on a hash the Stop hook no longer asks about.
+Wait for the verdict, then edit, then spawn a new verifier for the new hash. The verifier runs
+every command in the foreground; a PreToolUse hook (`hooks bash-guard`) blocks background and
+detached commands for it.
+
 The clang-tidy step is cached by [ctcache](https://github.com/matus-chochlik/ctcache),
 pinned and installed by `install/install_clang_tidy_cache.sh` to
 `~/.local/share/ctcache`. It hashes the preprocessed translation unit and replays

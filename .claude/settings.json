@@ -66,6 +66,18 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/venv/bin/python -m auto_battlebot.verify.hooks bash-guard",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "enabledPlugins": {

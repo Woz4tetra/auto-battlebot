@@ -447,3 +447,49 @@ def test_the_walk_finds_every_collected_test_module() -> None:
     assert "auto_battlebot/verify/tests/test_verify.py" in files
     assert "scripts/tests/test_comment_budget.py" in files
     assert not any(f.startswith("training/synthetic/") for f in files)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "nohup venv/bin/python -m pytest > out 2>&1",
+        "setsid bash -c 'pytest'",
+        "venv/bin/python -m pytest -q &",
+        "until grep -q passed out; do sleep 5; done",
+        "(pytest > out) & disown",
+    ],
+)
+def test_bash_guard_blocks_detached_verifier_commands(command: str) -> None:
+    event = {"agent_type": "verifier", "tool_input": {"command": command}}
+    code, reason = hooks.bash_guard(event)
+    assert code == 2
+    assert "foreground" in reason
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "scripts/verify --changed a.py b.py 2>&1 | tail -20",
+        "cd repo && venv/bin/python -m pytest -q x.py &> log; echo $?",
+        "git diff HEAD -- a.py >&2",
+    ],
+)
+def test_bash_guard_allows_foreground_verifier_commands(command: str) -> None:
+    event = {"agent_type": "verifier", "tool_input": {"command": command}}
+    assert hooks.bash_guard(event) == (0, "")
+
+
+def test_bash_guard_blocks_run_in_background_for_the_verifier_only() -> None:
+    tool_input = {"command": "pytest", "run_in_background": True}
+    assert hooks.bash_guard({"agent_type": "verifier", "tool_input": tool_input})[0] == 2
+    assert hooks.bash_guard({"tool_input": tool_input}) == (0, "")
+    assert hooks.bash_guard({"tool_input": {"command": "nohup x &"}}) == (0, "")
+
+
+def test_change_report_says_whether_suites_passed_for_the_hash(repo: Path) -> None:
+    touch_files(repo, "src/a.py")
+    assert "suites: not run for this hash" in hooks.change_report(repo, SESSION)
+    change = state.content_hash(repo, state.read_touched(repo, SESSION))
+    state.pass_marker(repo, change).parent.mkdir(parents=True, exist_ok=True)
+    state.pass_marker(repo, change).touch()
+    assert "suites: passed for this hash" in hooks.change_report(repo, SESSION)

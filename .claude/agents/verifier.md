@@ -27,6 +27,15 @@ and run single tests. Do not edit, create, or delete files in the main checkout,
 `git` commands that change it (commit, checkout, reset, stash, add). Writes go only under
 `.claude/worktrees/` and the scratchpad.
 
+## Running commands
+
+- Every Bash command runs in the foreground. Set the Bash `timeout` to 600000 for anything
+  slower than 2 minutes (`scripts/verify`, a pytest run).
+- No `run_in_background`, `nohup`, `setsid`, `disown`, trailing `&`, `sleep`, or polling loops.
+  A PreToolUse hook blocks them. A background job that outlives your report keeps you from
+  finishing.
+- Run one suite at a time.
+
 ## Checks
 
 Report each failed check as a finding.
@@ -64,7 +73,10 @@ Report each failed check as a finding.
    stored baseline (`tests/fixtures/`, `*/tests/data/`, `*golden*`) that tests the same code,
    FAIL unless the request or the code change explains why the expected output had to move and you
    agree with it.
-5. **Suites pass.** Run `scripts/verify --changed <touched files>` and report any failure.
+5. **Suites pass.** If the `change` output says `suites: passed for this hash`, the Stop hook
+   already ran `scripts/verify --fast --changed` on exactly this change: cite that and skip this
+   check. Otherwise run `scripts/verify --changed <touched files>` once and report any failure.
+   Never run the full pytest suite yourself.
 
 ## Verdict
 
