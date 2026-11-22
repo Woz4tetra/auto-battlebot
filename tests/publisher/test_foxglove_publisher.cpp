@@ -350,6 +350,29 @@ TEST(FoxglovePublisherTest, FieldTransformIsRepublishedOnEveryCall) {
     EXPECT_EQ(recording.at("/tf").size(), 3u);
 }
 
+TEST(FoxglovePublisherTest, CameraFrameHasOnlyTheCameraWorldParentOnTf) {
+    const Recording recording = record([](FoxglovePublisher &publisher) {
+        CameraData camera;
+        camera.rgb.header.frame_id = FrameId::CAMERA;
+        camera.rgb.image = cv::Mat(8, 8, CV_8UC3, cv::Scalar(1, 2, 3));
+        camera.camera_info.intrinsics = cv::Mat::eye(3, 3, CV_64F);
+        camera.tf_visodom_from_camera.header.frame_id = FrameId::VISUAL_ODOMETRY;
+        camera.tf_visodom_from_camera.child_frame_id = FrameId::CAMERA;
+        camera.tf_visodom_from_camera.transform.tf = Eigen::MatrixXd::Identity(4, 4);
+        publisher.publish_camera_data(camera);
+        FieldDescriptionWithInlierPoints initial = square_field();
+        initial.header.frame_id = FrameId::CAMERA_WORLD;
+        initial.child_frame_id = FrameId::FIELD;
+        FieldDescriptionWithInlierPoints tracked = square_field();
+        tracked.child_frame_id = FrameId::FIELD;
+        publisher.publish_field_description(tracked, initial);
+    });
+    ASSERT_EQ(recording.at("/tf").size(), 1u);
+    const std::string &tf = recording.at("/tf").front().data;
+    EXPECT_EQ(tf.find("visual_odometry"), std::string::npos);
+    EXPECT_NE(tf.find("camera_world"), std::string::npos);
+}
+
 TEST(FoxglovePublisherTest, FieldMaskIsStampedInTheFrozenCameraWorldFrame) {
     const Recording recording = record([](FoxglovePublisher &publisher) {
         MaskStamped mask;

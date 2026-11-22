@@ -176,18 +176,17 @@ class OpponentFilter:
         self.snap_count[rows] = found + 1
         return rewound
 
-    def _advance(self, target: torch.Tensor, mask: torch.Tensor) -> None:
+    def _predict(
+        self, target: torch.Tensor, mask: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Rows in `mask` predicted to `target`: (x, p, stamp, moved), filter left unchanged."""
         dt_total = target - self.stamp
         move = mask & (dt_total > 0.0)
         if not bool(move.any()):
-            return
+            return self.x, self.p, self.stamp, move
         dt = torch.clamp(dt_total, max=MAX_INTEGRATION_STEP_S)
         age = self.stamp - self.last_measured
-        move_dt = torch.where(
-            dt_total > MAX_INTEGRATION_STEP_S,
-            torch.zeros_like(dt),
-            torch.minimum(dt, torch.clamp(self.max_coast_s - age, min=0.0)),
-        )
+        move_dt = torch.minimum(dt, torch.clamp(self.max_coast_s - age, min=0.0))
 
         f = torch.eye(N, device=self.device, dtype=self.dtype).repeat(self.batch, 1, 1)
         f[:, PX, VX] = dt
@@ -229,9 +228,18 @@ class OpponentFilter:
             p[:, index, :] *= scale[:, None]
             p[:, :, index] *= scale[:, None]
 
-        self.x = torch.where(move[:, None], x, self.x)
-        self.p = torch.where(move[:, None, None], p, self.p)
-        self.stamp = torch.where(move, target, self.stamp)
+        return (
+            torch.where(move[:, None], x, self.x),
+            torch.where(move[:, None, None], p, self.p),
+            torch.where(move, target, self.stamp),
+            move,
+        )
+
+    def _advance(self, target: torch.Tensor, mask: torch.Tensor) -> None:
+        x, p, stamp, move = self._predict(target, mask)
+        if not bool(move.any()):
+            return
+        self.x, self.p, self.stamp = x, p, stamp
         self._push_snapshot(move)
 
     def _ekf_update(
@@ -390,7 +398,7 @@ class OpponentFilter:
         self._init_track(reinit, xy, yaw, measurement_position_variance, t)
 
         self._advance(t, self.active & (~has_measurement | rejected))
-        self.active = self.active & (self._position_sigma() <= self.max_position_sigma_m)
+        self.active = self.active & (self._position_sigma(self.p) <= self.max_position_sigma_m)
 
         stats = UpdateStats(
             accepted=accepted,
@@ -405,25 +413,31 @@ class OpponentFilter:
         return self.render(), stats
 
     def coast(self, now: float | torch.Tensor) -> RenderedEstimate:
-        """KalmanMotionEstimator::coast for the opponent rows: advance to now + lead, render."""
+        """KalmanMotionEstimator::coast for the opponent rows: render a prediction to now + lead."""
         t = self._rows(now)
-        self._advance(t + self.render_lead_s, self.active)
-        return self.render()
+        x, p, stamp, _ = self._predict(t + self.render_lead_s, self.active)
+        return self._render(x, p, stamp)
 
-    def _position_sigma(self) -> torch.Tensor:
-        a = self.p[:, PX, PX]
-        c = self.p[:, PY, PY]
-        b = self.p[:, PX, PY]
+    @staticmethod
+    def _position_sigma(p: torch.Tensor) -> torch.Tensor:
+        a = p[:, PX, PX]
+        c = p[:, PY, PY]
+        b = p[:, PX, PY]
         largest = 0.5 * (a + c) + torch.sqrt(0.25 * (a - c) ** 2 + b * b)
         return torch.sqrt(torch.clamp(largest, min=0.0))
 
     def render(self) -> RenderedEstimate:
-        moving = (self.stamp - self.last_measured) < self.max_coast_s
-        zero = torch.zeros_like(self.stamp)
-        x = self.x[:, PX].clone()
-        y = self.x[:, PY].clone()
-        vx = torch.where(moving, self.x[:, VX], zero)
-        vy = torch.where(moving, self.x[:, VY], zero)
+        return self._render(self.x, self.p, self.stamp)
+
+    def _render(
+        self, state: torch.Tensor, p: torch.Tensor, stamp: torch.Tensor
+    ) -> RenderedEstimate:
+        moving = (stamp - self.last_measured) < self.max_coast_s
+        zero = torch.zeros_like(stamp)
+        x = state[:, PX].clone()
+        y = state[:, PY].clone()
+        vx = torch.where(moving, state[:, VX], zero)
+        vy = torch.where(moving, state[:, VY], zero)
         if self.bounds is not None:
             hx = self.bounds[:, 0]
             hy = self.bounds[:, 1]
@@ -432,23 +446,23 @@ class OpponentFilter:
             x = torch.minimum(torch.maximum(x, -hx), hx)
             y = torch.minimum(torch.maximum(y, -hy), hy)
 
-        position_sigma = self._position_sigma()
+        position_sigma = self._position_sigma(p)
 
         known = self.heading_initialized
         inf = torch.full_like(x, math.inf)
         return RenderedEstimate(
             x=x,
             y=y,
-            yaw=torch.where(known, self.x[:, THETA], self.measured_yaw),
+            yaw=torch.where(known, state[:, THETA], self.measured_yaw),
             vx=vx,
             vy=vy,
-            omega=torch.where(known & moving, self.x[:, OMEGA], torch.zeros_like(x)),
+            omega=torch.where(known & moving, state[:, OMEGA], torch.zeros_like(x)),
             position_sigma_m=position_sigma,
             heading_sigma_rad=torch.where(
-                known, torch.sqrt(torch.clamp(self.p[:, THETA, THETA], min=0.0)), inf
+                known, torch.sqrt(torch.clamp(p[:, THETA, THETA], min=0.0)), inf
             ),
             yaw_rate_sigma_rad_s=torch.where(
-                known, torch.sqrt(torch.clamp(self.p[:, OMEGA, OMEGA], min=0.0)), inf
+                known, torch.sqrt(torch.clamp(p[:, OMEGA, OMEGA], min=0.0)), inf
             ),
             active=self.active.clone(),
         )

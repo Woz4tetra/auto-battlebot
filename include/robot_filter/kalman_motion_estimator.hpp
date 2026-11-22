@@ -85,6 +85,13 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
         bool has_speed_ref = false;
     };
 
+    struct OpponentEstimate {
+        OpponentVec state;
+        OpponentMat covariance;
+        double stamp;
+    };
+
+    OpponentEstimate predict_opponent(const OpponentTrack &track, double target_stamp) const;
     void advance_opponent(OpponentTrack &track, double target_stamp);
     void advance_our_ekf(OurEkfTrack &track, double target_stamp);
     void init_our_ekf(OurEkfTrack &track, const RobotDescription &measurement, double stamp,
@@ -98,8 +105,8 @@ class KalmanMotionEstimator : public MotionEstimatorInterface {
     void init_opponent_heading(OpponentTrack &track, double yaw) const;
     ekf::Mat<2, 2> measurement_noise_for(const RobotDescription &measurement,
                                          const MotionEstimatorContext &context) const;
-    RobotDescription render_opponent(const OpponentTrack &track, const FieldDescription &field,
-                                     bool moving) const;
+    RobotDescription render_opponent(const OpponentTrack &track, const OpponentEstimate &estimate,
+                                     const FieldDescription &field, bool moving) const;
     bool is_moving(double render_stamp, double last_measured_stamp) const;
     int expire_tracks(FrameIdAssigner &frame_id_assigner);
 

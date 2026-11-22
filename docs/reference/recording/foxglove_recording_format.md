@@ -108,6 +108,10 @@ camera re-open does not delay it.
 `frame_id` strings are the lower-case `FrameId` enum names: `camera`, `camera_world`,
 `visual_odometry`, `field`, `our_robot_1`, `their_robot_1`, and so on.
 
+`/tf` is one chain, `field -> camera_world -> camera`, published together once per processed frame.
+Each child has exactly one parent, because Foxglove keeps one parent per frame. Camera motion
+reaches `/tf` through `camera_world -> camera`; `visual_odometry` is not on `/tf`.
+
 A robot's pose is its reference point. `Keypoint::reference_offset_m` is how far that point sits ahead of the front/back keypoint midpoint, in metres along the heading. The reference point is our robot's axle, the body origin the MuJoCo plant and the RL policy use, and an opponent's footprint centre. The model that knows where its keypoints sit on the robot sets it. It is 0 for models that place the keypoints symmetrically about the reference point.
 
 ## Stamps

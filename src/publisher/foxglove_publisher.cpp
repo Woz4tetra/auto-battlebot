@@ -205,9 +205,6 @@ void FoxglovePublisher::publish_camera_data(const CameraData &data) {
         frame_meta_.log(foxglove_adapters::to_frame_meta_json(data.frame_identity), log_time);
     }
 
-    auto tf = foxglove_adapters::to_frame_transforms(data.tf_visodom_from_camera);
-    tf_.log_message(tf, log_time);
-
     if (sink_) {
         diagnostics_logger_->debug({{"viz_connected", sink_->connected() ? 1 : 0},
                                     {"viz_dropped", static_cast<int>(sink_->dropped_messages())}});

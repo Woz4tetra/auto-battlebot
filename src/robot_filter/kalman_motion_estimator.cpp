@@ -133,15 +133,15 @@ bool KalmanMotionEstimator::rewind_opponent(OpponentTrack &track, double target_
     return true;
 }
 
-void KalmanMotionEstimator::advance_opponent(OpponentTrack &track, double target_stamp) {
+KalmanMotionEstimator::OpponentEstimate KalmanMotionEstimator::predict_opponent(
+    const OpponentTrack &track, double target_stamp) const {
+    OpponentEstimate estimate{track.state, track.covariance, track.state_stamp};
     const double dt_total = target_stamp - track.state_stamp;
-    if (dt_total <= 0.0) return;
+    if (dt_total <= 0.0) return estimate;
     const double dt = std::min(dt_total, kMaxIntegrationStepS);
 
     const double age = track.state_stamp - track.last_measured_stamp;
-    const double move = dt_total > kMaxIntegrationStepS
-                            ? 0.0
-                            : std::min(dt, std::max(0.0, config_.max_coast_s - age));
+    const double move = std::min(dt, std::max(0.0, config_.max_coast_s - age));
 
     OpponentMat transition = OpponentMat::Identity();
     transition(kPx, kVx) = dt;
@@ -166,22 +166,31 @@ void KalmanMotionEstimator::advance_opponent(OpponentTrack &track, double target
         motion(kPx, kVx) = move;
         motion(kPy, kVy) = move;
         motion(kTheta, kOmega) = move;
-        track.state = motion * track.state;
-        track.state(kTheta) = ekf::wrap_angle(track.state(kTheta));
+        estimate.state = motion * estimate.state;
+        estimate.state(kTheta) = ekf::wrap_angle(estimate.state(kTheta));
     }
-    ekf::propagate_covariance<kOpponentStates>(track.covariance, transition, process_noise);
+    ekf::propagate_covariance<kOpponentStates>(estimate.covariance, transition, process_noise);
     const double velocity_cap = config_.initial_velocity_sigma * config_.initial_velocity_sigma;
     const double yaw_rate_cap = config_.initial_yaw_rate_sigma * config_.initial_yaw_rate_sigma;
     for (const auto &[index, cap] :
          {std::pair{kVx, velocity_cap}, std::pair{kVy, velocity_cap},
           std::pair{kTheta, kMaxHeadingVariance}, std::pair{kOmega, yaw_rate_cap}}) {
-        if (track.covariance(index, index) > cap) {
-            const double scale = std::sqrt(cap / track.covariance(index, index));
-            track.covariance.row(index) *= scale;
-            track.covariance.col(index) *= scale;
+        if (estimate.covariance(index, index) > cap) {
+            const double scale = std::sqrt(cap / estimate.covariance(index, index));
+            estimate.covariance.row(index) *= scale;
+            estimate.covariance.col(index) *= scale;
         }
     }
-    track.state_stamp = target_stamp;
+    estimate.stamp = target_stamp;
+    return estimate;
+}
+
+void KalmanMotionEstimator::advance_opponent(OpponentTrack &track, double target_stamp) {
+    if (target_stamp <= track.state_stamp) return;
+    const OpponentEstimate estimate = predict_opponent(track, target_stamp);
+    track.state = estimate.state;
+    track.covariance = estimate.covariance;
+    track.state_stamp = estimate.stamp;
     push_snapshot(track);
 }
 
@@ -298,32 +307,35 @@ ekf::Mat<2, 2> KalmanMotionEstimator::measurement_noise_for(
 }
 
 RobotDescription KalmanMotionEstimator::render_opponent(const OpponentTrack &track,
+                                                        const OpponentEstimate &estimate,
                                                         const FieldDescription &field,
                                                         bool moving) const {
+    const OpponentVec &state = estimate.state;
+    const OpponentMat &covariance = estimate.covariance;
     RobotDescription description = track.output_template;
-    description.pose.position.x = track.state(kPx);
-    description.pose.position.y = track.state(kPy);
-    double vx = moving ? track.state(kVx) : 0.0;
-    double vy = moving ? track.state(kVy) : 0.0;
+    description.pose.position.x = state(kPx);
+    description.pose.position.y = state(kPy);
+    double vx = moving ? state(kVx) : 0.0;
+    double vy = moving ? state(kVy) : 0.0;
     stop_at_field_bounds(description.pose.position, vx, vy, field, last_field_margin_);
     clip_to_field_bounds(description.pose.position, field, last_field_margin_);
 
     description.uncertainty.position_sigma_major_axis_m =
-        position_sigma(track.covariance.block<2, 2>(kPx, kPx));
+        position_sigma(covariance.block<2, 2>(kPx, kPx));
     description.uncertainty.position_covariance_m2 =
-        position_covariance(track.covariance.block<2, 2>(kPx, kPx));
+        position_covariance(covariance.block<2, 2>(kPx, kPx));
 
     double omega = 0.0;
     if (track.heading_initialized) {
         const double z = description.pose.position.z;
         description.pose = pose2d_to_pose(
-            Pose2D{description.pose.position.x, description.pose.position.y, track.state(kTheta)});
+            Pose2D{description.pose.position.x, description.pose.position.y, state(kTheta)});
         description.pose.position.z = z;
-        omega = moving ? track.state(kOmega) : 0.0;
+        omega = moving ? state(kOmega) : 0.0;
         description.uncertainty.heading_sigma_rad =
-            std::sqrt(std::max(0.0, track.covariance(kTheta, kTheta)));
+            std::sqrt(std::max(0.0, covariance(kTheta, kTheta)));
         description.uncertainty.yaw_rate_sigma_rad_s =
-            std::sqrt(std::max(0.0, track.covariance(kOmega, kOmega)));
+            std::sqrt(std::max(0.0, covariance(kOmega, kOmega)));
     }
     description.velocity = Velocity2D{vx, vy, omega};
     return description;
@@ -587,8 +599,9 @@ std::vector<RobotDescription> KalmanMotionEstimator::update(
             render_our_ekf(track, track.state, is_moving(track.stamp, track.last_measured_stamp)));
     }
     for (const auto &[frame_id, track] : opponent_tracks_) {
-        outputs.push_back(
-            render_opponent(track, field, is_moving(track.state_stamp, track.last_measured_stamp)));
+        const OpponentEstimate current{track.state, track.covariance, track.state_stamp};
+        outputs.push_back(render_opponent(track, current, field,
+                                          is_moving(track.state_stamp, track.last_measured_stamp)));
         const PoseUncertainty &uncertainty = outputs.back().uncertainty;
         DiagnosticsData fields{
             {"position_sigma_major_axis_m", uncertainty.position_sigma_major_axis_m.value_or(0.0)},
@@ -667,11 +680,11 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
             render_our_ekf(track, state, is_moving(target, track.last_measured_stamp)));
     }
 
-    for (auto &[frame_id, track] : opponent_tracks_) {
+    for (const auto &[frame_id, track] : opponent_tracks_) {
         worst_span = std::min(worst_span, target - track.state_stamp);
-        advance_opponent(track, target);
-        outputs.push_back(render_opponent(track, last_field_,
-                                          is_moving(track.state_stamp, track.last_measured_stamp)));
+        const OpponentEstimate predicted = predict_opponent(track, target);
+        outputs.push_back(render_opponent(track, predicted, last_field_,
+                                          is_moving(predicted.stamp, track.last_measured_stamp)));
     }
 
     if (std::isfinite(worst_span)) {
@@ -682,9 +695,10 @@ std::optional<std::vector<RobotDescription>> KalmanMotionEstimator::coast(double
             now - last_clock_gap_warning_ > config_.clock_gap_warn_period_s) {
             last_clock_gap_warning_ = now;
             spdlog::warn(
-                "Coast span {:.3f}s ({}): control clock and frame stamps disagree; SVO playback "
-                "needs [clock] type = 'CameraFollowingClock'",
-                worst_span, too_far ? "past the integration cap" : "not positive");
+                "Coast span {:.3f}s ({}): render target {:.3f} vs newest track stamp {:.3f}; the "
+                "control clock is out of step with the camera frame stamps",
+                worst_span, too_far ? "past the integration cap" : "not positive", target,
+                target - worst_span);
         }
     }
     return outputs;

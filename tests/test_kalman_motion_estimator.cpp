@@ -930,24 +930,6 @@ TEST(KalmanMotionEstimatorTest, ConstructionWithoutPlantThrows) {
     EXPECT_THROW(KalmanMotionEstimator{config}, std::invalid_argument);
 }
 
-TEST(KalmanMotionEstimatorTest, LargeClockGapFreezesPosition) {
-    KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
-    config.max_coast_s = 100.0;
-    KalmanMotionEstimator estimator{config};
-    FrameIdAssigner assigner(10.0, 5);
-    const FieldDescription field = make_field();
-    const MotionEstimatorContext context;
-
-    const double vx = 1.5;
-    const auto [last_t, x, y] =
-        run_constant_velocity(estimator, assigner, field, context, 60, 1.0, 2.0, vx, 0.0);
-
-    auto coasted = estimator.coast(last_t + 5.0);
-    ASSERT_TRUE(coasted.has_value());
-    ASSERT_EQ(coasted->size(), 1u);
-    EXPECT_NEAR((*coasted)[0].pose.position.x, x, 0.05) << "a 5 s clock gap is not motion";
-}
-
 TEST(KalmanMotionEstimatorTest, TooOldMeasurementFoldsInAtCurrentState) {
     KalmanMotionEstimator estimator{kalman_opponents_config()};
     FrameIdAssigner assigner(10.0, 5);
@@ -985,6 +967,61 @@ size_t count_clock_gap_warnings(KalmanMotionEstimator &estimator, const std::vec
         ++count;
     }
     return count;
+}
+
+TEST(KalmanMotionEstimatorTest, LargeClockGapMovesNoFurtherThanMaxCoast) {
+    KalmanMotionEstimatorConfiguration config = kalman_opponents_config();
+    config.max_coast_s = 0.2;
+    KalmanMotionEstimator estimator{config};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+
+    const double vx = 1.5;
+    const auto [last_t, x, y] =
+        run_constant_velocity(estimator, assigner, field, context, 60, 1.0, 2.0, vx, 0.0);
+
+    auto coasted = estimator.coast(last_t + 5.0);
+    ASSERT_TRUE(coasted.has_value());
+    ASSERT_EQ(coasted->size(), 1u);
+    EXPECT_NEAR((*coasted)[0].pose.position.x, x + vx * config.max_coast_s, 0.05)
+        << "a 5 s clock gap extrapolates no further than max_coast_s";
+}
+
+TEST(KalmanMotionEstimatorTest, OpponentCoastLeavesTheFilterStateAlone) {
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+    const auto [last_t, x, y] =
+        run_constant_velocity(estimator, assigner, field, context, 60, 1.0, 2.0, 1.5, 0.0);
+    const auto before = estimator.opponent_filter_state(FrameId::THEIR_ROBOT_1);
+    ASSERT_TRUE(before.has_value());
+
+    const auto ahead = estimator.coast(last_t + 0.02);
+    const auto behind = estimator.coast(last_t + 0.01);
+    ASSERT_TRUE(ahead.has_value());
+    ASSERT_TRUE(behind.has_value());
+
+    const auto after = estimator.opponent_filter_state(FrameId::THEIR_ROBOT_1);
+    ASSERT_TRUE(after.has_value());
+    EXPECT_EQ(after->stamp, before->stamp);
+    EXPECT_EQ(after->state, before->state);
+    EXPECT_EQ(after->covariance, before->covariance);
+    EXPECT_LT((*behind)[0].pose.position.x, (*ahead)[0].pose.position.x)
+        << "a coast behind the previous one renders behind it";
+}
+
+TEST(KalmanMotionEstimatorTest, ClockSteppingBackBetweenCoastsDoesNotWarn) {
+    KalmanMotionEstimator estimator{kalman_opponents_config()};
+    FrameIdAssigner assigner(10.0, 5);
+    const FieldDescription field = make_field();
+    const MotionEstimatorContext context;
+    const auto [last_t, x, y] =
+        run_constant_velocity(estimator, assigner, field, context, 60, 1.0, 2.0, 1.5, 0.0);
+
+    EXPECT_EQ(count_clock_gap_warnings(estimator, {last_t + 0.04, last_t + 0.032, last_t + 0.036}),
+              0u);
 }
 
 TEST(KalmanMotionEstimatorTest, FirstClockGapWarningFiresAtEpochZero) {
