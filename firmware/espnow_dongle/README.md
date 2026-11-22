@@ -14,6 +14,8 @@ USB serial from the Jetson in, ESP-NOW to mr_stabs_mk2 out. Design and wire form
 - Broadcasts until it hears the robot's first telemetry or OTA status, then unicasts to that MAC
   (MAC-layer ACK and retries).
 - Reports link stats (`MSG_LINK_STATS`) to the Jetson every 100 ms.
+- Forwards every robot frame to the Jetson by type, including `MSG_FIRMWARE_INFO` (protocol
+  version and build string, once a second).
 - Picks the channel at boot: `espnow_protocol::CHANNEL_OVERRIDE` when nonzero (1 in Phase 1),
   otherwise a promiscuous scan for the quietest of 1, 6, and 11.
 

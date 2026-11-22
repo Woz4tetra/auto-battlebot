@@ -1,6 +1,8 @@
 #pragma once
 
+#include <map>
 #include <optional>
+#include <string>
 
 #include "config/config_factory.hpp"
 #include "config/config_parser.hpp"
@@ -13,6 +15,7 @@
 
 namespace auto_battlebot {
 struct RobotFilterConfiguration;
+struct TransmitterConfiguration;
 
 struct NavigationConfiguration {
     std::string type;
@@ -23,6 +26,8 @@ struct NavigationConfiguration {
 
     virtual void apply_robot_filter([[maybe_unused]] const RobotFilterConfiguration &robot_filter) {
     }
+
+    virtual void apply_transmitter([[maybe_unused]] const TransmitterConfiguration &transmitter) {}
 };
 
 struct NoopNavigationConfiguration : public NavigationConfiguration {
@@ -117,6 +122,8 @@ struct RlPolicyNavigationConfiguration : public NavigationConfiguration {
     bool hazard_barrier_enable = false;
     double hazard_prediction_horizon_s = 0.25;
     JigPlantParams plant;
+    std::optional<std::map<std::string, std::string>> profile_command_chain;
+    std::string transmitter_type = "no [transmitter] config was applied";
 
     RlPolicyNavigationConfiguration() { type = "RlPolicyNavigation"; }
 
@@ -138,6 +145,7 @@ struct RlPolicyNavigationConfiguration : public NavigationConfiguration {
     }
 
     void apply_robot_filter(const RobotFilterConfiguration &robot_filter) override;
+    void apply_transmitter(const TransmitterConfiguration &transmitter) override;
 };
 
 std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfiguration &config,
@@ -145,5 +153,6 @@ std::shared_ptr<NavigationInterface> make_navigation(const NavigationConfigurati
 std::unique_ptr<NavigationConfiguration> parse_navigation_config(ConfigParser &parser);
 std::unique_ptr<NavigationConfiguration> load_navigation_from_toml(
     toml::table const &toml_data, std::vector<std::string> &parsed_sections,
-    const PlantConfiguration &plant, const RobotFilterConfiguration &robot_filter);
+    const PlantConfiguration &plant, const RobotFilterConfiguration &robot_filter,
+    const TransmitterConfiguration &transmitter);
 }  // namespace auto_battlebot

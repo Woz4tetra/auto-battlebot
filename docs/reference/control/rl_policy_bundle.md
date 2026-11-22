@@ -56,7 +56,7 @@ One observation spec version maps robots, field, target and history to named ten
 
 ## Manifest checks
 
-`load_policy_bundle` parses `<directory>/manifest.toml` and checks everything that needs no network library: the format version, every enum field against its known values, required fields and tables, that the files it names exist, and that the decoder scale matches the actor's output size. It throws `PolicyBundleError` naming the problem. `policy_period_ticks` counts control-loop ticks between policy steps (5 gives 50 Hz on the 250 Hz loop). NETWORK bundles hold `[decoder]`, `[[networks]]` (the first is the actor) and `[selftest]`; CONSTANT bundles hold `[constant]`.
+`load_policy_bundle` parses `<directory>/manifest.toml` and checks everything that needs no network library: the format version, every enum field against its known values, required fields and tables, that the files it names exist, and that the decoder scale matches the actor's output size. It throws `PolicyBundleError` naming the problem. `policy_period_ticks` counts control-loop ticks between policy steps (5 gives 50 Hz on the 250 Hz loop). NETWORK bundles hold `[decoder]`, `[[networks]]` (the first is the actor) and `[selftest]`; CONSTANT bundles hold `[constant]`. Either kind may hold `[command_chain]`, string values for the transmitter chain the policy was exported for; `bundle.py` writes `MK2_ESPNOW_COMMAND_CHAIN` unless the spec names another. `RlPolicyNavigation` refuses to load a bundle whose chain differs from the profile's (`docs/reference/control/performance_monitor.md`).
 
 ## Startup checks
 

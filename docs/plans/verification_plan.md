@@ -15,6 +15,8 @@ The decisions come from a grilling session on 2026-11-15. The full question and 
 - Phase 1 done: `--fast`, `--changed`, touched-files log, stop hook, verifier agent and verdict
   hook. Reference: `docs/reference/tools/verify.md`.
 - Phase 1.5 done 2026-11-21; see [Outcome](#outcome-2026-11-21).
+- Phase 2 done 2026-11-21 except grading the 2026-10-25 recordings, which are on neither this
+  laptop nor megamind; see [Phase 2 outcome](#phase-2-outcome-2026-11-21).
 
 ## What went wrong
 
@@ -187,6 +189,28 @@ Amends nav plan 1.4 (`PerformanceMonitor`). Its single `Link` row becomes a per-
 - `crsf` and `health` get unit tests first: frame parse/encode round trips against captured EdgeTX
   telemetry bytes, and the staleness logic. `channels`, `simulation`, and `viz_relay` start as
   feature-map gaps.
+
+#### Phase 2 outcome (2026-11-21)
+
+How it works now: `docs/reference/control/performance_monitor.md`.
+
+- Every row of the link table is a `MonitorLink` with a defaulted min rate and max age in
+  `PerformanceMonitorConfiguration`. A configured link silent past its max age is RED; slow is WARN.
+- `scripts/verify_mcap` runs the same `PerformanceMonitor` over a recording's topics. It graded
+  the 7 NHRL May files and the 8 MassD August files; the 290 s 09-05-11 session took 0.8 s.
+- CRSF-after-EdgeTX case: May has 3,607 link statistics frames, August has 0 while the app sent
+  37,609 trainer commands; 4 of 8 August files go red. Recorded in
+  `docs/experiments/firmware/2026-11-21_crsf_telemetry_loss.md`. The interleaving test found a
+  parser resync bug (fixed) and the attitude field order was wrong (fixed); neither is shown to be
+  the August cause.
+- 22-09 calibration and phantom `neutral_robot_1`: fire in unit tests, in a synthetic MCAP shaped
+  like those sessions, and through a live `ControlLoop`. The 11-19 replay scratch recordings show
+  phantom `their_robot_1` tracks at sigma 6.9 to 14.6 m.
+- `crsf` tests decode every frame of `tests/fixtures/crsf/edgetx_telemetry_capture.log` to the
+  capture script's values and re-encode it byte for byte. `health` tests cover the staleness and
+  every rolling check.
+- Not done: WP-V08's three 2026-10-25 recordings. Grade them with `scripts/verify_mcap` once U10
+  brings the ZED Box back.
 
 ### Phase 3: deterministic playback
 
@@ -376,5 +400,5 @@ The script never sends autonomous drive commands; the user drives. HIL runs on d
 
 ## Next steps
 
-1. Amend nav plan 1.4 with the per-link liveness table and a link to this plan.
-2. Start WP-V01 on go-ahead.
+1. Grade the three 2026-10-25 recordings with `scripts/verify_mcap` when the ZED Box is reachable.
+2. Start phase 3 (WP-V09) on go-ahead.

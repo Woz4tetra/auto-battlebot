@@ -624,6 +624,7 @@ bool Runner::tick() {
     if (clock_) {
         clock_->set(camera_data.rgb.header.stamp);
     }
+    control_loop_->note_camera_frame();
 
     if (should_reinit_field) {
         field_init_attempts_remaining_ = kFieldInitAttempts;

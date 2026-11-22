@@ -151,3 +151,32 @@ TEST(PolicyBundleTest, AConstantBundleMustBeNormalizedLinearAndAngular) {
 
 }  // namespace
 }  // namespace auto_battlebot::rl_policy
+
+namespace auto_battlebot::rl_policy {
+namespace {
+
+TEST(PolicyBundleCommandChainTest, ReadsTheCommandChainTable) {
+    const auto dir = rl_test::copy_bundle(rl_test::constant_bundle(), "bundle_chain");
+    rl_test::write_text(dir / "manifest.toml",
+                        rl_test::read_text(dir / "manifest.toml") +
+                            "\n[command_chain]\nmax_motor_rpm_per_s = \"0\"\n"
+                            "transmitter = \"EspNowTransmitter\"\n");
+    const PolicyBundle bundle = load_policy_bundle(dir);
+    ASSERT_TRUE(bundle.command_chain);
+    EXPECT_EQ(bundle.command_chain->at("max_motor_rpm_per_s"), "0");
+    EXPECT_EQ(bundle.command_chain->at("transmitter"), "EspNowTransmitter");
+}
+
+TEST(PolicyBundleCommandChainTest, OlderBundlesHaveNoChain) {
+    EXPECT_FALSE(load_policy_bundle(rl_test::constant_bundle()).command_chain);
+}
+
+TEST(PolicyBundleCommandChainTest, ANonStringValueIsRefused) {
+    const auto dir = rl_test::copy_bundle(rl_test::constant_bundle(), "bundle_chain_number");
+    rl_test::write_text(dir / "manifest.toml", rl_test::read_text(dir / "manifest.toml") +
+                                                   "\n[command_chain]\nmax_motor_rpm_per_s = 0\n");
+    EXPECT_THROW(load_policy_bundle(dir), PolicyBundleError);
+}
+
+}  // namespace
+}  // namespace auto_battlebot::rl_policy

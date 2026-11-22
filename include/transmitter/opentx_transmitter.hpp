@@ -38,6 +38,7 @@ class OpenTxTransmitter : public TransmitterInterface {
     bool did_init_button_press() override;
 
     TransmitterStatus get_status() const override;
+    TransmitterLinkReport link_report() const override;
 
     void enable() override;
     void disable() override;
@@ -60,6 +61,8 @@ class OpenTxTransmitter : public TransmitterInterface {
     bool init_button_was_pressed_ = false;
     std::optional<std::tuple<bool, bool>> last_logged_switch_states_;
     bool enabled_ = false;
+    uint64_t commands_sent_ = 0;
+    std::optional<StickCommand> last_sent_;
     std::chrono::steady_clock::time_point next_reconnect_attempt_ =
         std::chrono::steady_clock::now();
     HardwareTimePoint last_channel_time_{};

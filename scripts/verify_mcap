@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+usage() {
+    cat <<'USAGE'
+Usage: scripts/verify_mcap [-c PROFILE] FILE.mcap [FILE.mcap ...]
+
+Grade recordings with the PerformanceMonitor checks: per-link liveness, slew and guard binding,
+calibration, phantom tracks, yaw-rate agreement, thermal trip, and tracking coverage.
+
+  -c PROFILE   take [performance_monitor] thresholds from this profile (default: struct defaults)
+
+Exit status: 0 no red warning, 1 a red warning in some file, 3 a file could not be read.
+USAGE
+}
+
+if [[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
+for dir in build build-test; do
+    if [[ -x "$ROOT/$dir/verify_mcap" ]]; then
+        exec "$ROOT/$dir/verify_mcap" "$@"
+    fi
+done
+
+if [[ ! -d "$ROOT/build" ]]; then
+    echo "No build/ yet; run ./scripts/build.sh first." >&2
+    exit 3
+fi
+cmake --build "$ROOT/build" --target verify_mcap -j6 >&2
+exec "$ROOT/build/verify_mcap" "$@"

@@ -10,7 +10,9 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <vector>
 
@@ -414,4 +416,87 @@ TEST_F(EspNowTransmitterPtyTest, FeedbackAndSwitchComeFromTelemetry) {
     EXPECT_FALSE(transmitter.get_status().receiving_channels);
 }
 
+}  // namespace auto_battlebot
+
+namespace auto_battlebot {
+namespace {
+
+void write_frame_to(int fd, uint8_t type, const void *payload, uint8_t length) {
+    uint8_t frame[espnow_protocol::SERIAL_MAX_FRAME];
+    const size_t n = espnow_protocol::encode_serial_frame(
+        type, static_cast<const uint8_t *>(payload), length, frame);
+    ASSERT_EQ(write(fd, frame, n), static_cast<ssize_t>(n));
+}
+
+TEST_F(EspNowTransmitterPtyTest, LinkReportCountsTelemetryImuAndSentCommands) {
+    EspNowTransmitterConfiguration config;
+    config.dongle_serial_path = path_;
+    EspNowTransmitter transmitter(config, nullptr, nullptr);
+    ASSERT_TRUE(transmitter.initialize());
+
+    espnow_protocol::TelemetryPayload telemetry = {};
+    telemetry.espnow_age_ms = 7;
+    telemetry.espnow_seq = 3;
+    telemetry.yaw_rate_cw_dps = 90.0f;
+    telemetry.guard_scale = 0.48f;
+    telemetry.guard_state = 4;
+    write_telemetry(master_, telemetry);
+    telemetry.yaw_rate_cw_dps = std::numeric_limits<float>::quiet_NaN();
+    write_telemetry(master_, telemetry);
+    usleep(5000);
+    transmitter.update();
+    transmitter.enable();
+    transmitter.send({0.4, 0.0, 0.0});
+
+    const TransmitterLinkReport report = transmitter.link_report();
+    EXPECT_EQ(report.telemetry_frames, 2u);
+    EXPECT_EQ(report.imu_samples, 1u) << "a NaN yaw rate is not an IMU sample";
+    EXPECT_EQ(report.commands_sent, 1u);
+    ASSERT_TRUE(report.last_sent);
+    EXPECT_DOUBLE_EQ(report.last_sent->forward, 0.4);
+    ASSERT_TRUE(report.command_age_ms);
+    EXPECT_DOUBLE_EQ(*report.command_age_ms, 7.0);
+    ASSERT_TRUE(report.guard_scale);
+    EXPECT_NEAR(*report.guard_scale, 0.48, 1e-6);
+    EXPECT_EQ(report.guard_state, 4);
+    EXPECT_EQ(report.host_protocol_version, espnow_protocol::PROTOCOL_VERSION);
+    EXPECT_FALSE(report.firmware) << "no firmware info frame yet";
+}
+
+TEST_F(EspNowTransmitterPtyTest, FirmwareInfoFrameReachesTheLinkReport) {
+    EspNowTransmitterConfiguration config;
+    config.dongle_serial_path = path_;
+    EspNowTransmitter transmitter(config, nullptr, nullptr);
+    ASSERT_TRUE(transmitter.initialize());
+
+    const espnow_protocol::FirmwareInfoPayload info =
+        espnow_protocol::make_firmware_info("1a2b3c4d-dirty");
+    write_frame_to(master_, espnow_protocol::MSG_FIRMWARE_INFO, &info, sizeof(info));
+    usleep(5000);
+    transmitter.update();
+
+    const TransmitterLinkReport report = transmitter.link_report();
+    ASSERT_TRUE(report.firmware);
+    EXPECT_EQ(report.firmware->protocol_version, espnow_protocol::PROTOCOL_VERSION);
+    EXPECT_EQ(report.firmware->build, "1a2b3c4d-dirty");
+}
+
+TEST(EspNowFirmwareInfoTest, FullLengthBuildNeedsNoTerminator) {
+    const auto info = espnow_protocol::make_firmware_info("0123456789abcdefXYZ");
+    EXPECT_EQ(decode_firmware_info(info).build, "0123456789abcdef");
+    EXPECT_EQ(decode_firmware_info(espnow_protocol::make_firmware_info(nullptr)).build, "");
+}
+
+TEST(EspNowYawRateTest, ClockwiseGyroBecomesCounterClockwiseFieldRate) {
+    espnow_protocol::TelemetryPayload telemetry = {};
+    telemetry.yaw_rate_cw_dps = 180.0f;
+    ASSERT_TRUE(espnow_yaw_rate_ccw_radps(telemetry));
+    EXPECT_NEAR(*espnow_yaw_rate_ccw_radps(telemetry), -std::numbers::pi, 1e-6);
+    telemetry.is_upside_down = 1;
+    EXPECT_NEAR(*espnow_yaw_rate_ccw_radps(telemetry), std::numbers::pi, 1e-6);
+    telemetry.yaw_rate_cw_dps = std::numeric_limits<float>::quiet_NaN();
+    EXPECT_FALSE(espnow_yaw_rate_ccw_radps(telemetry));
+}
+
+}  // namespace
 }  // namespace auto_battlebot

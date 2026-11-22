@@ -9,6 +9,10 @@
 
 using namespace espnow_protocol;
 
+#ifndef FIRMWARE_BUILD
+#define FIRMWARE_BUILD "unknown"
+#endif
+
 static_assert(AIR_MAX_FRAME == ESP_NOW_MAX_DATA_LEN,
               "air frame size must track the IDF ESP-NOW v1 limit");
 
@@ -371,6 +375,11 @@ void EspNowLink::send_telemetry(TelemetryPayload &telemetry, uint32_t now_ms) {
     telemetry.telemetry_seq = telemetry_seq_++;
     tx_telemetry_++;
     send_frame(reply_mac_, MSG_TELEMETRY, &telemetry, sizeof(telemetry));
+
+    if (now_ms - last_firmware_info_ms_ < FIRMWARE_INFO_PERIOD_MS) return;
+    last_firmware_info_ms_ = now_ms;
+    const FirmwareInfoPayload info = make_firmware_info(FIRMWARE_BUILD);
+    send_frame(reply_mac_, MSG_FIRMWARE_INFO, &info, sizeof(info));
 }
 
 void EspNowLink::load_paired() {

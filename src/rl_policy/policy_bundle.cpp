@@ -240,7 +240,7 @@ PolicyBundle load_policy_bundle(const std::filesystem::path &directory) {
     reader.check_keys(
         manifest,
         {"format_version", "run_id", "git_hash", "policy_kind", "obs_spec_version", "execution",
-         "policy_period_ticks", "decoder", "networks", "selftest", "constant"},
+         "policy_period_ticks", "decoder", "networks", "selftest", "constant", "command_chain"},
         "");
     bundle.run_id = reader.require_string(manifest, "run_id", "");
     bundle.git_hash = manifest["git_hash"].value_or(std::string());
@@ -251,6 +251,16 @@ PolicyBundle load_policy_bundle(const std::filesystem::path &directory) {
     bundle.policy_period_control_ticks =
         static_cast<int>(reader.require_int(manifest, "policy_period_ticks", ""));
     if (bundle.policy_period_control_ticks < 1) reader.fail("policy_period_ticks must be >= 1");
+
+    if (manifest.contains("command_chain")) {
+        const toml::table &chain = reader.require_table(manifest, "command_chain", "");
+        std::map<std::string, std::string> values;
+        for (const auto &[key, value] : chain) {
+            const std::string name(key.str());
+            values[name] = reader.require_string(chain, name, "command_chain.");
+        }
+        bundle.command_chain = std::move(values);
+    }
 
     switch (bundle.policy_kind) {
         case PolicyKind::NETWORK:

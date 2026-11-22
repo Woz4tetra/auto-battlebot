@@ -262,16 +262,17 @@ ClassConfiguration load_classes_from_config(const std::filesystem::path &path,
         config.keypoint_filter = load_keypoint_filter_from_toml(toml_data, parsed_sections);
         config.robot_filter = load_robot_filter_from_toml(toml_data, parsed_sections, config.plant);
         config.target_selector = load_target_selector_from_toml(toml_data, parsed_sections);
+        config.transmitter = load_transmitter_from_toml(toml_data, parsed_sections);
         config.navigation = load_navigation_from_toml(toml_data, parsed_sections, config.plant,
-                                                      *config.robot_filter);
+                                                      *config.robot_filter, *config.transmitter);
         config.command_shaper =
             load_command_shaper_from_toml(toml_data, parsed_sections, config.plant);
-        config.transmitter = load_transmitter_from_toml(toml_data, parsed_sections);
         config.control_loop = load_control_loop_from_toml(toml_data, parsed_sections);
         config.publisher = load_publisher_from_toml(toml_data, parsed_sections);
         config.ui = load_ui_from_toml(toml_data, parsed_sections);
         load_runner_from_toml(toml_data, parsed_sections, config.runner);
         config.health = load_health_from_toml(toml_data, parsed_sections);
+        config.performance_monitor = load_performance_monitor_from_toml(toml_data, parsed_sections);
         config.mcap_recorder = load_mcap_config_from_toml(toml_data, parsed_sections);
         config.clock = load_clock_from_toml(toml_data, parsed_sections);
 

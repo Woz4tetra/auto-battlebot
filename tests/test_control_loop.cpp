@@ -5,6 +5,7 @@
 #include <chrono>
 #include <memory>
 #include <opencv2/core.hpp>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -15,6 +16,7 @@
 #include "control_loop/stepped_control_loop.hpp"
 #include "control_loop/threaded_control_loop.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
+#include "health/performance_monitor.hpp"
 #include "navigation/navigation_interface.hpp"
 #include "plant/mrs_buff_mk3_params.hpp"
 #include "robot_filter/robot_front_back_filter.hpp"
@@ -835,4 +837,96 @@ TEST(ControlLoopInterfaceTest, ForwardersAreSafeToCallFromSeveralThreadsWhileThe
     EXPECT_FALSE(transmitter->sent.empty());
 }
 
+}  // namespace auto_battlebot
+
+namespace auto_battlebot {
+namespace {
+
+class FixedStateFilter : public RobotFilterInterface {
+   public:
+    bool initialize(int) override { return true; }
+    void predict(double, CommandFeedback) override {}
+    void correct(ModelResultStamped, FieldDescription, CameraInfo) override {}
+    RobotDescriptionsStamped state() const override { return robots; }
+    RobotDescriptionsStamped robots;
+};
+
+class SilentEspNowTransmitter : public RecordingTransmitter {
+   public:
+    TransmitterLinkReport link_report() const override {
+        TransmitterLinkReport report;
+        report.links = {MonitorLink::ESPNOW};
+        report.telemetry_frames = 12;
+        return report;
+    }
+};
+
+std::optional<DiagnosticStatusSnapshot> monitor_snapshot(const std::string &subsection) {
+    std::optional<DiagnosticStatusSnapshot> found;
+    for (const auto &snapshot :
+         DiagnosticsLogger::get_logger("performance_monitor")->get_snapshots()) {
+        if (snapshot.subsection == subsection) found = snapshot;
+    }
+    return found;
+}
+
+TEST(ControlLoopMonitorTest, CycleFeedsTheMonitorAndPublishesItsWarnings) {
+    auto filter = std::make_shared<FixedStateFilter>();
+    RobotDescription ours;
+    ours.frame_id = FrameId::OUR_ROBOT_1;
+    ours.group = Group::OURS;
+    ours.pose.position.x = 1.5;
+    RobotDescription phantom;
+    phantom.frame_id = FrameId::NEUTRAL_ROBOT_1;
+    phantom.group = Group::THEIRS;
+    phantom.uncertainty.position_sigma_major_axis_m = 122.0;
+    filter->robots.descriptions = {ours, phantom};
+
+    auto clock = std::make_shared<ManualClock>();
+    auto loop =
+        std::make_shared<ControlLoop>(filter, nullptr, std::make_shared<RecordingNavigation>(),
+                                      std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
+                                      std::make_shared<SilentEspNowTransmitter>(), clock, nullptr);
+    DiagnosticsLogger::remove_logger("performance_monitor");
+    loop->set_performance_monitor(
+        std::make_shared<PerformanceMonitor>(PerformanceMonitorConfiguration{}));
+    ASSERT_TRUE(loop->initialize());
+    loop->request_filter_reinit(1);
+
+    const auto measurements = make_measurements(1);
+    for (int i = 0; i < 1000; ++i) {
+        clock->set(1.0 + i * 0.005);
+        if (i % 7 == 0) {
+            loop->note_camera_frame();
+            loop->submit_measurement(measurements[0]);
+        }
+        loop->run_cycle();
+    }
+
+    const auto espnow = monitor_snapshot("espnow_link");
+    ASSERT_TRUE(espnow);
+    EXPECT_EQ(espnow->level, DiagnosticLevel::ERROR);
+    const auto calibration = monitor_snapshot("calibration");
+    ASSERT_TRUE(calibration);
+    EXPECT_EQ(calibration->level, DiagnosticLevel::WARN);
+    const auto phantom_warning = monitor_snapshot("phantom_track");
+    ASSERT_TRUE(phantom_warning);
+    EXPECT_NE(phantom_warning->message.find("neutral_robot_1"), std::string::npos);
+    const auto camera = monitor_snapshot("camera_frames_link");
+    ASSERT_TRUE(camera);
+    EXPECT_EQ(camera->level, DiagnosticLevel::OK) << camera->message;
+}
+
+TEST(ControlLoopMonitorTest, NoMonitorMeansNoMonitorDiagnostics) {
+    auto loop = std::make_shared<ControlLoop>(
+        std::make_shared<OrderRecordingFilter>(), nullptr, std::make_shared<RecordingNavigation>(),
+        std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
+        std::make_shared<SilentEspNowTransmitter>(), std::make_shared<ManualClock>(), nullptr);
+    DiagnosticsLogger::remove_logger("performance_monitor");
+    loop->note_camera_frame();
+    loop->run_cycle();
+    EXPECT_TRUE(DiagnosticsLogger::get_logger("performance_monitor")->get_snapshots().empty());
+}
+
+}  // namespace
 }  // namespace auto_battlebot

@@ -43,6 +43,13 @@ bool is_air_frame(const uint8_t *frame, size_t length) {
            memcmp(frame, AIR_MAGIC, sizeof(AIR_MAGIC)) == 0;
 }
 
+FirmwareInfoPayload make_firmware_info(const char *build) {
+    FirmwareInfoPayload info{};
+    info.protocol_version = PROTOCOL_VERSION;
+    if (build != nullptr) memcpy(info.build, build, strnlen(build, FIRMWARE_BUILD_LENGTH));
+    return info;
+}
+
 void SerialFrameParser::feed(const uint8_t *data, size_t count, Handler handler, void *context) {
     const uint8_t magic_lo = SERIAL_MAGIC & 0xFF;
     const uint8_t magic_hi = SERIAL_MAGIC >> 8;

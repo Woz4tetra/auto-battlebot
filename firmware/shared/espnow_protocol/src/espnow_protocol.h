@@ -17,12 +17,16 @@ const size_t SERIAL_MAX_FRAME = SERIAL_OVERHEAD + 255;
 
 const uint8_t CHANNEL_OVERRIDE = 1;
 
+const uint16_t PROTOCOL_VERSION = 1;
+const size_t FIRMWARE_BUILD_LENGTH = 16;
+
 enum MessageType : uint8_t {
     MSG_COMMAND = 0x01,
     MSG_TELEMETRY = 0x02,
     MSG_TUNABLE_SET = 0x03,
     MSG_LINK_STATS = 0x04,
     MSG_PING = 0x05,
+    MSG_FIRMWARE_INFO = 0x06,
     MSG_OTA_BEGIN = 0x10,
     MSG_OTA_CHUNK = 0x11,
     MSG_OTA_END = 0x12,
@@ -98,6 +102,11 @@ struct TelemetryPayload {
     uint16_t erpm_crc_errors;
 };
 
+struct FirmwareInfoPayload {
+    uint16_t protocol_version;
+    char build[FIRMWARE_BUILD_LENGTH];
+};
+
 struct TunableSetPayload {
     uint8_t id;
     float value;
@@ -153,11 +162,13 @@ const uint32_t TELEMETRY_BATCH_MAX = 256;
 const size_t OTA_CHUNK_DATA = 240;
 
 const uint32_t PING_PERIOD_MS = 10;
+const uint32_t FIRMWARE_INFO_PERIOD_MS = 1000;
 
 static_assert(sizeof(CommandPayload) == 16, "CommandPayload layout");
 static_assert(sizeof(LinkStatsPayload) == 18, "LinkStatsPayload layout");
 static_assert(sizeof(OtaStatusPayload) == 22, "OtaStatusPayload layout");
 static_assert(sizeof(TelemetryPayload) == 155, "TelemetryPayload layout");
+static_assert(sizeof(FirmwareInfoPayload) == 18, "FirmwareInfoPayload layout");
 static_assert(sizeof(TelemetryBatchHeader) == 32, "TelemetryBatchHeader layout");
 static_assert(sizeof(TelemetryPayload) <= AIR_MAX_PAYLOAD, "telemetry must fit one air frame");
 static_assert(sizeof(OtaChunkHeader) + OTA_CHUNK_DATA <= AIR_MAX_PAYLOAD,
@@ -172,6 +183,8 @@ size_t encode_air_frame(uint8_t type, const uint8_t *payload, size_t length,
                         uint8_t (&out)[AIR_MAX_FRAME]);
 
 bool is_air_frame(const uint8_t *frame, size_t length);
+
+FirmwareInfoPayload make_firmware_info(const char *build);
 
 class SerialFrameParser {
    public:

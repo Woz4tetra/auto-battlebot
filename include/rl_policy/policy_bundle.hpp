@@ -1,6 +1,8 @@
 #pragma once
 
 #include <filesystem>
+#include <map>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <variant>
@@ -61,6 +63,7 @@ struct PolicyBundle {
     int obs_spec_version = 0;
     PolicyExecution execution = PolicyExecution::INLINE;
     int policy_period_control_ticks = 1;
+    std::optional<std::map<std::string, std::string>> command_chain;
     std::variant<NetworkBundle, ConstantBundle> policy;
 };
 

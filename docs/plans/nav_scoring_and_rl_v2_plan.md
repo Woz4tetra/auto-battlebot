@@ -17,9 +17,10 @@ statistics and parts of phase 5; every change is listed in
 The work is split into packages that separate agents can pick up. See
 [Work packages](#work-packages).
 
-## Status (2026-11-14)
+## Status (2026-11-21)
 
-Not started. The order of work is in [Order of work](#order-of-work): bench checks, then cheap
+1.4 PerformanceMonitor built (WP-07) on 2026-11-21; see [1.4](#14-performancemonitor). The
+2026-11-14 status for the other packages was "not started". The order of work is in [Order of work](#order-of-work): bench checks, then cheap
 field fixes.
 
 ## What went wrong on 2026-10-25
@@ -221,6 +222,33 @@ MCAP. It replaces a pre-session checklist: there's no time for one at competitio
 - Thresholds are defaulted fields in the component's config struct, per the repo convention.
 - The 22-09 calibration problem and the phantom `neutral_robot_1` are the first test cases: replay
   those MCAPs' tracks through the checks and confirm both warnings fire.
+
+The single `Link` row is a per-link table, from the verification plan's phase 2
+(`docs/plans/verification_plan.md`):
+
+| Link | Measured as |
+| --- | --- |
+| Camera frames | frame rate and age |
+| Perception output | result rate |
+| Filter output | output rate |
+| Transmit | command send rate |
+| CRSF telemetry rx | frame rate and age |
+| ESP-NOW | ack rate and command age |
+| IMU | sample rate and age |
+| Relay publish | publish rate |
+
+A configured link silent past its max age is red, not a warning.
+
+**Outcome (2026-11-21).** WP-07 built. How it works: `docs/reference/control/performance_monitor.md`.
+
+- The command chain hashed at load is `transmitter`, `drive_processor`, `max_motor_rpm_per_s` and
+  `protocol_version`. `drive_mode` and a guard mode join it when 5.4 and WP-02 add them. A bundle
+  with a differing `[command_chain]` does not load and the error lists each key; `rl_nav_p4` has no
+  table, so it loads with an "unchecked" warning.
+- The firmware sends its build hash and protocol version in a new `MSG_FIRMWARE_INFO` frame once a
+  second; a protocol mismatch is red.
+- The 22-09 calibration and phantom `neutral_robot_1` checks fire on synthetic tracks shaped like
+  those sessions. Replaying the real 10/25 MCAPs waits on U10.
 
 ### 1.5 Baseline field session
 

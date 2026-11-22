@@ -18,6 +18,7 @@ struct CrsfBattery {
     float voltage_v = 0.0f;
     float current_a = 0.0f;
     float consumption_mah = 0.0f;
+    uint8_t remaining_pct = 0;
 };
 
 enum class CrsfRfProfile : uint8_t { FPS_4 = 0, FPS_50 = 1, FPS_150 = 2 };

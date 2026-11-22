@@ -31,6 +31,8 @@ class RlPolicyNavigation : public NavigationInterface {
 
    private:
     void load();
+    void check_command_chain(const rl_policy::PolicyBundle &bundle);
+    void log_command_chain();
 
     static const RobotDescription *find_target_opponent(const RobotDescriptionsStamped &robots,
                                                         const RobotDescription &our_robot,
@@ -53,6 +55,9 @@ class RlPolicyNavigation : public NavigationInterface {
     std::string run_id_;
     std::string selftest_summary_;
     int policy_period_ticks_ = 1;
+    DiagnosticLevel command_chain_level_ = DiagnosticLevel::OK;
+    std::string command_chain_message_;
+    DiagnosticsData command_chain_values_;
 
     int ticks_until_policy_step_ = 0;
     rl_policy::ActionCommand action_;

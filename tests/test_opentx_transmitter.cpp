@@ -15,7 +15,9 @@
 #include <vector>
 
 #include "channels/channels_parser.hpp"
+#include "crsf/crsf_parser.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
+#include "health/performance_monitor.hpp"
 #include "time/manual_clock.hpp"
 #include "transmitter/opentx_transmitter.hpp"
 
@@ -326,6 +328,63 @@ TEST_F(OpenTxTransmitterTest, UnchangedSwitchStatesAreNotRestamped) {
 
     feed(kReleased, kPressed);
     EXPECT_LT(age_ms(), 40.0) << "a changed switch did not restamp the section";
+}
+
+}  // namespace
+}  // namespace auto_battlebot
+
+namespace auto_battlebot {
+namespace {
+
+TEST_F(OpenTxTransmitterTest, CrsfTelemetryThatStopsWhileChannelsFlowGoesRed) {
+    build(button_config());
+    ASSERT_TRUE(transmitter_->initialize());
+    PerformanceMonitor monitor(PerformanceMonitorConfiguration{});
+    double now = 0.0;
+    monitor.set_link_expected(MonitorLink::CRSF_TELEMETRY, true, now);
+
+    CrsfLinkStatistics stats;
+    stats.up_link_quality_pct = 100;
+    const std::vector<uint8_t> crsf = encode_crsf_packet(stats);
+    std::array<int16_t, kMaxChannels> channels{};
+    channels[kTrainerChannel] = kPressed;
+    const auto step = [&](bool with_crsf) {
+        std::vector<uint8_t> bytes = channel_frame(channels);
+        if (with_crsf) bytes.insert(bytes.end(), crsf.begin(), crsf.end());
+        ASSERT_EQ(write(master_, bytes.data(), bytes.size()), static_cast<ssize_t>(bytes.size()));
+        usleep(2000);
+        transmitter_->update();
+        monitor.set_link_total(MonitorLink::CRSF_TELEMETRY,
+                               transmitter_->link_report().telemetry_frames);
+        now += 0.1;
+        monitor.evaluate(now);
+    };
+
+    for (int i = 0; i < 40; ++i) step(true);
+    EXPECT_GE(transmitter_->link_report().telemetry_frames, 39u)
+        << "a false start in the channel bytes can hold the newest frame until the next read";
+    EXPECT_TRUE(monitor.active().empty());
+
+    for (int i = 0; i < 110; ++i) step(false);
+    EXPECT_TRUE(transmitter_->get_status().receiving_channels)
+        << "the channel stream still looks healthy, which is how the EdgeTX break hid";
+    const auto active = monitor.active();
+    ASSERT_EQ(active.size(), 1u);
+    EXPECT_EQ(active.front().check, PerformanceCheck::CRSF_TELEMETRY_LINK);
+    EXPECT_EQ(active.front().severity, WarningSeverity::RED);
+}
+
+TEST_F(OpenTxTransmitterTest, LinkReportNamesTheLinksAndCountsSends) {
+    build(button_config());
+    ASSERT_TRUE(transmitter_->initialize());
+    transmitter_->enable();
+    transmitter_->send({0.3, 0.0, 0.0});
+    const TransmitterLinkReport report = transmitter_->link_report();
+    EXPECT_EQ(report.commands_sent, 1u);
+    ASSERT_TRUE(report.last_sent);
+    EXPECT_DOUBLE_EQ(report.last_sent->forward, 0.3);
+    EXPECT_EQ(report.links,
+              (std::vector<MonitorLink>{MonitorLink::TRANSMIT, MonitorLink::CRSF_TELEMETRY}));
 }
 
 }  // namespace

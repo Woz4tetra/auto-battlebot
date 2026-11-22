@@ -20,7 +20,7 @@
 | `config/` | `config_extends.md` (extends chains, `from` section files), `robot_plant_files.md` |
 | `perception/` | `deeplab_floor_mask_data.md`, `robot_filter_pipeline.md`, `field_pose.md`, `cage_calibration.md`, `camera_profiles.md`, `trt_engine.md`, `trt_yolo.md` |
 | `simulation/` | `kinematic_sim_config.md`, `sim_profiles.md` (why each sim profile sets its values) |
-| `control/` | `plant_backed_control.md`, `hazards.md`, `rl_policy_bundle.md`, `control_loop.md`, `empty_circle_solver.md`, `rl_opponents.md`, `rl_training.md`, `rl_training_config.md` |
+| `control/` | `plant_backed_control.md`, `hazards.md`, `rl_policy_bundle.md`, `control_loop.md`, `performance_monitor.md`, `empty_circle_solver.md`, `rl_opponents.md`, `rl_training.md`, `rl_training_config.md` |
 | `calibration/` | `sysid_modules.md`, `plant_fit_modules.md`, `velocity_jig_config.md`, `drivetrain_calibration.md`, `am32_tuning.md` |
 | `eval/` | `eval_code.md`, `taxonomies.md` |
 | `recording/` | `foxglove_recording_format.md` (the recording contract), `svo_recording.md`, `video_recording.md` |

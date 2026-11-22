@@ -47,6 +47,7 @@ class VizSink {
 
     bool connected() const { return connected_.load(); }
     uint64_t dropped_messages() const { return dropped_.load(); }
+    uint64_t frames_sent() const { return frames_sent_.load(); }
     const std::string& socket_path() const { return socket_path_; }
 
    private:
@@ -95,6 +96,7 @@ class VizSink {
     std::atomic<bool> connected_{false};
     std::atomic<bool> stop_{false};
     std::atomic<uint64_t> dropped_{0};
+    std::atomic<uint64_t> frames_sent_{0};
 
     SinkThreadState sink_thread_state_;
     std::thread thread_;

@@ -108,6 +108,7 @@ void OpenTxTransmitter::send(StickCommand command) {
     if (!serial_.is_open() || !enabled_) return;
 
     command.forward = limit_linear_acceleration(command.forward);
+    last_sent_ = command;
 
     const auto channels = processor_->process(command);
     const int channel_a_value = to_trainer_value(channels.first_output);
@@ -166,7 +167,18 @@ void OpenTxTransmitter::write_trainer_channels(int channel_a_value, int channel_
                                                        {"channel_b_write_ok", channel_b_ok}});
         serial_.close();
         next_reconnect_attempt_ = std::chrono::steady_clock::now();
+        return;
     }
+    ++commands_sent_;
+}
+
+TransmitterLinkReport OpenTxTransmitter::link_report() const {
+    TransmitterLinkReport report;
+    report.links = {MonitorLink::TRANSMIT, MonitorLink::CRSF_TELEMETRY};
+    report.commands_sent = commands_sent_;
+    report.telemetry_frames = crsf_parser_.crc_valid_frames();
+    report.last_sent = last_sent_;
+    return report;
 }
 
 int OpenTxTransmitter::get_channel_value(int channel_idx) const {

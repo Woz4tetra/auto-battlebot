@@ -100,6 +100,14 @@ int run_application(const auto_battlebot::ClassConfiguration& class_config,
     auto control_loop_body =
         std::make_shared<ControlLoop>(robot_filter, target_selector, navigation, command_shaper,
                                       transmitter, clock, hazard_assembler);
+    if (class_config.performance_monitor.enable) {
+        auto monitor = std::make_shared<PerformanceMonitor>(class_config.performance_monitor);
+        if (viz_sink) {
+            monitor->set_link_source(MonitorLink::RELAY_PUBLISH,
+                                     [viz_sink] { return viz_sink->frames_sent(); });
+        }
+        control_loop_body->set_performance_monitor(monitor);
+    }
     auto control_loop = make_control_loop(*class_config.control_loop, control_loop_body);
 
     RunnerRemote remote;

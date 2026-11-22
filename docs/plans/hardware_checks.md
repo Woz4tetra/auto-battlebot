@@ -27,6 +27,11 @@ lock-down batches changed comments, names and docs only and added no rows.
 | Viz sink state in `SinkThreadState` | `58c2780c`, `be30120f` | Dashboard and viz relay: connect, reconnect, stall behave as before |
 | Config reshape: `from` section files, `[plant]` in `config/robots/`, renamed keys rejected, `init_button_channel` unset, `esp32_host` IPv4 only | `61a04cb1`, `52a5faf5`, `91f3b071` | Jetson: start each deployed profile (mr_stabs_mk2 ESP-NOW and OpenTX); no "renamed to" error, init button off, control feels unchanged |
 | OpenTX transmitter device lookup and trainer check renamed; optional init button | `fb013c44`, `61a04cb1` | OpenTX radio on USB: found, trainer follows SA, 500 ms stall trips when the cable is pulled |
+| Navigation in m/s, sticks from the plant in `PlantCommandShaper`; MotionProfile retuned to per-robot m/s values; hazard barrier braking in m/s; `velocity_saturation_limit` and `deadzone` moved to `[command_shaper]` | `e31f3b43`, `a0fb0321`, `d301eca7`, `6244144a` | Mk3 on OpenTX and Mk2 on ESP-NOW, guard plates on: drive MotionProfile attack and run-away bouts; terminal approach, wall reverse and steer feel match the pre-change build, the barrier stops short of a hole, and `/status/sticks` never exceeds the saturation limit |
+| Track existence is the only lost signal: tracks erased past `max_position_sigma_m` (1.0 m), zero velocity after `max_coast_s` (0.2 s), shared opponent coast | `0b75bb84` | Live ZED session with both robots: occlude each robot for 0.5 s and 2 s; it drops off the dashboard top-down after the sigma limit and reappears on the next detection, and the RL policy does not drive at a frozen spinning ghost |
+| `PerformanceMonitor` in the control loop: per-link liveness, rolling checks, `/diagnostics/performance_monitor` | uncommitted (2026-11-21) | Jetson, Mk2 `mr_stabs_mk2_fid_zed_box`: start a session; every expected link reads OK in the diagnostics tab and the 250 Hz loop's rate and latency match the previous build. Unplug the ESP-NOW dongle with autonomy on: `espnow_link` goes red (ERROR) within 3.5 s and the banner shows it; replug, it clears. `systemctl stop viz-relay`: `relay_publish_link` goes red. Then `scripts/verify_mcap` on the session's MCAP agrees with what the dashboard showed |
+| CRSF parser resyncs one byte after a CRC failure; attitude read as pitch, roll, yaw; `crsf_telemetry_link` judged while SA is on | uncommitted (2026-11-21) | EdgeTX radio on USB with the Mk3 receiver bound, `mrs_buff_mk3_zed_box`: SA on gives `link_statistics` in `/diagnostics/opentx_transmitter` and `crsf_telemetry_link` OK. If it goes red, that reproduces the August loss (`docs/experiments/firmware/2026-11-21_crsf_telemetry_loss.md`). Tilt the robot nose up: `attitude` pitch goes positive, roll stays near 0 |
+| RL policy refuses a bundle whose `[command_chain]` differs from the profile | uncommitted (2026-11-21) | Jetson, `mr_stabs_mk2_fid_zed_box` with `rl_nav_p4`: app starts, `rl_policy_nav` `command_chain` warns "unchecked" (the bundle has no table). Note the profile still sets `max_motor_rpm_per_s = 2000`, so a bundle re-exported with the default chain (`0`) will refuse to load until 1.1 sets the profile to 0 |
 
 ## Robot firmware and radio link
 
@@ -49,6 +54,7 @@ None of these were flashed. Verified by native PlatformIO tests or compile only.
 | Velocity jig `console.py` IMU scale 0.140 dps and 0.000488 g per LSB | `86c44dab` | Jig `console` STREAM: about 0 dps at rest, 1 g vertical, a 90° turn reads 90° |
 | Mk2 USB log drain, INA238 id check, CRSF encode helpers | `8d7a886a`, `c5cd01d5` | USB log lines complete, VBAT reads, CRSF frames decode |
 | Mk2 WiFi manager renames | `8d7a886a` | Join and save a network from the AP page |
+| Mk2 sends `MSG_FIRMWARE_INFO` (protocol version, `FIRMWARE_BUILD` git hash) once a second; `firmware_build.py` pre-script | uncommitted (2026-11-21) | Flash the Mk2 (dongle unchanged, it forwards any frame type): the Jetson logs `espnow_transmitter` `firmware` with the flashed hash and protocol 1, and `performance_monitor` raises no `firmware_protocol`. Telemetry rate stays 100 Hz |
 
 ## Host tools and install
 
@@ -70,6 +76,7 @@ None of these were flashed. Verified by native PlatformIO tests or compile only.
 | Synthgen retyped (`SceneState`, `ScenePoses`, `MountPoses`, `CameraSample`, enums); `hue_jitter_degrees` removed | `e3ee9c45`, `c17b6616`, `d81ad494`, `867875c2`, `0afa0a93` | Same render: images, labels and manifests byte-identical or the differences explained |
 | `semantic_train.py` drops `seed_worker` | `764e5e8b` | Two short seeded training runs reproduce |
 | GPU queue moved to `auto_battlebot/gpu_queue.py`, `training/gpu_queue.py` is an entry point | `be3a4302` | On megamind, after the next pull: restart the queue worker, `status` and one `submit` work |
+| `scripts/verify_mcap` on the 2026-10-25 Mk2 RL sessions (WP-V08) | uncommitted (2026-11-21) | Pull `auto_battlebot_mr_stabs_mk2_fid_rl_zed_box_2026-10-25_*.mcap` from the ZED Box (on neither the laptop nor megamind), run `scripts/verify_mcap` on all three; 22-09 shows `calibration` (8.4% outside the box), the later two show `phantom_track` on `neutral_robot_1` |
 
 ## Ledger rows that need a device
 

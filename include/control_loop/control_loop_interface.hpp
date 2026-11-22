@@ -29,6 +29,7 @@ class ControlLoopInterface {
         loop_->submit_measurement(std::move(measurement));
     }
     bool take_init_button_press() { return loop_->take_init_button_press(); }
+    void note_camera_frame() { loop_->note_camera_frame(); }
     ControlOutput latest_output() const { return loop_->latest_output(); }
     void request_filter_reinit(int opponent_count) { loop_->request_filter_reinit(opponent_count); }
     void set_autonomy_enabled(bool enabled) { loop_->set_autonomy_enabled(enabled); }

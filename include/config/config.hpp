@@ -18,6 +18,7 @@
 #include "field_filter/config.hpp"
 #include "field_filter/field_filter_interface.hpp"
 #include "health/config.hpp"
+#include "health/performance_monitor_config.hpp"
 #include "keypoint_filter/config.hpp"
 #include "keypoint_model/config.hpp"
 #include "keypoint_model/keypoint_model_interface.hpp"
@@ -57,6 +58,7 @@ struct ClassConfiguration {
     std::unique_ptr<PublisherConfiguration> publisher;
     RunnerConfiguration runner;
     HealthConfiguration health;
+    PerformanceMonitorConfiguration performance_monitor;
     std::unique_ptr<UiConfiguration> ui;
     McapRecorderConfig mcap_recorder;
     std::unique_ptr<ClockConfiguration> clock;

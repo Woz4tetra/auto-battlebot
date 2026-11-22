@@ -203,6 +203,7 @@ bool VizSink::send_pending() {
         }
         sink_thread_state_.out_sent_ += static_cast<size_t>(n);
         sink_thread_state_.bytes_sent_ += static_cast<size_t>(n);
+        if (sink_thread_state_.out_sent_ == sink_thread_state_.out_.size()) ++frames_sent_;
         sink_thread_state_.last_send_progress_ = std::chrono::steady_clock::now();
     }
 }

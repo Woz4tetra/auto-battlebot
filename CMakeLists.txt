@@ -415,6 +415,12 @@ add_executable(remote_protocol_dump
 target_link_libraries(remote_protocol_dump auto_battlebot_lib)
 target_compile_options(remote_protocol_dump PRIVATE ${COMMON_COMPILE_FLAGS})
 
+add_executable(verify_mcap
+    tools/verify_mcap.cpp
+)
+target_link_libraries(verify_mcap auto_battlebot_lib CLI11::CLI11)
+target_compile_options(verify_mcap PRIVATE ${COMMON_COMPILE_FLAGS})
+
 if(BUILD_DEBUG)
     target_compile_options(auto_battlebot PRIVATE
         ${COMMON_COMPILE_FLAGS}

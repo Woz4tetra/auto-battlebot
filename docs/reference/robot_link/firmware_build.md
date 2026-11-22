@@ -11,6 +11,7 @@ PlatformIO reads `platformio.ini` in each firmware project. This page explains t
 | `[env:local] board_upload.use_1200bps_touch = no` | The board file assumes TinyUSB: a 1200 bps touch to enter the bootloader, then a wait for the port to come back. |
 | `[env:local] board_upload.wait_for_upload_port = no` | Same reason as above. |
 | `[env:local] board_upload.before_reset = usb_reset` | With the USB-Serial/JTAG port, esptool's `usb_reset` enters the bootloader directly. No BOOT press is needed, even with the firmware hung. |
+| `[common] extra_scripts` | `scripts/embed_web.py` gzips `web/` into a header. `scripts/firmware_build.py` defines `FIRMWARE_BUILD` as the 8-character git hash, `-dirty` when tracked files differ from HEAD, at most 16 characters. The robot sends it in `MSG_FIRMWARE_INFO` once a second (`docs/reference/control/performance_monitor.md`). |
 
 ## `firmware/espnow_dongle/platformio.ini`
 

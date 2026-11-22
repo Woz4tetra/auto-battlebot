@@ -3,6 +3,7 @@
 #include "data_structures.hpp"
 #include "data_structures/command_feedback.hpp"
 #include "data_structures/transmitter_status.hpp"
+#include "health/link_report.hpp"
 
 namespace auto_battlebot {
 class TransmitterInterface {
@@ -13,6 +14,7 @@ class TransmitterInterface {
     virtual void send(StickCommand command) = 0;
     virtual bool did_init_button_press() = 0;
     virtual TransmitterStatus get_status() const { return {}; }
+    virtual TransmitterLinkReport link_report() const { return {}; }
     virtual void enable() {}
     virtual void disable() {}
 };

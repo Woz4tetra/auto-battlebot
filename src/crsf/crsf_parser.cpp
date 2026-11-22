@@ -1,6 +1,9 @@
 #include "crsf/crsf_parser.hpp"
 
+#include <cmath>
 #include <cstring>
+#include <type_traits>
+#include <variant>
 
 namespace auto_battlebot {
 
@@ -77,12 +80,6 @@ struct CrsfFrameView {
 
 CrsfParseResult CrsfParser::parse_single_packet(const uint8_t* frame, size_t frame_len) {
     const CrsfFrameView view{frame, frame_len};
-    uint8_t received_crc = view.crc();
-    uint8_t calc_crc = view.computed_crc();
-    if (received_crc != calc_crc) {
-        return {std::nullopt, CrsfParseError{"CRC mismatch: expected " + std::to_string(calc_crc) +
-                                             " got " + std::to_string(received_crc)}};
-    }
 
     uint8_t frame_type = view.type();
     const uint8_t* payload = view.payload();
@@ -98,6 +95,7 @@ CrsfParseResult CrsfParser::parse_single_packet(const uint8_t* frame, size_t fra
             pkt.current_a = static_cast<float>((uint16_t(payload[2]) << 8) | payload[3]) / 10.0f;
             pkt.consumption_mah = static_cast<float>((uint32_t(payload[4]) << 16) |
                                                      (uint32_t(payload[5]) << 8) | payload[6]);
+            if (payload_len >= 8) pkt.remaining_pct = payload[7];
             return {pkt, std::nullopt};
         }
         case CrsfFrameType::LINK_STATISTICS: {
@@ -122,10 +120,10 @@ CrsfParseResult CrsfParser::parse_single_packet(const uint8_t* frame, size_t fra
                 return {std::nullopt, CrsfParseError{"Attitude payload too short"}};
             }
             CrsfAttitude pkt;
-            pkt.roll_rad =
+            pkt.pitch_rad =
                 static_cast<float>(static_cast<int16_t>((uint16_t(payload[0]) << 8) | payload[1])) /
                 10000.0f;
-            pkt.pitch_rad =
+            pkt.roll_rad =
                 static_cast<float>(static_cast<int16_t>((uint16_t(payload[2]) << 8) | payload[3])) /
                 10000.0f;
             pkt.yaw_rad =
@@ -167,6 +165,15 @@ std::vector<CrsfParseResult> CrsfParser::parse(const uint8_t* data, size_t lengt
         if (pos + total_len > buffer_.size()) {
             break;
         }
+        const CrsfFrameView view{buffer_.data() + pos, total_len};
+        if (view.crc() != view.computed_crc()) {
+            results.push_back({std::nullopt, CrsfParseError{"CRC mismatch: expected " +
+                                                            std::to_string(view.computed_crc()) +
+                                                            " got " + std::to_string(view.crc())}});
+            ++pos;
+            continue;
+        }
+        ++crc_valid_frames_;
         results.push_back(parse_single_packet(buffer_.data() + pos, total_len));
         pos += total_len;
     }
@@ -177,6 +184,81 @@ std::vector<CrsfParseResult> CrsfParser::parse(const uint8_t* data, size_t lengt
 
 std::vector<CrsfParseResult> CrsfParser::parse(const std::vector<uint8_t>& data) {
     return parse(data.data(), data.size());
+}
+
+namespace {
+
+void put_u16(std::vector<uint8_t>& out, uint16_t value) {
+    out.push_back(static_cast<uint8_t>(value >> 8));
+    out.push_back(static_cast<uint8_t>(value & 0xFF));
+}
+
+void put_i16(std::vector<uint8_t>& out, int16_t value) {
+    put_u16(out, static_cast<uint16_t>(value));
+}
+
+uint16_t scaled_u16(float value, float scale) {
+    return static_cast<uint16_t>(std::lround(static_cast<double>(value) * scale));
+}
+
+int16_t scaled_i16(float value, float scale) {
+    return static_cast<int16_t>(std::lround(static_cast<double>(value) * scale));
+}
+
+std::vector<uint8_t> payload_of(const CrsfBattery& pkt) {
+    std::vector<uint8_t> out;
+    put_u16(out, scaled_u16(pkt.voltage_v, 10.0f));
+    put_u16(out, scaled_u16(pkt.current_a, 10.0f));
+    const auto mah = static_cast<uint32_t>(std::lround(static_cast<double>(pkt.consumption_mah)));
+    out.push_back(static_cast<uint8_t>((mah >> 16) & 0xFF));
+    out.push_back(static_cast<uint8_t>((mah >> 8) & 0xFF));
+    out.push_back(static_cast<uint8_t>(mah & 0xFF));
+    out.push_back(pkt.remaining_pct);
+    return out;
+}
+
+std::vector<uint8_t> payload_of(const CrsfLinkStatistics& pkt) {
+    return {pkt.up_rssi_ant1_neg_dbm,
+            pkt.up_rssi_ant2_neg_dbm,
+            pkt.up_link_quality_pct,
+            static_cast<uint8_t>(pkt.up_snr_db),
+            pkt.active_antenna,
+            static_cast<uint8_t>(pkt.rf_profile),
+            static_cast<uint8_t>(pkt.up_rf_power),
+            pkt.down_rssi_neg_dbm,
+            pkt.down_link_quality_pct,
+            static_cast<uint8_t>(pkt.down_snr_db)};
+}
+
+std::vector<uint8_t> payload_of(const CrsfAttitude& pkt) {
+    std::vector<uint8_t> out;
+    put_i16(out, scaled_i16(pkt.pitch_rad, 10000.0f));
+    put_i16(out, scaled_i16(pkt.roll_rad, 10000.0f));
+    put_i16(out, scaled_i16(pkt.yaw_rad, 10000.0f));
+    return out;
+}
+
+std::vector<uint8_t> payload_of(const CrsfFlightMode& pkt) {
+    std::vector<uint8_t> out(pkt.flight_mode.begin(), pkt.flight_mode.end());
+    out.push_back(0x00);
+    return out;
+}
+
+}  // namespace
+
+std::vector<uint8_t> encode_crsf_packet(const CrsfPacket& packet, uint8_t address) {
+    return std::visit(
+        [address](const auto& pkt) {
+            const std::vector<uint8_t> payload = payload_of(pkt);
+            std::vector<uint8_t> frame;
+            frame.push_back(address);
+            frame.push_back(static_cast<uint8_t>(payload.size() + 2));
+            frame.push_back(static_cast<uint8_t>(std::decay_t<decltype(pkt)>::frame_type));
+            frame.insert(frame.end(), payload.begin(), payload.end());
+            frame.push_back(crsf_crc8(frame.data() + 2, frame.size() - 2));
+            return frame;
+        },
+        packet);
 }
 
 }  // namespace auto_battlebot

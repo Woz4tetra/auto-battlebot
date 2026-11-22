@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import struct
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +16,13 @@ from auto_battlebot.rl.export.rtneural import dense_layers, fold_normalization, 
 from auto_battlebot.rl.policies.mlp import MlpGaussianPolicy
 
 FORMAT_VERSION = 1
+ESPNOW_PROTOCOL_VERSION = 1
+MK2_ESPNOW_COMMAND_CHAIN: dict[str, str] = {
+    "transmitter": "EspNowTransmitter",
+    "drive_processor": "DifferentialDriveProcessor",
+    "max_motor_rpm_per_s": "0",
+    "protocol_version": str(ESPNOW_PROTOCOL_VERSION),
+}
 SELFTEST_MAGIC = b"RLST"
 SELFTEST_VERSION = 1
 
@@ -34,6 +41,7 @@ class BundleSpec:
     decoder_scale: tuple[float, ...] = (1.0, 1.0)
     policy_period_ticks: int = 5
     tolerance: float = 1e-4
+    command_chain: dict[str, str] = field(default_factory=lambda: dict(MK2_ESPNOW_COMMAND_CHAIN))
 
     def __post_init__(self) -> None:
         for name, array, width in (
@@ -91,6 +99,11 @@ def spec_from_policy(
     )
 
 
+def format_command_chain(chain: dict[str, str]) -> str:
+    """TOML body of a [command_chain] table, one quoted string per key in sorted order."""
+    return "".join(f'{key} = "{chain[key]}"\n' for key in sorted(chain))
+
+
 def write_bundle(spec: BundleSpec, out_dir: Path, repo: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "actor.rtneural.json").write_text(json.dumps(spec.model))
@@ -123,7 +136,9 @@ outputs = [{{ name = "action", shape = [{spec.action_dim}] }}]
 [selftest]
 file = "selftest.bin"
 tolerance = {spec.tolerance:g}
-"""
+
+[command_chain]
+{format_command_chain(spec.command_chain)}"""
     (out_dir / "manifest.toml").write_text(manifest)
     return out_dir
 

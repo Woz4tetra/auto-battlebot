@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -17,6 +18,7 @@
 #include "robot_filter/config.hpp"
 #include "time/manual_clock.hpp"
 #include "transform_utils.hpp"
+#include "transmitter/config.hpp"
 
 namespace auto_battlebot {
 namespace {
@@ -419,6 +421,89 @@ TEST(RlPolicyNavigationConfigTest, MakeNavigationRunsTheStartupChecks) {
     EXPECT_NE(
         make_navigation(config_for(rl_test::constant_bundle()), std::make_shared<ManualClock>()),
         nullptr);
+}
+
+}  // namespace
+}  // namespace auto_battlebot
+
+namespace auto_battlebot {
+namespace {
+
+EspNowTransmitterConfiguration espnow_profile(std::optional<double> slew) {
+    EspNowTransmitterConfiguration transmitter;
+    transmitter.max_motor_rpm_per_s = slew;
+    return transmitter;
+}
+
+std::filesystem::path constant_bundle_with_chain(const std::string &name, const std::string &slew) {
+    const auto dir = rl_test::copy_bundle(rl_test::constant_bundle(), name);
+    const std::string manifest = rl_test::read_text(dir / "manifest.toml");
+    rl_test::write_text(dir / "manifest.toml",
+                        manifest +
+                            "\n[command_chain]\n"
+                            "drive_processor = \"DifferentialDriveProcessor\"\n"
+                            "max_motor_rpm_per_s = \"" +
+                            slew +
+                            "\"\n"
+                            "protocol_version = \"1\"\n"
+                            "transmitter = \"EspNowTransmitter\"\n");
+    return dir;
+}
+
+std::optional<DiagnosticStatusSnapshot> command_chain_snapshot() {
+    std::optional<DiagnosticStatusSnapshot> found;
+    for (const auto &snapshot : DiagnosticsLogger::get_logger("rl_policy_nav")->get_snapshots()) {
+        if (snapshot.subsection == "command_chain") found = snapshot;
+    }
+    return found;
+}
+
+std::optional<DiagnosticStatusSnapshot> chain_after_one_update(
+    const RlPolicyNavigationConfiguration &config) {
+    auto nav = make_nav(config);
+    EXPECT_TRUE(nav->initialize());
+    DiagnosticsLogger::get_logger("rl_policy_nav")->clear();
+    nav->update(robots_of({robot_at(FrameId::OUR_ROBOT_1, 0.0, 0.0)}), field(), TargetSelection{});
+    return command_chain_snapshot();
+}
+
+TEST(RlPolicyNavigationCommandChainTest, MatchingChainLoadsAndReportsBothHashes) {
+    RlPolicyNavigationConfiguration config =
+        config_for(constant_bundle_with_chain("nav_chain_match", "0"));
+    config.apply_transmitter(espnow_profile(std::nullopt));
+    const auto snapshot = chain_after_one_update(config);
+    ASSERT_TRUE(snapshot);
+    EXPECT_EQ(snapshot->level, DiagnosticLevel::OK);
+    EXPECT_EQ(snapshot->values.at("bundle_hash"), snapshot->values.at("profile_hash"));
+}
+
+TEST(RlPolicyNavigationCommandChainTest, MismatchedSlewBlocksLoadingAndNamesTheKey) {
+    RlPolicyNavigationConfiguration config =
+        config_for(constant_bundle_with_chain("nav_chain_mismatch", "0"));
+    config.apply_transmitter(espnow_profile(2000.0));
+    const std::string error = start_error<PolicyBundleError>(config);
+    EXPECT_NE(error.find("max_motor_rpm_per_s: bundle 0, profile 2000"), std::string::npos)
+        << error;
+    EXPECT_EQ(error.find("drive_processor"), std::string::npos) << "only differing keys listed";
+}
+
+TEST(RlPolicyNavigationCommandChainTest, BundleWithoutAChainLoadsWithAWarning) {
+    RlPolicyNavigationConfiguration config = config_for(rl_test::constant_bundle());
+    config.apply_transmitter(espnow_profile(2000.0));
+    const auto snapshot = chain_after_one_update(config);
+    ASSERT_TRUE(snapshot);
+    EXPECT_EQ(snapshot->level, DiagnosticLevel::WARN);
+    EXPECT_NE(snapshot->message.find("unchecked"), std::string::npos);
+}
+
+TEST(RlPolicyNavigationCommandChainTest, PlaybackTransmitterIsNotChecked) {
+    RlPolicyNavigationConfiguration config =
+        config_for(constant_bundle_with_chain("nav_chain_playback", "0"));
+    config.apply_transmitter(PlaybackTransmitterConfiguration{});
+    const auto snapshot = chain_after_one_update(config);
+    ASSERT_TRUE(snapshot);
+    EXPECT_EQ(snapshot->level, DiagnosticLevel::OK);
+    EXPECT_NE(snapshot->message.find("PlaybackTransmitter drives no robot"), std::string::npos);
 }
 
 }  // namespace

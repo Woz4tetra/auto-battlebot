@@ -13,6 +13,7 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "directories.hpp"
 #include "hazards/hazard_geometry.hpp"
+#include "health/command_chain.hpp"
 #include "plant/plant_params.hpp"
 #include "transform_utils.hpp"
 
@@ -91,6 +92,7 @@ void RlPolicyNavigation::load() {
 
     const rl_policy::PolicyBundle bundle =
         rl_policy::load_policy_bundle(resolve_bundle(config_.policy.bundle));
+    check_command_chain(bundle);
 
     auto builder = rl_policy::make_observation_builder(bundle.obs_spec_version);
     if (!builder) {
@@ -140,6 +142,47 @@ void RlPolicyNavigation::load() {
         policy_period_ticks_, selftest_summary_);
 }
 
+void RlPolicyNavigation::check_command_chain(const rl_policy::PolicyBundle &bundle) {
+    command_chain_values_.clear();
+    if (!config_.profile_command_chain) {
+        command_chain_level_ = DiagnosticLevel::OK;
+        command_chain_message_ = "not checked: " + config_.transmitter_type + " drives no robot";
+        return;
+    }
+    const CommandChain &profile = *config_.profile_command_chain;
+    command_chain_values_["profile_hash"] = command_chain_hash(profile);
+    if (!bundle.command_chain) {
+        command_chain_level_ = DiagnosticLevel::WARN;
+        command_chain_message_ =
+            "bundle has no [command_chain]; the profile's command chain is unchecked";
+        spdlog::warn("RlPolicyNavigation: policy bundle {} has no [command_chain]; profile is {}",
+                     bundle.directory.string(), format_command_chain(profile));
+        return;
+    }
+    command_chain_values_["bundle_hash"] = command_chain_hash(*bundle.command_chain);
+    const std::vector<std::string> differences =
+        command_chain_differences(*bundle.command_chain, profile);
+    if (!differences.empty()) {
+        std::string listed;
+        for (const std::string &difference : differences) {
+            if (!listed.empty()) listed += "; ";
+            listed += difference;
+        }
+        throw rl_policy::PolicyBundleError(
+            "policy bundle " + bundle.directory.string() +
+            ": the profile's command chain differs from the one the policy was exported for, "
+            "so it is not loaded: " +
+            listed);
+    }
+    command_chain_level_ = DiagnosticLevel::OK;
+    command_chain_message_ = "matches the bundle";
+}
+
+void RlPolicyNavigation::log_command_chain() {
+    logger_->log(command_chain_level_, "command_chain", command_chain_values_,
+                 command_chain_message_);
+}
+
 bool RlPolicyNavigation::initialize() {
     if (!loaded_) load();
     policy_->reset();
@@ -184,6 +227,7 @@ VelocityCommand RlPolicyNavigation::update(RobotDescriptionsStamped robots, Fiel
         if (robot.frame_id == FrameId::OUR_ROBOT_1) our_robot = &robot;
     }
     const double snapshot_age_s = std::max(0.0, clock_->now() - robots.header.stamp);
+    if (loaded_) log_command_chain();
     if (!loaded_ || our_robot == nullptr) {
         if (!loaded_) {
             logger_->debug("not_initialized", "No bundle loaded; command zero");

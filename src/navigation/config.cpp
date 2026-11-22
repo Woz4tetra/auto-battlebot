@@ -4,6 +4,7 @@
 #include <toml++/toml.h>
 
 #include "config/config_parser.hpp"
+#include "health/command_chain.hpp"
 #include "navigation/motion_profile_navigation.hpp"
 #include "navigation/noop_navigation.hpp"
 #include "navigation/rl_policy_navigation.hpp"
@@ -27,13 +28,20 @@ void RlPolicyNavigationConfiguration::apply_robot_filter(
                               front_back->motion_estimator.get()) != nullptr;
 }
 
+void RlPolicyNavigationConfiguration::apply_transmitter(
+    const TransmitterConfiguration &transmitter) {
+    transmitter_type = transmitter.type;
+    profile_command_chain = resolve_command_chain(transmitter);
+}
+
 std::unique_ptr<NavigationConfiguration> parse_navigation_config(ConfigParser &parser) {
     return ConfigFactory<NavigationConfiguration>::instance().create_and_parse(parser);
 }
 
 std::unique_ptr<NavigationConfiguration> load_navigation_from_toml(
     toml::table const &toml_data, std::vector<std::string> &parsed_sections,
-    const PlantConfiguration &plant, const RobotFilterConfiguration &robot_filter) {
+    const PlantConfiguration &plant, const RobotFilterConfiguration &robot_filter,
+    const TransmitterConfiguration &transmitter) {
     auto section = toml_data["navigation"].as_table();
     if (!section) {
         throw ConfigValidationError("Missing required section [navigation]");
@@ -42,6 +50,7 @@ std::unique_ptr<NavigationConfiguration> load_navigation_from_toml(
     auto config = parse_navigation_config(parser);
     config->apply_plant(plant);
     config->apply_robot_filter(robot_filter);
+    config->apply_transmitter(transmitter);
     parsed_sections.push_back("navigation");
     return config;
 }

@@ -86,6 +86,7 @@ class EspNowLink {
     uint32_t tx_telemetry_ = 0;
     uint32_t last_valid_frame_ms_ = 0;
     uint32_t last_telemetry_ms_ = 0;
+    uint32_t last_firmware_info_ms_ = 0;
     uint32_t telemetry_seq_ = 0;
 
     bool sweeping_ = false;

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <numbers>
 #include <vector>
 
 #include "diagnostics_logger/diagnostics_logger.hpp"
@@ -200,6 +201,7 @@ void EspNowTransmitter::send(StickCommand command) {
     if (!dongle_.is_open() || !enabled_) return;
 
     command.forward = limit_linear_acceleration(command.forward);
+    last_sent_ = command;
     const auto channels = processor_->process(command);
     const espnow_protocol::CommandPayload payload{
         ++seq_,
@@ -211,7 +213,9 @@ void EspNowTransmitter::send(StickCommand command) {
         logger_->warning("dongle_write_failed", {{"seq", static_cast<int>(payload.seq)}});
         dongle_.close();
         next_reconnect_attempt_ = std::chrono::steady_clock::now();
+        return;
     }
+    ++commands_sent_;
 }
 
 void EspNowTransmitter::disable() {
@@ -266,13 +270,75 @@ void EspNowTransmitter::handle_frame(uint8_t type, const uint8_t *payload, uint8
             handle_telemetry(telemetry);
             break;
         }
+        case espnow_protocol::MSG_FIRMWARE_INFO: {
+            if (length != sizeof(espnow_protocol::FirmwareInfoPayload)) return;
+            espnow_protocol::FirmwareInfoPayload info;
+            std::memcpy(&info, payload, sizeof(info));
+            handle_firmware_info(info);
+            break;
+        }
         default:
             break;
     }
 }
 
+FirmwareInfo decode_firmware_info(const espnow_protocol::FirmwareInfoPayload &info) {
+    return {.protocol_version = info.protocol_version,
+            .build = std::string(info.build, strnlen(info.build, sizeof(info.build)))};
+}
+
+std::optional<double> espnow_yaw_rate_ccw_radps(
+    const espnow_protocol::TelemetryPayload &telemetry) {
+    if (!std::isfinite(telemetry.yaw_rate_cw_dps)) return std::nullopt;
+    const double cw_radps = telemetry.yaw_rate_cw_dps * std::numbers::pi / 180.0;
+    return telemetry.is_upside_down ? cw_radps : -cw_radps;
+}
+
+void EspNowTransmitter::handle_firmware_info(const espnow_protocol::FirmwareInfoPayload &info) {
+    const FirmwareInfo decoded = decode_firmware_info(info);
+    const bool changed = !firmware_ || firmware_->protocol_version != decoded.protocol_version ||
+                         firmware_->build != decoded.build;
+    firmware_ = decoded;
+    if (!changed) return;
+    const DiagnosticsData data{
+        {"protocol_version", static_cast<int>(decoded.protocol_version)},
+        {"host_protocol_version", static_cast<int>(espnow_protocol::PROTOCOL_VERSION)},
+        {"build", decoded.build}};
+    if (decoded.protocol_version != espnow_protocol::PROTOCOL_VERSION) {
+        logger_->error("firmware", data, "robot firmware speaks a different ESP-NOW protocol");
+    } else {
+        logger_->info("firmware", data);
+    }
+}
+
+TransmitterLinkReport EspNowTransmitter::link_report() const {
+    TransmitterLinkReport report;
+    report.links = {MonitorLink::TRANSMIT, MonitorLink::ESPNOW, MonitorLink::IMU};
+    report.commands_sent = commands_sent_;
+    report.telemetry_frames = telemetry_frames_;
+    report.imu_samples = imu_samples_;
+    report.ack_percent = ack_percent_;
+    report.last_sent = last_sent_;
+    report.firmware = firmware_;
+    report.host_protocol_version = espnow_protocol::PROTOCOL_VERSION;
+    const bool fresh = latest_telemetry_ &&
+                       std::chrono::steady_clock::now() - latest_telemetry_time_ <= kTelemetryStale;
+    if (fresh) {
+        if (latest_telemetry_->espnow_age_ms != UINT32_MAX) {
+            report.command_age_ms = static_cast<double>(latest_telemetry_->espnow_age_ms);
+        }
+        if (std::isfinite(latest_telemetry_->guard_scale)) {
+            report.guard_scale = latest_telemetry_->guard_scale;
+        }
+        report.guard_state = latest_telemetry_->guard_state;
+        report.imu_yaw_rate_ccw_radps = espnow_yaw_rate_ccw_radps(*latest_telemetry_);
+    }
+    return report;
+}
+
 void EspNowTransmitter::handle_telemetry(const espnow_protocol::TelemetryPayload &telemetry) {
     telemetry_frames_++;
+    if (std::isfinite(telemetry.yaw_rate_cw_dps)) imu_samples_++;
     latest_telemetry_ = telemetry;
     latest_telemetry_time_ = std::chrono::steady_clock::now();
     std::optional<int64_t> round_trip_us;
@@ -314,7 +380,9 @@ void EspNowTransmitter::log_health() {
         if (link_stats_at_last_log_) {
             const uint32_t sent = link_stats_->sent - link_stats_at_last_log_->sent;
             const uint32_t acked = link_stats_->acked - link_stats_at_last_log_->acked;
-            data["ack_percent"] = sent > 0 ? 100.0 * acked / sent : 0.0;
+            ack_percent_.reset();
+            if (sent > 0) ack_percent_ = 100.0 * acked / sent;
+            data["ack_percent"] = ack_percent_.value_or(0.0);
         }
         link_stats_at_last_log_ = link_stats_;
     }

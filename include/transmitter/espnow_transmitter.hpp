@@ -27,6 +27,7 @@ class EspNowTransmitter : public TransmitterInterface {
     bool initialize() override;
     CommandFeedback update() override;
     TransmitterStatus get_status() const override;
+    TransmitterLinkReport link_report() const override;
     void send(StickCommand command) override;
     bool did_init_button_press() override { return false; }
     void enable() override { enabled_ = true; }
@@ -36,6 +37,7 @@ class EspNowTransmitter : public TransmitterInterface {
     static void on_frame(void *context, uint8_t type, const uint8_t *payload, uint8_t length);
     void handle_frame(uint8_t type, const uint8_t *payload, uint8_t length);
     void handle_telemetry(const espnow_protocol::TelemetryPayload &telemetry);
+    void handle_firmware_info(const espnow_protocol::FirmwareInfoPayload &info);
     void log_health();
     bool reconnect_if_needed();
     bool write_frame(uint8_t type, const void *payload, uint8_t length);
@@ -60,6 +62,11 @@ class EspNowTransmitter : public TransmitterInterface {
     std::chrono::steady_clock::time_point last_dongle_frame_time_{};
     std::optional<espnow_protocol::LinkStatsPayload> link_stats_at_last_log_;
     uint64_t telemetry_frames_ = 0;
+    uint64_t imu_samples_ = 0;
+    uint64_t commands_sent_ = 0;
+    std::optional<double> ack_percent_;
+    std::optional<StickCommand> last_sent_;
+    std::optional<FirmwareInfo> firmware_;
     uint64_t telemetry_frames_at_last_log_ = 0;
     std::optional<int64_t> min_round_trip_us_since_health_log_;
     std::chrono::steady_clock::time_point last_health_log_{};
@@ -76,6 +83,10 @@ DriveProcessorInterface::Channels espnow_telemetry_channels(
 uint32_t espnow_monotonic_us();
 
 int64_t espnow_round_trip_us(uint32_t now_us, uint32_t jetson_tx_us);
+
+FirmwareInfo decode_firmware_info(const espnow_protocol::FirmwareInfoPayload &info);
+
+std::optional<double> espnow_yaw_rate_ccw_radps(const espnow_protocol::TelemetryPayload &telemetry);
 
 std::string to_espnow_telemetry_json(const espnow_protocol::TelemetryPayload &telemetry,
                                      uint64_t host_receive_ns,

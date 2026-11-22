@@ -2,12 +2,16 @@
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <magic_enum.hpp>
 #include <utility>
 
 #include "diagnostics_logger/function_timer.hpp"
 #include "enums/frame_id.hpp"
 #include "time_utils.hpp"
+#include "transform_utils.hpp"
 
 namespace auto_battlebot {
 
@@ -35,6 +39,16 @@ bool ControlLoop::initialize() {
     return true;
 }
 
+void ControlLoop::set_performance_monitor(std::shared_ptr<PerformanceMonitor> monitor) {
+    monitor_ = std::move(monitor);
+    monitor_logger_ = monitor_ ? DiagnosticsLogger::get_logger("performance_monitor") : nullptr;
+}
+
+void ControlLoop::note_camera_frame() {
+    camera_frame_seen_.store(true);
+    if (monitor_) monitor_->add_link_events(MonitorLink::CAMERA_FRAMES);
+}
+
 void ControlLoop::pump_input() {
     command_feedback_ = transmitter_->update();
     if (transmitter_->did_init_button_press()) {
@@ -46,11 +60,13 @@ void ControlLoop::pump_input() {
 bool ControlLoop::take_init_button_press() { return init_button_latched_.exchange(false); }
 
 void ControlLoop::submit_measurement(ControlMeasurement measurement) {
+    if (monitor_) monitor_->add_link_events(MonitorLink::PERCEPTION);
     std::lock_guard<std::mutex> lock(mutex_);
     pending_measurement_ = std::move(measurement);
 }
 
 void ControlLoop::request_filter_reinit(int opponent_count) {
+    opponent_count_.store(opponent_count);
     filter_reinit_request_.store(opponent_count);
 }
 
@@ -130,6 +146,9 @@ void ControlLoop::run_cycle() {
     }
     if (!field_description_) {
         diagnostics_logger_->debug("navigation", "waiting for the field; no commands sent");
+        if (monitor_ && camera_frame_seen_.load()) {
+            monitor_cycle(clock_->now(), nullptr, std::nullopt, false);
+        }
         return;
     }
 
@@ -167,7 +186,9 @@ void ControlLoop::run_cycle() {
     TargetSelection resolved_target =
         resolve_target(robots, *field_description_, behavior_mode, target_override);
     VelocityCommand command = navigation_->update(robots, *field_description_, resolved_target);
-    transmitter_->send(command_shaper_->shape(command));
+    const StickCommand shaped = command_shaper_->shape(command);
+    transmitter_->send(shaped);
+    monitor_cycle(clock_->now(), &robots, shaped, measurement.has_value());
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -180,6 +201,144 @@ void ControlLoop::run_cycle() {
         output_.manual_target = target_override.has_value();
         output_.hazards = field_description_->hazards;
         visualization_ = navigation_->get_last_visualization();
+    }
+}
+
+namespace {
+
+std::string frame_name(FrameId frame_id) {
+    std::string name(magic_enum::enum_name(frame_id));
+    for (char &c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return name;
+}
+
+DiagnosticLevel warning_level(WarningSeverity severity) {
+    return severity == WarningSeverity::RED ? DiagnosticLevel::ERROR : DiagnosticLevel::WARN;
+}
+
+}  // namespace
+
+void ControlLoop::monitor_cycle(double now, const RobotDescriptionsStamped *robots,
+                                const std::optional<StickCommand> &shaped, bool measured) {
+    if (!monitor_) return;
+    const TransmitterLinkReport report = transmitter_->link_report();
+    const TransmitterStatus status = transmitter_->get_status();
+    const bool autonomy_enabled = autonomy_enabled_.load();
+    const bool switch_on = !status.has_trainer_autonomy_switch || status.autonomy_switch_on;
+    const bool field_ready = robots != nullptr;
+
+    monitor_->set_link_expected(MonitorLink::CAMERA_FRAMES, true, now);
+    monitor_->set_link_expected(MonitorLink::PERCEPTION, field_ready, now);
+    monitor_->set_link_expected(MonitorLink::FILTER, field_ready, now);
+    monitor_->set_link_expected(MonitorLink::RELAY_PUBLISH,
+                                monitor_->has_link_source(MonitorLink::RELAY_PUBLISH), now);
+    if (field_ready) monitor_->add_link_events(MonitorLink::FILTER);
+    for (MonitorLink link : report.links) {
+        switch (link) {
+            case MonitorLink::TRANSMIT:
+                monitor_->set_link_total(link, report.commands_sent);
+                monitor_->set_link_expected(link, field_ready && autonomy_enabled, now);
+                break;
+            case MonitorLink::CRSF_TELEMETRY:
+                monitor_->set_link_total(link, report.telemetry_frames);
+                monitor_->set_link_expected(link, status.autonomy_switch_on, now);
+                break;
+            case MonitorLink::ESPNOW:
+                monitor_->set_link_total(link, report.telemetry_frames);
+                monitor_->set_link_expected(link, field_ready && autonomy_enabled, now);
+                break;
+            case MonitorLink::IMU:
+                monitor_->set_link_total(link, report.imu_samples);
+                monitor_->set_link_expected(link, field_ready && autonomy_enabled, now);
+                break;
+            default:
+                break;
+        }
+    }
+
+    MonitorTick tick;
+    tick.t = now;
+    tick.autonomy_driving = field_ready && autonomy_enabled && switch_on;
+    const bool sent_this_cycle = report.commands_sent != last_commands_sent_;
+    last_commands_sent_ = report.commands_sent;
+    if (shaped && sent_this_cycle && report.last_sent) {
+        tick.policy_linear = shaped->forward;
+        tick.sent_linear = report.last_sent->forward;
+    }
+    tick.guard_scale = report.guard_scale;
+    tick.guard_state = report.guard_state;
+    tick.imu_yaw_rate_ccw_radps = report.imu_yaw_rate_ccw_radps;
+    tick.espnow_ack_percent = report.ack_percent;
+    tick.command_age_ms = report.command_age_ms;
+    tick.firmware = report.firmware;
+    tick.host_protocol_version = report.host_protocol_version;
+    if (field_ready && field_description_) {
+        tick.field = FieldBox{.half_x = 0.5 * field_description_->size.size.x,
+                              .half_y = 0.5 * field_description_->size.size.y};
+        tick.opponent_expected = opponent_count_.load() > 0;
+        for (const auto &robot : robots->descriptions) {
+            if (robot.frame_id == FrameId::OUR_ROBOT_1) {
+                tick.our_pose = pose_to_pose2d(robot.pose);
+                tick.our_heading_measured = measured;
+            }
+            if (robot.group == Group::THEIRS) tick.opponent_present = true;
+            if (robot.uncertainty.position_sigma_major_axis_m) {
+                tick.tracks.push_back(
+                    {.name = frame_name(robot.frame_id),
+                     .sigma_m = *robot.uncertainty.position_sigma_major_axis_m,
+                     .speed_mps = std::hypot(robot.velocity.vx_mps, robot.velocity.vy_mps)});
+            }
+        }
+    }
+    monitor_->record_tick(tick);
+
+    const PerformanceMonitorConfiguration &config = monitor_->config();
+    if (!next_evaluate_s_ || now >= *next_evaluate_s_) {
+        monitor_->evaluate(now);
+        next_evaluate_s_ = now + config.evaluate_period_s;
+    }
+    if (!next_publish_s_ || now >= *next_publish_s_) {
+        publish_monitor(now);
+        next_publish_s_ = now + config.publish_period_s;
+    }
+}
+
+void ControlLoop::publish_monitor(double now) {
+    std::vector<PerformanceCheck> still_active;
+    for (const PerformanceWarning &warning : monitor_->active()) {
+        DiagnosticsData data;
+        for (const auto &[key, value] : warning.values) data[key] = value;
+        data["start_s"] = warning.start_s;
+        data["duration_s"] = now - warning.start_s;
+        monitor_logger_->log(warning_level(warning.severity), check_name(warning.check), data,
+                             warning.message);
+        still_active.push_back(warning.check);
+    }
+    for (PerformanceCheck check : published_warnings_) {
+        if (std::find(still_active.begin(), still_active.end(), check) != still_active.end()) {
+            continue;
+        }
+        DiagnosticsData data;
+        for (auto it = monitor_->ended().rbegin(); it != monitor_->ended().rend(); ++it) {
+            if (it->check != check) continue;
+            data["start_s"] = it->start_s;
+            data["end_s"] = it->end_s.value_or(now);
+            break;
+        }
+        monitor_logger_->info(check_name(check), data, "cleared");
+    }
+    published_warnings_ = std::move(still_active);
+
+    for (const LinkStatus &link : monitor_->link_status(now)) {
+        if (!link.expected) continue;
+        const PerformanceCheck check = link_check(link.link);
+        if (std::find(published_warnings_.begin(), published_warnings_.end(), check) !=
+            published_warnings_.end()) {
+            continue;
+        }
+        DiagnosticsData data{{"total", static_cast<int>(link.total)}, {"age_s", link.age_s}};
+        if (link.rate_hz) data["rate_hz"] = *link.rate_hz;
+        monitor_logger_->info(check_name(check), data);
     }
 }
 
