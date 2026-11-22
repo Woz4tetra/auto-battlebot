@@ -249,28 +249,152 @@ is not restored.
 
 ### Phase 4: feature map
 
-`docs/features.toml`, one entry per feature:
+Decisions from the 2026-11-22 grilling session are F1-F20 in the [decision log](#decision-log).
+Graph shape mockups at backfill scale: https://claude.ai/artifact/SE82fkjWb6oVvmfk9NwEPG
 
-- `name`
-- `reach`: how the user reaches it (dashboard command, transmitter switch, config key, CLI)
-- `code`: paths
-- `proofs`: gtest names, pytest ids, playback/sim/HIL check names
-- `supporting`: unit tests of internals
+**What a feature is.** A behavior a person can trigger or observe, with a pass/fail outcome,
+named in the user's words. "Autonomy enable" is a feature; `SetAutonomyCommand` is one of its
+reach points; `EspNowTransmitter::pack()` is internals. An entry passes three tests:
+
+- Someone can do or see it without reading code: a dashboard control or readout, a switch or
+  stick, a profile, a CLI, or the box booting.
+- It can be wrong in a way a user would notice.
+- It is not a variant of another entry. The six camera types are one feature with six variants.
+
+Dashboard readouts are observe features; a vitest or browser check that the status message
+renders proves them. Each transmitter control (SA, SF, SB, SH, sticks) is a feature whose proof
+flips the channel value and observes the effect.
+
+**`docs/features.toml`**, one entry per feature:
+
+| Field | Holds | Source |
+| --- | --- | --- |
+| `name` | user-facing name | hand |
+| `reach` | reach point ids (`command:/command/set_autonomy`, `channel:SA`, `type:EspNowTransmitter`, ...) | hand, checked against discovery |
+| `variants` | factory types this feature selects between | hand, checked against `REGISTER_CONFIG` |
+| `code` | declared ownership paths | hand |
+| `proofs` | proof ids that exercise the feature from its `reach` | hand, checked to exist |
+| `supporting` | proof ids of unit tests of internals | hand, checked to exist |
+| `links` | `MonitorLink` names the feature depends on | hand, checked against the link table |
+| `docs` | `docs/reference/...` paths | hand, checked to exist |
+| `status` | `draft` until reviewed | draft command |
 
 A proof must exercise the feature from its `reach`. "ESP-NOW substitution under SA" needs a check
 that flips the SA channel value and observes the substituted command; a unit test of the packer is
-supporting only.
+supporting only. Every one of the 34 factory types needs its own proof, `Noop*` and `Sim*`
+included.
 
-- Bootstrap: draft entries from `include/remote/protocol.hpp` commands, transmitter channels,
-  factory `type`s, and CLIs; the user reviews.
-- Backfill proofs in a dedicated phase. From its start, any new or changed feature must already
+**Reach discovery.** `auto_battlebot.features` lists every reach point from the tree and lint
+fails on any that no entry claims. A reach point that is deliberately not a feature goes in an
+`[ignored]` table with a reason.
+
+| Source | Count (2026-11-21) | Read from |
+| --- | --- | --- |
+| Dashboard commands and status topics | 13 + 9 | `remote_protocol_dump` JSON |
+| Factory types | 34 | `REGISTER_CONFIG` |
+| CLIs | 45 `python -m` modules, 12 `scripts/` entry points | modules with `main()`, `scripts/` listing |
+| Transmitter controls | 8 | `firmware/config/CHANNEL_CONVENTION.md` |
+| Dashboard readouts | 27 components | `web/src` subscriptions to `protocol.ts` status topics |
+| Deployable profiles | 6 | top-level `config/*.toml`, `config/profiles.toml` |
+| systemd units | 3 | `service/*.service` |
+| Foxglove topics | about 17 | new topic registry dump |
+
+Foxglove topics are bare string literals at each call site today. They move into one table shaped
+like `include/remote/protocol.hpp` (topic, schema, expected rate), dumped by a sibling of
+`remote_protocol_dump`. Phase 2 liveness takes each topic's rate from the same row. A topic's
+proof is `mcap:topic_rate:<topic>` on a playback clip.
+
+Firmware web pages, firmware HTTP routes, and the other boards (`espnow_dongle`,
+`jetson_battery`, `velocity_jig`, `blheli`) are not reach sources yet.
+
+`python -m auto_battlebot.features draft` appends a stub per unclaimed reach point with `reach`
+filled, `code` guessed from the defining file, `proofs = []`, and `status = "draft"`. A draft
+entry fails lint like any proofless feature. Lint never writes `features.toml`.
+
+**Proof ids.** Each id names its runner, and lint checks it exists with that runner's own listing:
+
+| Prefix | Example | Exists if |
+| --- | --- | --- |
+| `gtest:` | `gtest:EspNowTransmitter.SubstitutesWhenSa` | in `--gtest_list_tests` |
+| `pytest:` | `pytest:auto_battlebot/rl/tests/test_env.py::test_mask` | in `--collect-only` |
+| `vitest:` | `vitest:AutonomyToggle.test.ts::renders` | in the vitest list |
+| `native:` | `native:test_substitution::sa_high` | in the `pio test` listing |
+| `playback:` | `playback:massd_0905:opponent_coverage` | clip and metric in the clip manifest |
+| `sim:` | `sim:attack:reaches_target` | scenario in the sim smoke tier |
+| `hil:` | `hil:flip_sa` | step in the HIL checklist file |
+| `mcap:` | `mcap:crsf_telemetry_rx` | a `verify_mcap` check name |
+
+**Run store.** Every `scripts/verify` run, including stop-hook and verifier runs, writes
+`data/verify/runs/<utc>_<commit>[-<diffhash>].json` (gitignored): proof id, status, duration,
+commit, dirty diff hash, tier. Inputs are gtest `--gtest_output=json`, pytest `--junitxml`, the
+vitest JSON reporter, `pio test --json-output-path`, and the playback, sim, HIL and `verify_mcap`
+results. Pruned to the last 500 runs. Phase 5 adds CI runs pulled from Forgejo.
+
+**Coverage.** `scripts/verify --coverage` records which files each proof executes, as a derived
+`touches` set beside the hand `code`:
+
+- Python: coverage.py with `--cov-context=test` (adds `coverage` and `pytest-cov` to dev deps)
+- C++ and firmware native: gcov, since the test build is gcc
+- Playback and sim proofs: a coverage build of the app over the clip
+
+Output is `data/verify/coverage/<commit>.json`. It runs on demand on an idle dev box. First task:
+measure the per-gtest-case cost (1,013 processes). Under 30 min for a full run keeps per-case
+sets; otherwise per test binary. After phase 5 it moves to the nightly Jetson job.
+
+**Staleness.** A proof is stale when a file in its `touches` changed since the commit it last
+passed on, falling back to the feature's `code` until coverage exists. A feature is stale when
+any of its proofs is. Stale shows amber and never fails lint. `scripts/verify --stale` reruns
+exactly the stale proofs. `hil:` and `playback:` proofs go stale the same way and never block;
+the phase 6 checklist orders stale steps first.
+
+**Map builder.** `auto_battlebot.features.build_map()` joins `features.toml`, discovered reach,
+the run store, coverage, the config schema, and git. Lint calls it to check; the UI server calls
+it on every change. No generated map is committed.
+
+**Config schema.** A `config_schema_dump` binary, a sibling of `remote_protocol_dump`, prints each
+`REGISTER_CONFIG` type's fields and defaults. The profiles that select a variant come from
+resolving the `config/` extends chain for each top-level profile.
+
+**UI.** `tools/feature_map/`, the first TypeScript tool:
+
+- Svelte 5 and Vite at `web/`'s versions; Cytoscape.js with the ELK layered layout
+- Builds into `auto_battlebot/features/static/` (gitignored). `serve` rebuilds when the bundle is
+  missing or older than the source, and says to run `npm ci` when `node_modules` is missing
+- `python -m auto_battlebot.features.serve` binds 127.0.0.1 only. A stdlib loop checks mtimes
+  once a second (`docs/features.toml`, `data/verify/runs/`, `data/verify/coverage/`,
+  `.git/HEAD` and refs, the working tree for the diff overlay) and pushes Server-Sent Events; the
+  page refetches `/api/map`
+- `scripts/verify` gains a `tools` suite (svelte-check, vitest); `scripts/lint` runs prettier over
+  `tools/`
+
+Views:
+
+| View | Shows |
+| --- | --- |
+| Overview (landing) | camera → perception → filter → target → nav → transmit → robot, with proven, stale and gap counts per stage; no proof edges |
+| Map (main) | reach → feature → proof; proofs grouped one node per tier per feature, expand on click; click a node for its neighborhood |
+| Impact | adds code modules from `touches`; modules touched by more than half the features collapse into one infrastructure node |
+
+A diff overlay toggle on the map highlights features whose `touches` or `code` overlap
+`git diff` plus untracked files, and lists the proofs `scripts/verify --changed` would run.
+
+The side panel for a selected feature shows:
+
+- Each proof's last status, duration, last passing commit, and flake count
+- Recent commits to its `code` and `touches`, and churn since the last green proof
+- Its `links` with the latest `mcap:` grade from the run store
+- Its `docs`, its config keys from the schema dump, and the profiles that select each variant
+
+The UI is read-only. Each feature and each stale or failed proof has a button that copies the
+exact `scripts/verify --only <ids>` command.
+
+**Rollout.**
+
+- Bootstrap: `draft` over every reach source; the user reviews the entries.
+- Backfill proofs in a dedicated pass. From its start, any new or changed feature must already
   carry its proof (verifier check).
 - `scripts/lint` enforcement switches on in the commit that closes the last gap: it fails when a
-  feature has no proof or a listed proof doesn't exist.
-- `scripts/lint` renders the map to a diagram page: features, how they're reached, what proves
-  them.
-
-Add a local web-based interactive UI to explore the graph and gain insight about each component.
+  reach point is unclaimed, a feature has no proof, or a listed proof, link, or doc doesn't exist.
 
 ### Phase 5: CI
 
@@ -348,7 +472,11 @@ The script never sends autonomous drive commands; the user drives. HIL runs on d
 | WP-V08 | `verify_mcap` | 2 | V06 | grades the three 2026-10-25 recordings |
 | WP-V09 | Lockstep profile and stepped clock | 3 | V05 | two runs of one clip hash identical, or the remaining source is named |
 | WP-V10 | Clip baselines, `--playback`, `--realtime` | 3 | V09 | a planted nav change fails `--playback` |
-| WP-V11 | Feature map, diagram, backfill, lint enforcement | 4 | V04 | every feature has an entry-point proof; lint enforces it |
+| WP-V11a | Feature schema, reach discovery (topic registry, `config_schema_dump`), `draft`, bootstrap | 4 | V04 | lint names every unclaimed reach point; user has reviewed the drafted entries |
+| WP-V11b | Proof id grammar, run store | 4 | V11a | every listed proof id resolves; each `scripts/verify` run writes a run file |
+| WP-V11c | `--coverage`, `touches`, staleness, `--stale` | 4 | V11b | gtest cost measured; editing a touched file turns its proof stale |
+| WP-V11d | `tools/feature_map` UI, `serve`, `tools` verify suite | 4 | V11b | page updates without reload when a run lands; diff overlay tracks an edit |
+| WP-V11e | Proof backfill, lint enforcement on | 4 | V11a, V11b | every feature has an entry-point proof; lint enforces it |
 | WP-V12 | Forgejo on genericservername | 5 | none | push over tailnet SSH; UI at `/forgejo/` |
 | WP-V13 | CI Jetson reflash and runner | 5 | V12 | push runs `--fast` and `--playback` on the Jetson |
 | WP-V14 | Nightly jobs, deploy warning, report-back | 5 | V10, V13 | nightly runs; deploy warns on red |
@@ -397,6 +525,25 @@ The script never sends autonomous drive commands; the user drives. HIL runs on d
 | Q49 | Stale tests fixed with a citation; real bugs fail first; unclear ones go to the user |
 | Q50 | Every playground file promoted or deleted, then the directory removed |
 | Q51 | One-off analyses run from the scratchpad, results in `docs/experiments/` |
+| F1, F8 | Lint discovers reach points from eight sources and fails on unclaimed; firmware pages and other boards excluded for now |
+| F2 | Per-run results store in `data/verify/runs/`, pruned to 500 runs |
+| F3 | Hand `code` stays; coverage adds derived `touches` |
+| F4 | One `build_map()` shared by lint and UI, computed live, nothing committed |
+| F5 | Stdlib mtime poll plus Server-Sent Events, no new dependency |
+| F6 | A feature is user-observable behavior with pass/fail; variants grouped |
+| F7 | All 34 factory types need their own proof, scaffolding included |
+| F9 | Stale when `touches` (fallback `code`) changed since last pass; never fails lint |
+| F10 | Lint fails on unclaimed reach; explicit `draft` command writes stubs |
+| F11 | Proof ids prefixed by runner; lint checks existence per runner |
+| F12 | Coverage on demand on dev box first, measure gtest cost, nightly after phase 5 |
+| F13 | Foxglove topics move to one registry table with a dump |
+| F14 | Stage overview landing, reach → feature → proof main view, module impact mode |
+| F15 | Diff overlay toggle on the map |
+| F16 | UI is read-only with copy-command buttons |
+| F17 | Features declare `links`; lint checks them against the link table |
+| F18 | Features declare `docs`; config keys and profiles derived |
+| F19 | Svelte in `tools/feature_map/`, gitignored build, `serve` builds on demand |
+| F20 | HIL and playback proofs go stale but never block; HIL orders stale steps first |
 
 ## Next steps
 
