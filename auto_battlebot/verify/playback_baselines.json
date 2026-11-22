@@ -1,0 +1,172 @@
+{
+  "lockstep": {
+    "x86_64_sm89_trt10.14_zed5.5": {
+      "clyde": {
+        "hashes": {
+          "/camera/camera_info": "c83f00d90d31d584dca9bee9de22d348c47d0328c71f6534e42b9a01b95e20ad",
+          "/camera/frame_meta": "4c419fe8bdfe3fee97cec105ebef9f0d0ce572658295d54f60f6d916f6813394",
+          "/diagnostics/deeplab_mask_model": "05d8c0a9b2ba1e43588a99aeac43591e2eb0861cecdba18fd9a25d7c97c77bfb",
+          "/diagnostics/front_back_keypoint_converter": "339905844e49a9b166ffdcffc2c4f5ccbf46dc6a555ab57975c840ab75d615a2",
+          "/diagnostics/hazards": "3a36245165f47462a45b62d6d092995aa935864816ab3d6318848ece6946be88",
+          "/diagnostics/kalman_motion_estimator": "deafd777eeff2f08b5a417762c8f54efc1330c59df336db8a60436a3be0189a6",
+          "/diagnostics/keypoint_height_gate": "41a7adb95ce1d046ac70606d0261bebdc9f0ba1b90952f47bbdfdf66c544a513",
+          "/diagnostics/motion_profile_nav": "86b88c82a32dd178cf8a4c44d4f4db4eff587c4e8e6fd2feaca9e0ac340901cf",
+          "/diagnostics/performance_monitor": "fbf2d58cab037b8be1a02c9071ab9c1773d77c34a4a44a0cce803e03bbcd9742",
+          "/diagnostics/playback_transmitter": "d1270ab02cf85c2df38e437d3fa7c4015379fee89be3518c2231b1f2050a3c5d",
+          "/diagnostics/point_cloud_field_filter": "1fb72fde0c578886900b5790f9abbb4f09a5a74de6c29ca57b53b073b720ff02",
+          "/diagnostics/robot_front_back_filter": "f68bef1299b74519644787f8f4671ff19ffd8c3bf229767f1ecebcdebbda710b",
+          "/diagnostics/runner": "8b523e2eb11dcf789f465a110d1665194f6576e379ddf4739e4b270835a45dbd",
+          "/diagnostics/yolo_keypoint_model": "cbd32b4c11c7dd80282fb91c5ca7ed3b55a8d978e0774f688d2a1785652862d9",
+          "/field_markers": "16ba1df3e011e67043bc3a0f474027e7e24e24249745d491c59b1f4b763cf3ac",
+          "/field_mask": "1bbcb3deb731ee1b05edcbffedd37bebcee20661d1b9435d91cc439c05dcd53a",
+          "/field_mask/camera_info": "ff6cf06761d11e2f25b3f32cbc8bf26a1796ededc6c0ef00152c1d248ed17fad",
+          "/field_points": "c0b09fc938054da136915831fc2e9e82a7c7d65c16ff724db1699fabd77b53a2",
+          "/hazard_markers": "f7e224249e69918c30d96c3e08d272c5a869d13fd66cfe7e301990dda86ad833",
+          "/keypoint_detections": "41829a464a6ca3c2f97ad0bcc2e62b0d160fb7b91cbe0cce5cdb203d15ff09df",
+          "/nav_markers": "0a2536a0605af11507a0499348c44c657fa8459227ef132b5e265082684f8046",
+          "/robot_markers": "c6976d9ea8bc202b854f8e3a001fdea738b803f1aff65fb4f81aef7053737d4c",
+          "/tf": "eb1542509c277d662f2eb9edf1252d48f1e30e60319dea0868798b9be1d77656"
+        },
+        "metrics": {
+          "angular_mean_abs": 0.1316180555459637,
+          "frame_drop_rate": 0.0,
+          "frames": 1800.0,
+          "latency_p95_ms": -0.2053976058959962,
+          "linear_mean_abs": 0.5933931299719973,
+          "moving_fraction": 0.9672040022234575,
+          "opponent_coverage": 0.8932740411339634,
+          "opponent_jumps_per_min": 7.0,
+          "our_coverage": 0.7209560867148416,
+          "our_jumps_per_min": 5.0
+        },
+        "red_checks": []
+      },
+      "sphinx": {
+        "hashes": {
+          "/camera/camera_info": "63e6d5a2e51bed34132f8ef573f5a41959bb6023ee885f6b2f5b5ad9a1cb9542",
+          "/camera/frame_meta": "e625652245ad4b99a479b4172a918d359d0a75d359647ebcea070f98e9e1c9bd",
+          "/diagnostics/deeplab_mask_model": "05d8c0a9b2ba1e43588a99aeac43591e2eb0861cecdba18fd9a25d7c97c77bfb",
+          "/diagnostics/front_back_keypoint_converter": "c5bbe038888635ab635d532ae1af9467424938c116e26ae881d623b2e8dbd246",
+          "/diagnostics/hazards": "dc56eb639507fb54f43e454799250a09954e809e50a7ca75e8a17157ddd63d30",
+          "/diagnostics/kalman_motion_estimator": "d12777552ffbdbdcaf5c5c10e8748a11c42c7c87bce76530bc06f34f7291f319",
+          "/diagnostics/keypoint_height_gate": "686057f795232ab842d940d97bb339affff35b3f77d893bad0ab0f8bf2f76533",
+          "/diagnostics/motion_profile_nav": "225b64d32bc1285613bd080f14fd9f3db39d702ecbcc72a61fb0d10923c9e776",
+          "/diagnostics/performance_monitor": "bf77acd5153c0a1a43edaf7904781270e5e3e979e514003f064a8f2a9f4d7d37",
+          "/diagnostics/playback_transmitter": "57a016887cdafe936701a9212a22877f707779bd380306df20abe222d91e3da4",
+          "/diagnostics/point_cloud_field_filter": "87b11502cca309e1d3a3075e0fa1b4c76bb914be712ffb37d3b89b98318dfe30",
+          "/diagnostics/robot_front_back_filter": "a4748ab7d16838ec5be73ae4d95e429dcd3d8d4739cf15e990cbbadd7db03cbc",
+          "/diagnostics/runner": "5d219ae8f7769d75fa2b517b27899fcd67379d9019fec3fe3c3dc66465002ad3",
+          "/diagnostics/yolo_keypoint_model": "a5e7f6986b946ac120491839d089ccba393ac9f3652bdc5e2aae7484f8b28237",
+          "/field_markers": "a82ba296c44ed628f650e6f45c6afa9067d287915073307c813707b07105a13b",
+          "/field_mask": "e779b34006bb714caaa8bf3325200eaa7fcaa0950a401ddf2d02b289ef9d56b9",
+          "/field_mask/camera_info": "b5f2c46a963f96a2d5cc730e4c9beec53092d709e2cb19f4886f1897cdb87b81",
+          "/field_points": "23a86e48b1742a6ae2a5472a25cafb69a01ef68a74def7e636922eb21e198394",
+          "/hazard_markers": "cca85c2b01d4ea34d0eb09422960c1c4890785deecfeb84047e512e627ac176f",
+          "/keypoint_detections": "e41b65072bfe573dc81ae1c4e0f16aed51a67e9d333b46457d329b3565a4be44",
+          "/nav_markers": "e94c9fcaf4a1cf2aebcdf4d24731b171f3e65272fa3005401aafaa9a1ff23f8c",
+          "/robot_markers": "27ffcd25d4069e2d2971eaafb910daddbc4fc5e281dc3e2694e0a8514498ab6b",
+          "/tf": "1d5d2c3034e3d9b0b2908754c7933b73aa594bb3f528057215a9f9856ed61ceb"
+        },
+        "metrics": {
+          "angular_mean_abs": 0.17048311718580075,
+          "frame_drop_rate": 0.0,
+          "frames": 1800.0,
+          "latency_p95_ms": -0.24318695068359375,
+          "linear_mean_abs": 0.6012331585207054,
+          "moving_fraction": 1.0,
+          "opponent_coverage": 0.8765981100611451,
+          "opponent_jumps_per_min": 6.0,
+          "our_coverage": 0.9316286826014453,
+          "our_jumps_per_min": 10.0
+        },
+        "red_checks": []
+      },
+      "wreck_creation": {
+        "hashes": {
+          "/camera/camera_info": "6ad32bcb2841d2333a2d26d9448eaae86704183ae2f63437d186bbf3572c9510",
+          "/camera/frame_meta": "80c9857cffa51007e8c6b11c5dc2786fb9f56f0ce79162e782697a81f0003b77",
+          "/diagnostics/deeplab_mask_model": "05d8c0a9b2ba1e43588a99aeac43591e2eb0861cecdba18fd9a25d7c97c77bfb",
+          "/diagnostics/front_back_keypoint_converter": "e4378f840ff52980d5b5ad4d074dbc4e1d5dbaf3612cdf38c978441805cf6ed6",
+          "/diagnostics/hazards": "7cd5a3e49f08a69f902476dc0f264e382f5b63c8aab02c42bf39a6207601d04c",
+          "/diagnostics/kalman_motion_estimator": "74a3b1db1c4367d622e75816f8fbb147b58909372d9d0e1f76b0426b8c93e0ff",
+          "/diagnostics/keypoint_height_gate": "56e546a4a13369300b661962df4ab9c819eb524e70775e40f878e8fff747bcc4",
+          "/diagnostics/motion_profile_nav": "7842ffd5d948733bad7f11c9676d0cbfd5fdce2d50e6ed14e0c0b81e3987378f",
+          "/diagnostics/performance_monitor": "5477e47c6178a656c81b8dcbfcb5c1d3faef03a44d5ac7e3da25ecfc5165bce7",
+          "/diagnostics/playback_transmitter": "1a8d9199fb69720d7d2e169a75765bac542d838b0877f0ff7dede797b94f93b4",
+          "/diagnostics/point_cloud_field_filter": "ee51186242a6a4e147591759130dff433c276ad0b7582e23270739baaf50692a",
+          "/diagnostics/robot_front_back_filter": "82076803198449b034cc433cd67085b7274c63b7984b39785a1f130447b4070a",
+          "/diagnostics/runner": "17dc0b5ebcc0de1ec698bf4cc57216ee323c372ab6d6018d53da6640b7697f02",
+          "/diagnostics/yolo_keypoint_model": "5fdb6bca65a91ead14dcf2266071eda3a998c8325f07e209e242970667f7ff37",
+          "/field_markers": "95619e25343cc952a7ead17f0463eabbff5e430fa237df1eae75ad0a52c78b01",
+          "/field_mask": "181f97b0f1b2f2b21ef3e1e4c7a6ea64336c6681a3b7bb2add0242c2de932ec8",
+          "/field_mask/camera_info": "d2cbeb59f9df68c9d6e33a3cc2e91ecd23b2f342284281892154ab557870fc34",
+          "/field_points": "5f392970da20afba4328496826a59cef7301ad84864f063eaca86da19d7c7c31",
+          "/hazard_markers": "58409a747839e41ffb243fc7f20f835fb3fd874516e298c35d18d4729fad7849",
+          "/keypoint_detections": "c91a0d22fb340a54a13fca10cf44f73c4b0697c028d79c61499f6c937e5ee20b",
+          "/nav_markers": "9b17b4824cee2240cc93f9c56fb81aaddb69fdafaf5c83c5ac4105c46ab5efeb",
+          "/robot_markers": "b86d25b0c0551c7e0ee5418e24973acbcaa3a465249499ec160f6ef6066cf4c6",
+          "/tf": "d668a4c4c9c16f52dfeb05246d7bfa52fe0dbfb8e852774cd7f6dbd958463d83"
+        },
+        "metrics": {
+          "angular_mean_abs": 0.1609577616137912,
+          "frame_drop_rate": 0.0,
+          "frames": 1800.0,
+          "latency_p95_ms": -0.19116401672363287,
+          "linear_mean_abs": 0.5781481466501492,
+          "moving_fraction": 1.0,
+          "opponent_coverage": 0.952195664257921,
+          "opponent_jumps_per_min": 0.0,
+          "our_coverage": 0.9849916620344636,
+          "our_jumps_per_min": 14.0
+        },
+        "red_checks": []
+      }
+    }
+  },
+  "realtime": {
+    "x86_64_sm89_trt10.14_zed5.5": {
+      "clyde": {
+        "metrics": {
+          "frame_drop_rate": [
+            0.0022172949002217295,
+            0.0022172949002217295
+          ],
+          "latency_p95_ms": [
+            3.501009941101074,
+            3.5347461700439453
+          ]
+        },
+        "red_checks": [],
+        "runs": 5
+      },
+      "sphinx": {
+        "metrics": {
+          "frame_drop_rate": [
+            0.0016638935108153079,
+            0.0016638935108153079
+          ],
+          "latency_p95_ms": [
+            3.556513786315918,
+            3.5813331604003906
+          ]
+        },
+        "red_checks": [],
+        "runs": 5
+      },
+      "wreck_creation": {
+        "metrics": {
+          "frame_drop_rate": [
+            0.002770083102493075,
+            0.002770083102493075
+          ],
+          "latency_p95_ms": [
+            3.5186290740966797,
+            3.558230400085449
+          ]
+        },
+        "red_checks": [],
+        "runs": 5
+      }
+    }
+  }
+}

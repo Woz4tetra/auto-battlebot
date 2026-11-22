@@ -136,7 +136,16 @@ ZedDevice::GrabStatus ZedDevice::grab() {
     const auto grab_start = std::chrono::steady_clock::now();
     const sl::ERROR_CODE status = zed_.grab(rt_params);
     warn_if_slow(grab_start, "zed_grab", kGrabWarnMs);
+    return to_grab_status(status);
+}
 
+ZedDevice::GrabStatus ZedDevice::grab_without_depth() {
+    sl::RuntimeParameters rt_params;
+    rt_params.enable_depth = false;
+    return to_grab_status(zed_.grab(rt_params));
+}
+
+ZedDevice::GrabStatus ZedDevice::to_grab_status(sl::ERROR_CODE status) {
     if (status == sl::ERROR_CODE::SUCCESS) return GrabStatus::Ok;
     if (is_transient_grab_error(status)) return GrabStatus::TransientError;
     if (status == sl::ERROR_CODE::END_OF_SVOFILE_REACHED) return GrabStatus::EndOfFile;

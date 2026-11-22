@@ -262,6 +262,8 @@ map: `docs/reference/tools/verify.md`.
 scripts/verify                        # every suite, slow tests included (about 2 min)
 scripts/verify --changed a.cpp b.py   # only what these paths affect
 scripts/verify --changed --list       # print what the working changes select
+scripts/verify --playback             # lockstep clips, hashed against the baseline (about 2 min)
+scripts/verify --realtime             # real-time clips against A/A bounds (about 3 min)
 ```
 
 ## Validation

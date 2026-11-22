@@ -33,6 +33,12 @@ struct CameraFollowingClockConfiguration : public ClockConfiguration {
     PARSE_CONFIG_FIELDS()
 };
 
+struct SteppedClockConfiguration : public ClockConfiguration {
+    SteppedClockConfiguration() { type = "SteppedClock"; }
+
+    PARSE_CONFIG_FIELDS()
+};
+
 std::shared_ptr<ClockInterface> make_clock(const ClockConfiguration &config);
 std::unique_ptr<ClockConfiguration> parse_clock_config(ConfigParser &parser);
 std::unique_ptr<ClockConfiguration> load_clock_from_toml(toml::table const &toml_data,

@@ -94,6 +94,7 @@ class ZedDevice {
     virtual std::optional<CameraInfo> read_camera_info() const;
 
     virtual GrabStatus grab();
+    virtual GrabStatus grab_without_depth();
 
     virtual bool retrieve(CameraData &out);
 
@@ -109,6 +110,8 @@ class ZedDevice {
     }
 
    private:
+    static GrabStatus to_grab_status(sl::ERROR_CODE status);
+
     Options options_;
     std::shared_ptr<sl::Camera> camera_ = std::make_shared<sl::Camera>();
     sl::Camera &zed_ = *camera_;

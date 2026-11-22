@@ -178,6 +178,37 @@ TEST_F(ZedSvoPlaybackCameraTest, SvoEndOfFile) {
     EXPECT_TRUE(camera.should_close() || frame_count >= kMaxFramesBeforeGivingUp);
 }
 
+TEST_F(ZedSvoPlaybackCameraTest, StopsAfterSvoMaxFrames) {
+    ASSERT_NE(camera_, nullptr) << "ZED camera failed to open the test SVO";
+
+    ZedSvoPlaybackCameraConfiguration config = config_;
+    config.svo_real_time_mode = false;
+    config.svo_max_frames = 3;
+    ZedSvoPlaybackCamera camera(config);
+    ASSERT_TRUE(camera.initialize());
+    CameraData data;
+    for (int i = 0; i < 3; ++i) ASSERT_TRUE(camera.get(data)) << "frame " << i;
+    EXPECT_FALSE(camera.should_close());
+    EXPECT_FALSE(camera.get(data));
+    EXPECT_TRUE(camera.should_close());
+}
+
+TEST_F(ZedSvoPlaybackCameraTest, DecodeToStartLandsOnTheStartFrame) {
+    ASSERT_NE(camera_, nullptr) << "ZED camera failed to open the test SVO";
+
+    ZedSvoPlaybackCameraConfiguration config = config_;
+    config.svo_real_time_mode = false;
+    config.svo_start_frame = 5;
+    config.svo_decode_to_start = true;
+    ZedSvoPlaybackCamera camera(config);
+    ASSERT_TRUE(camera.initialize());
+    CameraData data;
+    ASSERT_TRUE(camera.get(data));
+    EXPECT_EQ(data.frame_identity.video_frame_index, 5);
+    ASSERT_TRUE(camera.get(data));
+    EXPECT_EQ(data.frame_identity.video_frame_index, 6);
+}
+
 TEST_F(ZedSvoPlaybackCameraTest, ShouldCloseBeforeInitialize) {
     ZedSvoPlaybackCameraConfiguration config;
     config.svo_file_path = svo_file_path;

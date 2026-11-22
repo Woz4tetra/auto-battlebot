@@ -20,7 +20,7 @@ void SteppedControlLoop::advance_to(double until) {
     if (!started_) {
         started_ = true;
         last_advance_ = until;
-        loop_->run_cycle();
+        loop_->run_cycle_at(until);
         return;
     }
 
@@ -31,7 +31,7 @@ void SteppedControlLoop::advance_to(double until) {
     if (cycles <= 0) return;
     if (cycles > max_catchup_cycles_) cycles = max_catchup_cycles_;
 
-    for (int i = 0; i < cycles; i++) loop_->run_cycle();
+    for (int i = 1; i <= cycles; i++) loop_->run_cycle_at(last_advance_ + i * *period_s_);
     last_advance_ += cycles * *period_s_;
 }
 

@@ -6,12 +6,14 @@
 #include "config/config_parser.hpp"
 #include "time/camera_following_clock.hpp"
 #include "time/manual_clock.hpp"
+#include "time/stepped_clock.hpp"
 #include "time/system_clock.hpp"
 
 namespace auto_battlebot {
 REGISTER_CONFIG(ClockConfiguration, SystemClockConfiguration, "SystemClock")
 REGISTER_CONFIG(ClockConfiguration, ManualClockConfiguration, "ManualClock")
 REGISTER_CONFIG(ClockConfiguration, CameraFollowingClockConfiguration, "CameraFollowingClock")
+REGISTER_CONFIG(ClockConfiguration, SteppedClockConfiguration, "SteppedClock")
 
 std::unique_ptr<ClockConfiguration> parse_clock_config(ConfigParser &parser) {
     return ConfigFactory<ClockConfiguration>::instance().create_and_parse(parser);
@@ -39,6 +41,9 @@ std::shared_ptr<ClockInterface> make_clock(const ClockConfiguration &config) {
     }
     if (config.type == "CameraFollowingClock") {
         return std::make_shared<CameraFollowingClock>();
+    }
+    if (config.type == "SteppedClock") {
+        return std::make_shared<SteppedClock>();
     }
     throw std::invalid_argument("Failed to load Clock of type " + config.type);
 }

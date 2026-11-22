@@ -26,10 +26,15 @@ class ZedSvoPlaybackCamera : public RgbdCameraInterface {
     bool is_recording_enabled() const override { return false; }
 
    private:
+    bool decode_to_start();
+
     std::unique_ptr<ZedDevice> device_;
     CameraData latest_data_;
     std::string svo_path_;
     int svo_start_frame_ = 0;
+    int svo_max_frames_ = 0;
+    bool svo_decode_to_start_ = false;
+    int frames_delivered_ = 0;
 
     std::atomic<bool> cancel_open_{false};
     std::atomic<bool> is_initialized_{false};

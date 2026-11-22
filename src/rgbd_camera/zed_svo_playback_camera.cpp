@@ -14,6 +14,8 @@ ZedSvoPlaybackCamera::ZedSvoPlaybackCamera(const ZedSvoPlaybackCameraConfigurati
                                            std::unique_ptr<ZedDevice> device)
     : device_(std::move(device)),
       svo_start_frame_(config.svo_start_frame),
+      svo_max_frames_(config.svo_max_frames),
+      svo_decode_to_start_(config.svo_decode_to_start),
       rebase_stamps_(config.rebase_stamps),
       diagnostics_logger_(DiagnosticsLogger::get_logger("zed_svo_playback_camera")) {
     device_->set_tracking_enabled(config.position_tracking);
@@ -65,6 +67,7 @@ bool ZedSvoPlaybackCamera::initialize() {
     }
     should_close_ = false;
     stamp_offset_initialized_ = false;
+    frames_delivered_ = 0;
     device_->reset_runtime_state();
 
     const ZedDevice::OpenResult open_result = device_->open(cancel_open_);
@@ -84,7 +87,11 @@ bool ZedSvoPlaybackCamera::initialize() {
         }
         if (n_frames > 0) {
             spdlog::info("SVO starting at frame {} of {}", svo_start_frame_, n_frames);
-            device_->set_svo_position(svo_start_frame_);
+            if (svo_decode_to_start_) {
+                if (!decode_to_start()) return false;
+            } else {
+                device_->set_svo_position(svo_start_frame_);
+            }
         }
     }
 
@@ -99,6 +106,12 @@ bool ZedSvoPlaybackCamera::initialize() {
 
 bool ZedSvoPlaybackCamera::get(CameraData &data) {
     if (!is_initialized_ || should_close_) return false;
+
+    if (svo_max_frames_ > 0 && frames_delivered_ >= svo_max_frames_) {
+        spdlog::info("Delivered svo_max_frames = {} frames; closing.", svo_max_frames_);
+        should_close_ = true;
+        return false;
+    }
 
     const ZedDevice::GrabStatus status = device_->grab();
     if (status == ZedDevice::GrabStatus::EndOfFile) {
@@ -137,6 +150,20 @@ bool ZedSvoPlaybackCamera::get(CameraData &data) {
     }
 
     data = latest_data_;
+    ++frames_delivered_;
+    return true;
+}
+
+bool ZedSvoPlaybackCamera::decode_to_start() {
+    while (device_->svo_position() < svo_start_frame_) {
+        if (cancel_open_) return false;
+        if (device_->grab_without_depth() != ZedDevice::GrabStatus::Ok) {
+            spdlog::error("SVO ended at frame {} while decoding to start frame {}",
+                          device_->svo_position(), svo_start_frame_);
+            should_close_ = true;
+            return false;
+        }
+    }
     return true;
 }
 

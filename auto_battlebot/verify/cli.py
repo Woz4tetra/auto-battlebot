@@ -12,9 +12,8 @@ from auto_battlebot.verify import suites
 from auto_battlebot.verify.selection import SUITES, Selection, everything, select
 from auto_battlebot.verify.state import STATE_DIR
 
+PLAYBACK_TIERS = {"playback": "lockstep", "realtime": "realtime"}
 LATER_TIERS = {
-    "playback": "phase 3 (WP-V10)",
-    "realtime": "phase 3 (WP-V10)",
     "sim": "phase 3 (nav plan 3.5 smoke tier)",
     "hil": "phase 6 (WP-V15)",
 }
@@ -98,11 +97,15 @@ def verify(
     only: list[str] | None = None,
     log_dir: Path | None = None,
     echo: bool = False,
+    playback: tuple[str, ...] = (),
+    suites_too: bool = True,
 ) -> Outcome:
-    """Run lint (with --fast) and the suites a file list selects, or every suite."""
+    """Run lint (with --fast), the suites a file list selects or every suite, and playback tiers."""
     selection = everything() if files is None else select(files, root)
     if only:
         selection = restrict(selection, only)
+    if not suites_too:
+        selection = restrict(selection, [])
     before = [suites.lint_step(root)] if fast else []
 
     def report(result: suites.StepResult) -> None:
@@ -110,8 +113,11 @@ def verify(
             mark = "ok  " if result.ok else "FAIL"
             print(f"{mark} {result.name} ({result.seconds:.0f} s)", flush=True)
 
+    groups = suites.plan(root, selection, fast) + [
+        suites.playback_group(root, tier) for tier in playback
+    ]
     results = suites.run(
-        suites.plan(root, selection, fast),
+        groups,
         log_dir or root / STATE_DIR / "verify-logs",
         before,
         report,
@@ -135,6 +141,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--suite", action="append", choices=SUITES, help="Limit to these suites")
     parser.add_argument("--list", action="store_true", help="Print the selection and exit")
     parser.add_argument("--log-dir", type=Path, help="Where step logs go")
+    parser.add_argument(
+        "--playback", action="store_true", help="Replay the lockstep clips against their baseline"
+    )
+    parser.add_argument(
+        "--realtime", action="store_true", help="Replay the clips in real time against A/A bounds"
+    )
     for tier in LATER_TIERS:
         parser.add_argument(f"--{tier}", action="store_true", help=f"Lands in {LATER_TIERS[tier]}")
     return parser.parse_args(argv)
@@ -167,15 +179,29 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as error:
         print(error, file=sys.stderr)
         return 2
+    playback = tuple(tier for flag, tier in PLAYBACK_TIERS.items() if getattr(args, flag))
+    suites_too = not playback or bool(args.fast or args.changed or args.suite)
     if args.list:
         selection = everything() if files is None else select(files, root)
         if args.suite:
             selection = restrict(selection, args.suite)
-        print("\n".join(describe(selection)) or "nothing to run")
+        if not suites_too:
+            selection = restrict(selection, [])
+        lines = describe(selection) + [f"playback {tier}: every clip" for tier in playback]
+        print("\n".join(lines) or "nothing to run")
         for path in selection.uncovered:
             print(f"no test covers {path}")
         return 0
-    outcome = verify(root, files, args.fast, args.suite, args.log_dir, echo=True)
+    outcome = verify(
+        root,
+        files,
+        args.fast,
+        args.suite,
+        args.log_dir,
+        echo=True,
+        playback=playback,
+        suites_too=suites_too,
+    )
     for failure in outcome.failures():
         print(f"\n==> {failure.name} failed; last lines of {failure.log}:")
         print(suites.tail(failure.log))

@@ -56,6 +56,8 @@ struct ZedSvoPlaybackCameraConfiguration : public RgbdCameraConfiguration {
     DepthMode depth_mode = DepthMode::ZED_NEURAL_LIGHT;
     std::string svo_file_path = "";
     int svo_start_frame = 0;
+    int svo_max_frames = 0;
+    bool svo_decode_to_start = false;
     bool svo_real_time_mode = true;
     bool position_tracking = true;
     bool rebase_stamps = true;
@@ -69,6 +71,8 @@ struct ZedSvoPlaybackCameraConfiguration : public RgbdCameraConfiguration {
             PARSE_ENUM(depth_mode, DepthMode)
             PARSE_FIELD_STRING(svo_file_path)
             PARSE_FIELD(svo_start_frame)
+            PARSE_FIELD(svo_max_frames)
+            PARSE_FIELD_BOOL(svo_decode_to_start)
             PARSE_FIELD_BOOL(svo_real_time_mode)
             PARSE_FIELD_BOOL(position_tracking)
             PARSE_FIELD_BOOL(rebase_stamps)

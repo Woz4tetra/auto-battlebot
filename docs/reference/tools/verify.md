@@ -17,8 +17,11 @@ scripts/verify --suite gtest --suite web
 scripts/verify --changed --list src/crsf/crsf_parser.cpp   # print the selection, run nothing
 ```
 
-Exit code 0 is pass, 1 is a failing step, 2 is a usage error. `--playback`, `--realtime`, `--sim`,
-and `--hil` exit 2 until phases 3 and 6 of `docs/plans/verification_plan.md` land.
+Exit code 0 is pass, 1 is a failing step, 2 is a usage error. `--playback` and `--realtime` run
+the playback regression tiers (`docs/reference/tools/playback_regression.md`); alone they run
+only that tier, and with `--fast`, `--changed`, or `--suite` the suites run alongside. `--sim` and
+`--hil` exit 2 until the nav plan 3.5 smoke tier and phase 6 of
+`docs/plans/verification_plan.md` land.
 
 Step logs go to `.claude/state/verify-logs/<step>.log` (gitignored), or `--log-dir`. The Stop hook
 and `hooks suites` log to `.claude/state/verify-logs/<change hash>/`, so two runs never share a log. A failing step

@@ -185,6 +185,25 @@ def web_group(root: Path) -> Group:
     )
 
 
+def playback_group(root: Path, tier: str) -> Group:
+    """Build the app, then replay the clips for one playback tier."""
+    build = Step(
+        "app build",
+        [
+            *memory_cap_prefix(),
+            "cmake",
+            "--build",
+            str(root / "build"),
+            "--target",
+            "auto_battlebot",
+            f"-j{build_jobs()}",
+        ],
+        root,
+    )
+    command = [python_bin(root), "-m", "auto_battlebot.verify.playback", "check", "--tier", tier]
+    return Group(f"playback {tier}", [build, Step(f"playback {tier}", command, root)])
+
+
 def lint_step(root: Path) -> Step:
     return Step("lint --quick", [str(root / "scripts" / "lint"), "--quick"], root)
 

@@ -1,0 +1,17 @@
+extends = "playback/_playback"
+
+[rgbd_camera]
+svo_real_time_mode = false
+rebase_stamps = false
+position_tracking = false
+svo_decode_to_start = true
+
+[clock]
+type = "SteppedClock"
+
+[control_loop]
+type = "SteppedControlLoop"
+rate_hz = 250.0
+
+[runner]
+max_loop_rate_hz = 0.0

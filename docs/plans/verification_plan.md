@@ -17,6 +17,8 @@ The decisions come from a grilling session on 2026-11-15. The full question and 
 - Phase 1.5 done 2026-11-21; see [Outcome](#outcome-2026-11-21).
 - Phase 2 done 2026-11-21 except grading the 2026-10-25 recordings, which are on neither this
   laptop nor megamind; see [Phase 2 outcome](#phase-2-outcome-2026-11-21).
+- Phase 3 done 2026-11-22 except `--sim`, which waits on nav plan WP-14; see
+  [Phase 3 outcome](#phase-3-outcome-2026-11-22).
 
 ## What went wrong
 
@@ -224,7 +226,8 @@ Playback today differs run to run:
 | Sleep pacing | `max_loop_rate_hz = 60`, `runner.cpp:622-641` |
 
 TensorRT is not a source: static shapes, one stream per engine, synced before host reads. There is
-no unseeded RNG in `src/`; PCL RANSAC is believed to default to a fixed seed (unverified).
+no unseeded RNG in `src/`; PCL RANSAC seeding was not checked directly, but the plane fit
+matches across lockstep runs on all three clips, which a time-seeded RANSAC would not.
 
 **Lockstep tier.** `config/playback/_lockstep.toml`:
 
@@ -246,6 +249,28 @@ latency p95, frame-drop rate, and liveness. Tolerance per metric comes from 5 ru
 
 **Sim.** `scripts/verify --sim` runs the nav plan 3.5 smoke tier. The deleted sim sweep (5af3d75)
 is not restored.
+
+#### Phase 3 outcome (2026-11-22)
+
+How it works now: `docs/reference/tools/playback_regression.md`. Measurements:
+`docs/experiments/platform/2026-11-22_lockstep_playback_determinism.md`.
+
+- `config/playback/_lockstep.toml` and `mrs_buff_mk3_lockstep.toml`. `SteppedClock` follows
+  frame stamps until `SteppedControlLoop` steps it one 4 ms period per cycle
+  (`ControlLoop::run_cycle_at`). `svo_max_frames` ends a clip.
+- Two more sources beyond the four in the table: ZED positional tracking drifts apart between runs
+  (off in lockstep), and a seek with `svo_real_time_mode = false` decodes garbage depth
+  (`svo_decode_to_start` grabs sequentially instead). Wall-time topics and diagnostics fields are
+  left out of the hash.
+- Gate: 23 output topics per clip hash identical on `x86_64_sm89_trt10.14_zed5.5`, three clips
+  (`clyde`, `sphinx`, `wreck_creation`), 2 min 15 s. The remaining source is ZED `NEURAL_LIGHT`
+  depth: 1 of 8 `wreck_creation` runs moved one keypoint by about 1 µm. A differing clip reruns
+  once and must match exactly.
+- A `speed_kp * 1.05` plant fails all three clips on both runs.
+- Real-time tier: p95 loop latency 3.50-3.58 ms and 0.17-0.28% frame drops over 5 A/A runs; 189 s.
+- No baseline yet for the Jetson classes; there `--playback` falls back to metric tolerances
+  against the x86 baseline until one is recorded on the CI Jetson (phase 5).
+- `--sim` still exits 2: it runs the nav plan 3.5 smoke tier, which lands with nav plan WP-14.
 
 ### Phase 4: feature map
 
@@ -548,4 +573,6 @@ The script never sends autonomous drive commands; the user drives. HIL runs on d
 ## Next steps
 
 1. Grade the three 2026-10-25 recordings with `scripts/verify_mcap` when the ZED Box is reachable.
-2. Start phase 3 (WP-V09) on go-ahead.
+2. Record lockstep and real-time baselines on the CI Jetson once WP-V13 brings it up.
+3. Wire `--sim` to the nav plan smoke tier when nav plan WP-14 lands.
+4. Start phase 4 (WP-V11a) on go-ahead.

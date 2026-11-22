@@ -59,6 +59,7 @@ class ControlLoop {
     void submit_measurement(ControlMeasurement measurement);
 
     void run_cycle();
+    void run_cycle_at(double now);
 
     ControlOutput latest_output() const;
 

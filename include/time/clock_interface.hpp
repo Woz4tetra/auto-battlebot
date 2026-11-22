@@ -8,6 +8,8 @@ class ClockInterface {
     virtual double now() const = 0;
 
     virtual void set([[maybe_unused]] double seconds) {}
+
+    virtual void step_to([[maybe_unused]] double seconds) {}
 };
 
 }  // namespace auto_battlebot

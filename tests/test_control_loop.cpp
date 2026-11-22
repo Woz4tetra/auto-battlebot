@@ -22,6 +22,7 @@
 #include "robot_filter/robot_front_back_filter.hpp"
 #include "time/clock_interface.hpp"
 #include "time/manual_clock.hpp"
+#include "time/stepped_clock.hpp"
 #include "transmitter/transmitter_interface.hpp"
 
 namespace auto_battlebot {
@@ -376,6 +377,44 @@ TEST(ControlLoopTest, NonZeroRateRunsMultipleCyclesPerFrame) {
     const size_t frames_after_first = measurements.size() - 1;
     EXPECT_GE(cycles, 1u + (kCyclesPerFrame - kFloorRoundingLossPerFrame) * frames_after_first);
     EXPECT_LE(cycles, 1u + kCyclesPerFrame * frames_after_first);
+}
+
+class PredictTimeFilter : public RobotFilterInterface {
+   public:
+    bool initialize(int) override { return true; }
+    void predict(double now, CommandFeedback) override { times.push_back(now); }
+    void correct(ModelResultStamped, FieldDescription, CameraInfo) override {}
+    RobotDescriptionsStamped state() const override { return {}; }
+    std::vector<double> times;
+};
+
+TEST(ControlLoopTest, SteppedClockGivesEachCatchUpCycleItsOwnTime) {
+    constexpr double kRateHz = 250.0;
+    constexpr double kPeriod = 1.0 / kRateHz;
+    auto filter = std::make_shared<PredictTimeFilter>();
+    auto clock = std::make_shared<SteppedClock>();
+    auto loop =
+        std::make_shared<ControlLoop>(filter, nullptr, std::make_shared<RecordingNavigation>(),
+                                      std::make_shared<PlantCommandShaper>(kUnitGainPlant, 1.0),
+                                      std::make_shared<RecordingTransmitter>(), clock, nullptr);
+    SteppedControlLoop driver(loop, kRateHz);
+
+    const auto measurements = make_measurements(10);
+    for (const auto &m : measurements) {
+        clock->set(m.keypoints.header.stamp);
+        loop->submit_measurement(m);
+        driver.advance_to(m.keypoints.header.stamp);
+    }
+
+    const double first_stamp = measurements.front().keypoints.header.stamp;
+    const double last_stamp = measurements.back().keypoints.header.stamp;
+    ASSERT_GT(filter->times.size(), measurements.size());
+    EXPECT_EQ(filter->times.front(), first_stamp);
+    for (size_t i = 1; i < filter->times.size(); ++i) {
+        EXPECT_NEAR(filter->times[i] - filter->times[i - 1], kPeriod, 1e-9) << "cycle " << i;
+    }
+    EXPECT_LE(filter->times.back(), last_stamp);
+    EXPECT_GT(filter->times.back(), last_stamp - kPeriod);
 }
 
 TEST(ControlLoopTest, MeasurementIsCorrectedExactlyOnce) {

@@ -127,6 +127,11 @@ void ControlLoop::apply_requests_from_other_threads() {
     }
 }
 
+void ControlLoop::run_cycle_at(double now) {
+    clock_->step_to(now);
+    run_cycle();
+}
+
 void ControlLoop::run_cycle() {
     last_cycle_us_.store(std::chrono::duration_cast<std::chrono::microseconds>(
                              std::chrono::steady_clock::now().time_since_epoch())

@@ -1,0 +1,14 @@
+[clips.clyde]
+recording = "2026-05-02T10-06-06"
+robot = "mrs_buff_mk3"
+frames = 1800
+
+[clips.sphinx]
+recording = "2026-05-02T11-45-08"
+robot = "mrs_buff_mk3"
+frames = 1800
+
+[clips.wreck_creation]
+recording = "2026-05-02T14-12-27"
+robot = "mrs_buff_mk3"
+frames = 1800
