@@ -22,30 +22,39 @@ _common.toml                      # shared base, not run directly
       playback/mrs_buff_mk3_playback.toml
 ```
 
-There is **no `main.toml` or `playback.toml`** (old flat names, removed). The SVO path is
-set via `[rgbd_camera] svo_file_path`; there is **no CLI override** for it (the binary only
-takes `-c/--config` and `--print-config`).
+There is **no `main.toml` or `playback.toml`** (old flat names, removed). Pick the recording
+with `--recording`; known recordings, their start frames, and a note on each live in
+`config/playback/recordings.toml`. Do not write a scratch overlay to swap the SVO.
 
 ## Steps
 
-1. **Resolve the SVO.** Recordings live in `data/svo/` and `data/svo/tests/`. Accept an
-   absolute path or a bare name; if bare, check both dirs. Never modify anything under
-   `data/`.
+1. **Resolve the recording.** `./build/auto_battlebot --list-recordings` prints every catalog
+   entry, its start frame, and whether the file is on this machine. Use the catalog name (the
+   file stem). A path also works: if its stem is in the catalog it takes that start frame,
+   otherwise it starts at 0. Never modify anything under `data/`.
 
 2. **Pick the robot base.** Default `playback/mr_stabs_mk2_playback`; use
    `playback/mrs_buff_mk3_playback` if the user names mrs_buff. This sets which robot is
-   OUR_ROBOT vs THEIR_ROBOT.
+   OUR_ROBOT vs THEIR_ROBOT. BrettZone `.mcap` video recordings need a `VideoPlaybackCamera`
+   profile: `playback/brettzone_cage_high`.
 
-3. **Write a throwaway overlay** so shared configs stay untouched (the working tree is
-   co-edited). Underscore prefix keeps it out of the UI profile switcher; it is gitignored.
-   Write `config/_replay_scratch.toml`:
+3. **(Optional) verify resolution** before a long run:
 
-   ```toml
-   extends = "playback/mr_stabs_mk2_playback"
-
-   [rgbd_camera]
-   svo_file_path = "data/svo/tests/<recording>.svo2"
+   ```bash
+   ./scripts/run.sh -c config/playback/mr_stabs_mk2_playback.toml --recording <name> --print-config
    ```
+
+   It dumps the merged config and exits. `svo_file_path` and `svo_start_frame` show source
+   `cli --recording`; confirm them and the model engine paths.
+
+4. **Run:**
+
+   ```bash
+   ./scripts/build_and_run.sh -c config/playback/mr_stabs_mk2_playback.toml --recording <name>
+   ```
+
+   It builds release into `build/`, then runs. Add `--start-frame N` to start somewhere other
+   than the catalog's frame.
 
    Leave `svo_real_time_mode` and `rebase_stamps` alone. Both default to true, and both have to
    stay true for the replay to reproduce field timing. `rebase_stamps = false` leaves frame
@@ -54,15 +63,6 @@ takes `-c/--config` and `--print-config`).
    filter's latency compensation, so the emitted estimate sits at the shutter position instead of
    leading it. Both log a warning at startup. Set `svo_real_time_mode = false` only for a
    throughput run where timing does not matter, and say so in the write-up.
-
-4. **(Optional) verify resolution** before a long run:
-   `./scripts/run.sh -c config/_replay_scratch.toml --print-config` (dumps the merged
-   config and exits — confirm `svo_file_path` and the model engine paths are what you
-   expect).
-
-5. **Run:** `./scripts/build_and_run.sh -c config/_replay_scratch.toml`
-   (builds release into `build/`, then runs). Add `svo_start_frame = N` under
-   `[rgbd_camera]` to skip ahead.
 
 ## What to observe
 
@@ -74,7 +74,11 @@ takes `-c/--config` and `--print-config`).
 
 ## Notes
 
-- If the run needs a specific SVO permanently (not a one-off), the user edits the committed
-  playback config themselves; do not commit `_replay_scratch.toml`.
+- A run that needs another setting changed (not just the recording) still takes a throwaway
+  overlay that `extends` the robot base; underscore-prefix it (`config/_replay_scratch.toml`).
+  It is not gitignored, so delete it when done and do not commit it. Pass `--recording` to it as well, so it never inherits the
+  base's `svo_start_frame`.
+- To add a recording, add an entry to `config/playback/recordings.toml`. Changing the committed
+  default in `playback/_playback.toml` is the user's call.
 - `svo_real_time_mode = false` gives deterministic frame-exact replay (stamps come from the
   SVO frame stamp), which is what regression comparisons rely on.

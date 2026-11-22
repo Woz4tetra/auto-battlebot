@@ -310,7 +310,7 @@ so only 38 of its 100 images resolve exactly.
   is how score.py aligns this ground truth to a later candidate playback run over the same
   SVO, so the dataset is scorable without any AVI/frame-index bookkeeping.
 
-  Frames before each video's svo_start_frame (from the playback config) are skipped, then a
+  Frames before each video's start_frame (from config/playback/recordings.toml) are skipped, then a
   fixed number are sampled evenly across the rest (decorrelated, not consecutive). The MCAP
   /camera/image stream is the SVO frames in order, so svo_start_frame applies as an index
   into that stream. Class names/colors and the keypoint schema are seeded from a source
@@ -318,7 +318,7 @@ so only 38 of its 100 images resolve exactly.
   absent from the training set (opponents, house).
 
   Usage:
-      python training/model_eval/make_eval_dataset.py data/recordings/*.mcap         [--output-dir <dir>] [--per-video 100]         [--start-frames config/playback/svo_start_frames.toml]         [--extra-classes opponent house_bot]
+      python training/model_eval/make_eval_dataset.py data/recordings/*.mcap         [--output-dir <dir>] [--per-video 100]         [--catalog config/playback/recordings.toml]         [--extra-classes opponent house_bot]
   ```
 
 - `training/model_eval/make_field_projection_check.py`, `pick_frames`:

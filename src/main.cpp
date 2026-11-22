@@ -2,6 +2,7 @@
 #include <toml++/toml.h>
 
 #include <CLI/CLI.hpp>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -13,6 +14,7 @@
 #include "config/camera_profile_store.hpp"
 #include "config/config.hpp"
 #include "config/profile_selection.hpp"
+#include "config/recording_catalog.hpp"
 #include "control_loop/config.hpp"
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "diagnostics_logger/foxglove_diagnostics_backend.hpp"
@@ -184,11 +186,41 @@ int main(int argc, char** argv) {
         "--print-config", print_config,
         "Print every config field with its value and source file:line or default, then exit");
 
+    std::string recording_name;
+    CLI::Option* recording_option =
+        app.add_option("--recording", recording_name,
+                       "Playback recording: a name from config/playback/recordings.toml or a path");
+    int64_t start_frame = 0;
+    app.add_option("--start-frame", start_frame, "Playback start frame, overriding the catalog")
+        ->needs(recording_option)
+        ->check(CLI::NonNegativeNumber);
+    bool list_recordings = false;
+    app.add_flag("--list-recordings", list_recordings,
+                 "Print the recording catalog and whether each file is on this machine, then exit");
+
     try {
         app.parse(argc, argv);
     } catch (const CLI::ParseError& e) {
         return app.exit(e);
     }
+
+    if (list_recordings) {
+        try {
+            std::cout << format_recording_list(
+                RecordingCatalog::load(recording_catalog_path(get_config_dir())));
+        } catch (const std::exception& e) {
+            spdlog::error("{}", e.what());
+            return 1;
+        }
+        return 0;
+    }
+
+    std::optional<RecordingOverride> recording;
+    if (!recording_name.empty()) {
+        recording = RecordingOverride{recording_name, std::nullopt};
+        if (app.count("--start-frame") > 0) recording->start_frame = start_frame;
+    }
+    const RecordingOverride* recording_override = recording ? &*recording : nullptr;
 
     ProfileSelectorConfig profile_selector = load_profile_selector(get_config_dir());
     std::vector<std::string> available_profiles =
@@ -214,7 +246,7 @@ int main(int argc, char** argv) {
     if (print_config) {
         try {
             ResolvedConfig resolved;
-            load_classes_from_config(config_path, {}, &resolved);
+            load_classes_from_config(config_path, {}, &resolved, recording_override);
             std::cout << "# Resolved config for profile '" << active_profile << "'\n\n";
             std::cout << format_resolved_toml(resolved);
         } catch (const std::exception& e) {
@@ -227,7 +259,7 @@ int main(int argc, char** argv) {
     try {
         ResolvedConfig resolved_config;
         ClassConfiguration class_config =
-            load_classes_from_config(config_path, {}, &resolved_config);
+            load_classes_from_config(config_path, {}, &resolved_config, recording_override);
         const int result = run_application(class_config, resolved_config, active_profile,
                                            available_profiles, profile_selector);
         shutdown_logging();

@@ -2318,4 +2318,131 @@ TEST(FieldFilterConfigTest, UnknownFieldFilterKeyStillFails) {
     EXPECT_THROW(parse_field_filter_config(parser), ConfigValidationError);
 }
 
+class RecordingOverrideTest : public ConfigTest {
+   protected:
+    void SetUp() override {
+        ConfigTest::SetUp();
+        std::filesystem::create_directories(temp_dir / "playback");
+        std::filesystem::create_directories(temp_dir / "rec");
+        svo_path = touch("rec/match.svo2");
+        mcap_path = touch("rec/cage.mcap");
+        write_named_config("playback/recordings.toml",
+                           "[recordings.match]\npath = \"" + svo_path.generic_string() +
+                               "\"\nstart_frame = 13000\n\n[recordings.cage]\npath = \"" +
+                               mcap_path.generic_string() + "\"\n");
+        write_named_config("base.toml", kBaseConfig);
+    }
+
+    std::filesystem::path touch(const std::string &name) {
+        std::filesystem::path path = temp_dir / name;
+        std::ofstream(path) << "x";
+        return path;
+    }
+
+    std::filesystem::path profile_with_camera(const std::string &camera) {
+        return write_named_config("profile.toml",
+                                  "extends = \"base\"\n\n[rgbd_camera]\n" + camera + "\n");
+    }
+
+    ClassConfiguration load(const std::filesystem::path &profile, RecordingOverride request,
+                            ResolvedConfig *resolved = nullptr) {
+        return load_classes_from_config(profile, temp_dir, resolved, &request);
+    }
+
+    void expect_override_error(const std::filesystem::path &profile, RecordingOverride request,
+                               const std::string &needle) {
+        try {
+            load(profile, std::move(request));
+            FAIL() << "expected ConfigValidationError";
+        } catch (const ConfigValidationError &e) {
+            EXPECT_NE(std::string(e.what()).find(needle), std::string::npos) << e.what();
+        }
+    }
+
+    const char *svo_camera =
+        "type = \"ZedSvoPlaybackCamera\"\nsvo_file_path = \"other.svo2\"\nsvo_start_frame = 2000";
+    const char *video_camera =
+        "type = \"VideoPlaybackCamera\"\nvideo_file_path = \"other.mcap\"\nstart_frame = 5";
+    std::filesystem::path svo_path;
+    std::filesystem::path mcap_path;
+};
+
+TEST_F(RecordingOverrideTest, CatalogKeySetsSvoPathAndStartFrame) {
+    auto config = load(profile_with_camera(svo_camera), {"match", std::nullopt});
+
+    auto *svo = dynamic_cast<ZedSvoPlaybackCameraConfiguration *>(config.camera.get());
+    ASSERT_NE(svo, nullptr);
+    EXPECT_EQ(svo->svo_file_path, svo_path.generic_string());
+    EXPECT_EQ(svo->svo_start_frame, 13000);
+}
+
+TEST_F(RecordingOverrideTest, PathWhoseStemIsAKeyTakesTheCatalogStartFrame) {
+    auto config = load(profile_with_camera(svo_camera), {svo_path.string(), std::nullopt});
+
+    auto *svo = dynamic_cast<ZedSvoPlaybackCameraConfiguration *>(config.camera.get());
+    ASSERT_NE(svo, nullptr);
+    EXPECT_EQ(svo->svo_start_frame, 13000);
+}
+
+TEST_F(RecordingOverrideTest, UncataloguedPathStartsAtZero) {
+    const std::filesystem::path loose = touch("rec/loose.svo2");
+
+    auto config = load(profile_with_camera(svo_camera), {loose.string(), std::nullopt});
+
+    auto *svo = dynamic_cast<ZedSvoPlaybackCameraConfiguration *>(config.camera.get());
+    ASSERT_NE(svo, nullptr);
+    EXPECT_EQ(svo->svo_file_path, loose.generic_string());
+    EXPECT_EQ(svo->svo_start_frame, 0);
+}
+
+TEST_F(RecordingOverrideTest, VideoProfileSetsVideoPathAndStartFrame) {
+    auto config = load(profile_with_camera(video_camera), {"cage", std::nullopt});
+
+    auto *video = dynamic_cast<VideoPlaybackCameraConfiguration *>(config.camera.get());
+    ASSERT_NE(video, nullptr);
+    EXPECT_EQ(video->video_file_path, mcap_path.generic_string());
+    EXPECT_EQ(video->start_frame, 0);
+}
+
+TEST_F(RecordingOverrideTest, StartFrameFlagBeatsTheCatalog) {
+    auto config = load(profile_with_camera(svo_camera), {"match", 42});
+
+    auto *svo = dynamic_cast<ZedSvoPlaybackCameraConfiguration *>(config.camera.get());
+    ASSERT_NE(svo, nullptr);
+    EXPECT_EQ(svo->svo_start_frame, 42);
+}
+
+TEST_F(RecordingOverrideTest, LiveCameraProfileThrows) {
+    expect_override_error(write_named_config("live.toml", "extends = \"base\"\n"),
+                          {"match", std::nullopt}, "needs a playback profile");
+}
+
+TEST_F(RecordingOverrideTest, SvoOnVideoProfileThrows) {
+    expect_override_error(profile_with_camera(video_camera), {"match", std::nullopt},
+                          "playback/_playback");
+}
+
+TEST_F(RecordingOverrideTest, NonSvoOnSvoProfileThrows) {
+    expect_override_error(profile_with_camera(svo_camera), {"cage", std::nullopt},
+                          "playback/_video_playback");
+}
+
+TEST_F(RecordingOverrideTest, MissingFileNamesThePathItTried) {
+    expect_override_error(profile_with_camera(svo_camera), {"rec/gone.svo2", std::nullopt},
+                          "no file at rec/gone.svo2");
+}
+
+TEST_F(RecordingOverrideTest, ProvenanceReadsCliRecording) {
+    ResolvedConfig resolved;
+    load(profile_with_camera(svo_camera), {"match", std::nullopt}, &resolved);
+
+    const ResolvedField *frame = resolved.find("rgbd_camera", "svo_start_frame");
+    ASSERT_NE(frame, nullptr);
+    EXPECT_EQ(frame->source, kRecordingOverrideSource);
+    EXPECT_EQ(frame->value, "13000");
+    const ResolvedField *fps = resolved.find("rgbd_camera", "camera_fps");
+    ASSERT_NE(fps, nullptr);
+    EXPECT_NE(fps->source, kRecordingOverrideSource);
+}
+
 }  // namespace auto_battlebot

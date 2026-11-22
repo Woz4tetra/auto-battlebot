@@ -60,9 +60,31 @@ Loaded with `from` (`config_extends.md`). Each holds one fact used by more than 
 | `field_filters/fiducial_1p5m.toml` | `mr_stabs_mk2_fid_zed_box`, `mr_stabs_mk2_sysid_zed_box` |
 | `keypoint_models/mr_stabs_mk2_apriltag.toml` | `mr_stabs_mk2_sysid_zed_box`, `playback/mr_stabs_mk2_sysid_playback` |
 
-`playback/svo_start_frames.toml` is a data table, not a section file: the first match frame of each
-SVO, read by `training/model_eval/make_eval_dataset.py`. The NHRL 2026-05-02 frames land the
+`playback/recordings.toml` is the recording catalog, not a section file or a profile. Each
+`[recordings."<stem>"]` entry has a repo-relative `path`, an optional `start_frame` (default 0) and
+an optional `note`. The key is the file stem. `auto_battlebot` (`--recording`) and
+`training/model_eval/make_eval_dataset.py` read it. The NHRL 2026-05-02 start frames land the
 playback transmitter's field init on match state.
+
+Pick a recording on the command line instead of editing a profile:
+
+```bash
+./build/auto_battlebot --list-recordings
+./build/auto_battlebot -c config/playback/mr_stabs_mk2_playback.toml --recording 2026-05-02T11-45-08
+./build/auto_battlebot -c config/playback/mr_stabs_mk2_playback.toml --recording data/svo/tests/x.svo2 --start-frame 500
+```
+
+- `--recording <name|path>`: a catalog key takes that entry's `path` and `start_frame`. Anything
+  else is a path; if its stem is a catalog key it takes that entry's `start_frame`, otherwise 0. A
+  missing file fails at startup.
+- `--start-frame N` overrides the start frame and needs `--recording`.
+- `--list-recordings` prints each entry's name, start frame, whether the file is on this machine,
+  and note, then exits.
+- On a `ZedSvoPlaybackCamera` profile the flag sets `svo_file_path` and `svo_start_frame`; on a
+  `VideoPlaybackCamera` profile, `video_file_path` and `start_frame`. Any other camera type, an SVO
+  on a video profile, or a non-SVO on an SVO profile is a startup error.
+- `--print-config` takes the same flags and shows the overridden keys with source
+  `cli --recording`.
 
 ## Shared values in `_common.toml`
 

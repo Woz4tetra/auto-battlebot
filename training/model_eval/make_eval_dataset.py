@@ -18,7 +18,7 @@ from auto_battlebot.recording.mcap_io import (
     decode_compressed_image,
     iter_messages,
 )
-from auto_battlebot.recording.svo_start_frames import DEFAULT_START_FRAMES, load_start_frames
+from auto_battlebot.recording.recording_catalog import DEFAULT_CATALOG, load_start_frames
 
 _HERE = Path(__file__).parent
 _REPO = _HERE.parent.parent
@@ -172,10 +172,10 @@ def main() -> None:
         "--per-video", type=int, default=100, help="frames to sample from each recording"
     )
     parser.add_argument(
-        "--start-frames",
+        "--catalog",
         type=Path,
-        default=DEFAULT_START_FRAMES,
-        help=f"[start_frames] table of SVO stem to first frame (default: {DEFAULT_START_FRAMES})",
+        default=DEFAULT_CATALOG,
+        help=f"recording catalog with each SVO's start_frame (default: {DEFAULT_CATALOG})",
     )
     parser.add_argument(
         "--class-source",
@@ -198,7 +198,7 @@ def main() -> None:
     schema = load_class_schema(args.class_source, args.extra_classes)
     print(f"Classes: {schema['names']}")
 
-    start_frames = load_start_frames(args.start_frames)
+    start_frames = load_start_frames(args.catalog)
 
     total = 0
     for mcap_path in mcaps:

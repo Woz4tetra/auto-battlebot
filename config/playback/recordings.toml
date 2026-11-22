@@ -1,0 +1,160 @@
+[recordings."1729981242.4295187"]
+path = "data/svo/tests/1729981242.4295187.svo2"
+note = "2024 cage walk-around"
+
+[recordings."2026-03-27T21-48-29"]
+path = "data/svo/tests/2026-03-27T21-48-29.svo2"
+start_frame = 4100
+
+[recordings."2026-04-19T17-01-18"]
+path = "data/svo/tests/2026-04-19T17-01-18.svo2"
+
+[recordings."2026-04-20T18-02-50"]
+path = "data/svo/tests/2026-04-20T18-02-50.svo2"
+
+[recordings."2026-04-26T20-21-45"]
+path = "data/svo/tests/2026-04-26T20-21-45.svo2"
+
+[recordings."2026-04-26T20-22-08"]
+path = "data/svo/tests/2026-04-26T20-22-08.svo2"
+
+[recordings."2026-05-01T09-35-26"]
+path = "data/svo/tests/2026-05-01T09-35-26.svo2"
+
+[recordings."2026-05-01T09-40-36"]
+path = "data/svo/tests/2026-05-01T09-40-36.svo2"
+
+[recordings."2026-05-01T09-47-40"]
+path = "data/svo/tests/2026-05-01T09-47-40.svo2"
+
+[recordings."2026-05-01T11-22-34"]
+path = "data/svo/tests/2026-05-01T11-22-34.svo2"
+note = "field finding"
+
+[recordings."2026-05-01T11-27-37"]
+path = "data/svo/tests/2026-05-01T11-27-37.svo2"
+note = "auto driving with eric"
+
+[recordings."2026-05-01T14-17-26"]
+path = "data/svo/tests/2026-05-01T14-17-26.svo2"
+note = "1080p foil safety cage"
+
+[recordings."2026-05-01T17-42-24"]
+path = "data/svo/tests/2026-05-01T17-42-24.svo2"
+
+[recordings."2026-05-02T10-06-06"]
+path = "data/svo/NHRL_2026-05-02/2026-05-02T10-06-06.svo2"
+start_frame = 8000
+note = "NHRL May, vs Clyde"
+
+[recordings."2026-05-02T11-45-08"]
+path = "data/svo/NHRL_2026-05-02/2026-05-02T11-45-08.svo2"
+start_frame = 13000
+note = "NHRL May, vs Sphinx"
+
+[recordings."2026-05-02T14-12-27"]
+path = "data/svo/NHRL_2026-05-02/2026-05-02T14-12-27.svo2"
+start_frame = 3000
+note = "NHRL May, vs Wreck Creation"
+
+[recordings."2026-05-02T15-35-04"]
+path = "data/svo/NHRL_2026-05-02/2026-05-02T15-35-04.svo2"
+start_frame = 3000
+note = "NHRL May, vs Iron Warrior"
+
+[recordings."2026-05-02T16-18-07"]
+path = "data/svo/NHRL_2026-05-02/2026-05-02T16-18-07.svo2"
+start_frame = 3148
+note = "NHRL May"
+
+[recordings."2026-05-02T17-26-14"]
+path = "data/svo/NHRL_2026-05-02/2026-05-02T17-26-14.svo2"
+start_frame = 6400
+note = "NHRL May"
+
+[recordings."2026-07-18T17-23-34"]
+path = "data/svo/tests/2026-07-18/2026-07-18T17-23-34.svo2"
+note = "Open Sauce data collection"
+
+[recordings."2026-07-18T18-30-47"]
+path = "data/svo/tests/2026-07-18/2026-07-18T18-30-47.svo2"
+note = "Open Sauce data collection"
+
+[recordings."2026-07-18T18-40-56"]
+path = "data/svo/tests/2026-07-18/2026-07-18T18-40-56.svo2"
+note = "Open Sauce data collection"
+
+[recordings."2026-07-18T18-50-41"]
+path = "data/svo/tests/2026-07-18/2026-07-18T18-50-41.svo2"
+note = "Open Sauce data collection"
+
+[recordings."2026-07-18T18-53-12"]
+path = "data/svo/tests/2026-07-18/2026-07-18T18-53-12.svo2"
+note = "Open Sauce data collection"
+
+[recordings."2026-07-18T18-58-23"]
+path = "data/svo/tests/2026-07-18/2026-07-18T18-58-23.svo2"
+note = "Open Sauce data collection"
+
+[recordings."2026-07-18T19-01-50"]
+path = "data/svo/tests/2026-07-18/2026-07-18T19-01-50.svo2"
+note = "Open Sauce data collection"
+
+[recordings."2026-07-18T19-04-59"]
+path = "data/svo/tests/2026-07-18/2026-07-18T19-04-59.svo2"
+note = "Open Sauce data collection"
+
+[recordings."2026-07-18T19-12-52"]
+path = "data/svo/tests/2026-07-18/2026-07-18T19-12-52.svo2"
+note = "Open Sauce data collection"
+
+[recordings."2026-07-18T19-15-47"]
+path = "data/svo/tests/2026-07-18/2026-07-18T19-15-47.svo2"
+note = "Open Sauce data collection"
+
+[recordings."2026-07-18T19-19-55"]
+path = "data/svo/tests/2026-07-18/2026-07-18T19-19-55.svo2"
+note = "Open Sauce data collection"
+
+[recordings."2026-07-18T19-26-31"]
+path = "data/svo/tests/2026-07-18/2026-07-18T19-26-31.svo2"
+note = "Open Sauce data collection"
+
+[recordings."2026-07-18T19-33-38"]
+path = "data/svo/tests/2026-07-18/2026-07-18T19-33-38.svo2"
+note = "Open Sauce data collection"
+
+[recordings."2026-08-28T22-21-16"]
+path = "data/svo/tests/2026-08-28/2026-08-28T22-21-16.svo2"
+start_frame = 2000
+
+[recordings."2026-08-28T22-24-24"]
+path = "data/svo/tests/2026-08-28/2026-08-28T22-24-24.svo2"
+
+[recordings."2026-08-29T13-20-08"]
+path = "data/svo/MassD_2026-08-29/2026-08-29T13-20-08.svo2"
+note = "MassD"
+
+[recordings."BZ-nhrl_may26_3lb-clyde-mrsbuff-EX-5308076041394ef4-Cage-2-Overhead-High"]
+path = "data/saved_recordings/BrettZone_2026-05/BZ-nhrl_may26_3lb-clyde-mrsbuff-EX-5308076041394ef4-Cage-2-Overhead-High.mcap"
+note = "BrettZone cage-high video"
+
+[recordings."BZ-nhrl_may26_3lb-mrsbuff-ironwarrior-W-17-Cage-2-Overhead-High"]
+path = "data/saved_recordings/BrettZone_2026-05/BZ-nhrl_may26_3lb-mrsbuff-ironwarrior-W-17-Cage-2-Overhead-High.mcap"
+note = "BrettZone cage-high video"
+
+[recordings."BZ-nhrl_may26_3lb-mrsbuff-johnundercutter-W-52-Cage-2-Overhead-High"]
+path = "data/saved_recordings/BrettZone_2026-05/BZ-nhrl_may26_3lb-mrsbuff-johnundercutter-W-52-Cage-2-Overhead-High.mcap"
+note = "BrettZone cage-high video"
+
+[recordings."BZ-nhrl_may26_3lb-mrsbuff-sphinx-EX-2b8f8f9c1af74179-Cage-5-Overhead-High"]
+path = "data/saved_recordings/BrettZone_2026-05/BZ-nhrl_may26_3lb-mrsbuff-sphinx-EX-2b8f8f9c1af74179-Cage-5-Overhead-High.mcap"
+note = "BrettZone cage-high video"
+
+[recordings."BZ-nhrl_may26_3lb-stingoperation-mrsbuff-W-40-Cage-2-Overhead-High"]
+path = "data/saved_recordings/BrettZone_2026-05/BZ-nhrl_may26_3lb-stingoperation-mrsbuff-W-40-Cage-2-Overhead-High.mcap"
+note = "BrettZone cage-high video"
+
+[recordings."BZ-nhrl_may26_3lb-wreckcreation-mrsbuff-EX-21ee8a65cb5a4f40-Cage-2-Overhead-High"]
+path = "data/saved_recordings/BrettZone_2026-05/BZ-nhrl_may26_3lb-wreckcreation-mrsbuff-EX-21ee8a65cb5a4f40-Cage-2-Overhead-High.mcap"
+note = "BrettZone cage-high video"

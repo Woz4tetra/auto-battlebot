@@ -31,17 +31,25 @@ run it by hand, pipe the path you want on stdin or it writes into `data/svo/`.
 
 ## 2. Record the start frame
 
-Add the recording's SVO stem and first match frame to `config/playback/svo_start_frames.toml`:
+Add the recording's SVO to `config/playback/recordings.toml`, keyed by its stem, with the first
+match frame:
 
 ```toml
-[start_frames]
-"2026-05-02T10-06-06" = 8000
+[recordings."2026-05-02T10-06-06"]
+path = "data/svo/NHRL_2026-05-02/2026-05-02T10-06-06.svo2"
+start_frame = 8000
+note = "NHRL May, vs Clyde"
 ```
 
 `make_eval_dataset.py` skips every frame before it. Do this before step 3. Without an entry the
 start frame is 0 and you sample the pre-match setup footage instead of the fight.
 
-Pick the start frame by scrubbing the SVO in playback until the match begins.
+Pick the start frame by scrubbing the SVO in playback until the match begins. To check it,
+replay from that frame without editing a profile:
+
+```bash
+./build/auto_battlebot -c config/playback/mrs_buff_mk3_playback.toml --recording 2026-05-02T10-06-06
+```
 
 ## 3. Extract frames
 
@@ -61,7 +69,7 @@ rename them.
 Two defaults are already right for NHRL and rarely need changing:
 
 - `--extra-classes opponent house_bot` adds the classes absent from the training set.
-- `--start-frames config/playback/svo_start_frames.toml` is what step 2 edited.
+- `--catalog config/playback/recordings.toml` is what step 2 edited.
 
 ## 4. Label
 

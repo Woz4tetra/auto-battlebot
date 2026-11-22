@@ -132,6 +132,9 @@ class Resolver {
         if (!source.path) {
             return "unknown";
         }
+        if (!std::filesystem::is_regular_file(*source.path)) {
+            return *source.path;
+        }
         const std::filesystem::path file = std::filesystem::weakly_canonical(*source.path);
         std::filesystem::path shown = file.lexically_relative(config_root_);
         if (shown.empty() || *shown.begin() == "..") {

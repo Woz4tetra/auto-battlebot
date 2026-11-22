@@ -244,12 +244,18 @@ toml::table load_merged_config(const std::filesystem::path &path,
 
 ClassConfiguration load_classes_from_config(const std::filesystem::path &path,
                                             const std::filesystem::path &config_root,
-                                            ResolvedConfig *resolved) {
+                                            ResolvedConfig *resolved,
+                                            const RecordingOverride *recording) {
     ClassConfiguration config;
 
     try {
         const std::filesystem::path root = config_root.empty() ? get_config_dir() : config_root;
         auto toml_data = load_merged_config(path, root);
+        if (recording) {
+            apply_recording_override(toml_data, path.string(),
+                                     RecordingCatalog::load(recording_catalog_path(root)),
+                                     *recording);
+        }
         ConfigDefaultsRecorder recorder;
 
         std::vector<std::string> parsed_sections;
