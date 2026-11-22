@@ -5,7 +5,6 @@
 #include <espnow_protocol.h>
 #include <i2c_bus.h>
 #include <motor_guard.h>
-#include <telemetry_ring.h>
 #include <updown_sensor.h>
 #include <vbat_sensor.h>
 #include <wifi_manager.h>
@@ -139,12 +138,10 @@ class LoopFlag {
 
 class TuningStore;
 
-using telemetry_ring_t = telemetry_ring::TelemetryRing<espnow_protocol::TelemetryPayload>;
-
 class DiagnosticsServer {
    public:
-    void begin(wifi_manager::WifiManager *wifi, const telemetry_ring_t *ring, uint32_t boot_id,
-               TuningStore *tuning = nullptr, esc_config::EscConfig *esc_tuning = nullptr);
+    void begin(wifi_manager::WifiManager *wifi, TuningStore *tuning = nullptr,
+               esc_config::EscConfig *esc_tuning = nullptr);
     void update(const diag_data_t *data);
     bool page_open();
     void set_status(const sensor_status_t &status);
@@ -163,7 +160,5 @@ class DiagnosticsServer {
     LoopFlag _erase_dump_request;
     volatile bool _armed = false;
     wifi_manager::WifiManager *_wifi = nullptr;
-    const telemetry_ring_t *_ring = nullptr;
-    uint32_t _boot_id = 0;
     esc_config::EscConfig *_esc = nullptr;
 };

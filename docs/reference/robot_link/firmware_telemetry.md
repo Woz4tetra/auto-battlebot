@@ -1,23 +1,4 @@
-# Mr Stabs Mk2 firmware telemetry and services
-
-## Batch header
-
-The Mr Stabs Mk2 firmware serves its telemetry ring over WiFi at `GET /telemetry`. No C++ client reads it. Every reply starts with a `TelemetryBatchHeader` (`firmware/shared/espnow_protocol/src/espnow_protocol.h`), encoded by `encode_telemetry_batch` in `firmware/shared/espnow_protocol/src/telemetry_batch.h`.
-
-- `record_size` is `sizeof(TelemetryPayload)`. A reader built from a different header sees a different size and must drop the reply.
-- `boot_id` is random per boot. A change means the seqs restarted at 0.
-- `capacity` is how many records the ring holds. `next_seq` is the seq the next record gets, so `next_seq - 1` is the newest. `oldest_seq` is the oldest seq still in the ring. `first_seq` is the seq of the first record in this reply.
-- A reply carries at most `TELEMETRY_BATCH_MAX` (256) records.
-- The ring holds two minutes of records.
-
-## Firmware ring concurrency
-
-`firmware/mr_stabs_mk2/lib/telemetry_ring` is a fixed-size ring with one writer and any number of readers on other tasks or cores.
-
-- Neither side locks. The control loop pushes without waiting on a reader.
-- A reader throws away any record the writer overwrote while it was copying, the way a seqlock does.
-- `push()` is non-const and `read()` is const, so readers hold a `const` ring and cannot write.
-- Capacity 0 makes every push a no-op. `storage` must hold `capacity` records and outlive the ring.
+# Mr Stabs Mk2 firmware services
 
 ## Wi-Fi manager and firmware services
 

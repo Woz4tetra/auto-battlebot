@@ -650,8 +650,7 @@ add a hold input to `YawController::update` gated on `guard.state() == LIMITING`
   Fill them in all three `diag` literals in `main.cpp` (failsafe, disarmed, armed).
 - `firmware/shared/espnow_protocol/src/espnow_protocol.h` `TelemetryPayload`: add the same fields
   (8 floats, 3 bytes, one uint16). 118 B grows to 155 B before padding, under `AIR_MAX_PAYLOAD`
-  (245 B). Update the `static_assert(sizeof(TelemetryPayload) == ...)` and bump
-  `TELEMETRY_BATCH_VERSION` to 2.
+  (245 B). Update the `static_assert(sizeof(TelemetryPayload) == ...)`.
 - `EspNowTransmitter` drops any telemetry frame whose length is not `sizeof(TelemetryPayload)`,
   so update `to_espnow_telemetry_json` and the `tests/test_espnow_transmitter.cpp` fixture in the
   same commit.
@@ -743,7 +742,7 @@ In the EKF arm, commands stay the predict-step input to the plant model, and eRP
 wheel-speed measurement in the update step. Order:
 
 1. Land bidirectional DShot and pass step 0.6.
-2. Measure the eRPM latency from the robot to the Jetson through the ESP-NOW telemetry ring.
+2. Measure the eRPM latency from the robot to the Jetson through the ESP-NOW telemetry.
 3. Record a few matches on the Jetson with telemetry in the MCAP. SVO replay cannot score this,
    since replay commands come from replay nav, not the driver.
 4. A/B command dead-reckoning against eRPM speed plus gyro yaw rate, binned by our-robot dropout

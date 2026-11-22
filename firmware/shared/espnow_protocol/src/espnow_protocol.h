@@ -141,23 +141,8 @@ struct OtaStatusPayload {
     OtaError error;
     uint8_t running_md5[16];
 };
-struct TelemetryBatchHeader {
-    uint32_t magic;
-    uint16_t version;
-    uint16_t record_size;
-    uint32_t boot_id;
-    uint32_t capacity;
-    uint32_t next_seq;
-    uint32_t oldest_seq;
-    uint32_t first_seq;
-    uint32_t count;
-};
 
 #pragma pack(pop)
-
-const uint32_t TELEMETRY_BATCH_MAGIC = 0x4D525442;
-const uint16_t TELEMETRY_BATCH_VERSION = 2;
-const uint32_t TELEMETRY_BATCH_MAX = 256;
 
 const size_t OTA_CHUNK_DATA = 240;
 
@@ -169,7 +154,6 @@ static_assert(sizeof(LinkStatsPayload) == 18, "LinkStatsPayload layout");
 static_assert(sizeof(OtaStatusPayload) == 22, "OtaStatusPayload layout");
 static_assert(sizeof(TelemetryPayload) == 155, "TelemetryPayload layout");
 static_assert(sizeof(FirmwareInfoPayload) == 18, "FirmwareInfoPayload layout");
-static_assert(sizeof(TelemetryBatchHeader) == 32, "TelemetryBatchHeader layout");
 static_assert(sizeof(TelemetryPayload) <= AIR_MAX_PAYLOAD, "telemetry must fit one air frame");
 static_assert(sizeof(OtaChunkHeader) + OTA_CHUNK_DATA <= AIR_MAX_PAYLOAD,
               "OTA chunk must fit one air frame");

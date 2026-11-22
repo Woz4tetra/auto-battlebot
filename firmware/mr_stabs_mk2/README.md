@@ -348,23 +348,6 @@ block the control loop, and the robot drives normally in either mode.
 With `ESPNOW_ENABLED` on, the robot stays an access point on the ESP-NOW channel whatever is
 saved, since joining a router would move the channel.
 
-The Jetson reads the robot at `esp32_host`, an IP literal. In client mode, give the robot a DHCP
-reservation on the router and set `esp32_host` to it.
-
-### Telemetry ring
-
-Every 10 ms the loop stores one `espnow_protocol::TelemetryPayload` (155 B, the ESP-NOW telemetry
-frame) in a ring in PSRAM: 9000 records, 90 s. Without PSRAM it falls back to 500 records
-(5 s) in internal RAM; the boot log over USB says which. Writing never waits on a reader; a reader
-drops any record the loop overwrote mid-copy (`lib/telemetry_ring`, tested in
-`test/test_telemetry_ring`).
-
-`GET /telemetry?from=<seq>&max=<n>` returns a `TelemetryBatchHeader` (in
-`firmware/shared/espnow_protocol`) and then up to 256 records from `from` on, oldest first. With
-no `from` it returns the header alone, which tells a new client where the head is. The header's
-`boot_id` changes on every boot, when seqs restart at 0. No Jetson-side client polls it; the
-Jetson reads telemetry over ESP-NOW (`/robot/espnow_telemetry`).
-
 ### Recording Data
 
 1. Click **Record** on the dashboard. The stream switches to full loop rate and the browser accumulates every data point.
@@ -528,8 +511,6 @@ The diagnostics server does no work when no browser is connected. There is no im
 ### diagnostics HTTP API
 
 - `mr_stabs_mk2/scripts/log_drive_twitch.py`: The connect greeting is also a data line; only full diag rows have every column.
-- `mr_stabs_mk2/src/diagnostics_server.cpp`: Records go out exactly as the ring holds them, after a TelemetryBatchHeader. No `from` returns just the header, which tells a new client where head is without replaying the whole ring.
-- `shared/espnow_protocol/src/espnow_protocol.h`: Body of the robot's `GET /telemetry?from=<seq>&max=<n>` over WiFi: this header, then `count` TelemetryPayload records, oldest first. The firmware fills a ring of them at the ESP-NOW telemetry rate whether or not anyone reads it, so a client that loses the link catches up on everything still in the ring once it is back. telemetry_seq in each record is the ring's seq.
 
 ### flashing
 
@@ -539,8 +520,6 @@ The diagnostics server does no work when no browser is connected. There is no im
 ### memory
 
 - `mr_stabs_mk2/src/crash_report.cpp`: The summary is large for the stack; it is read once, at boot.
-- `mr_stabs_mk2/src/diagnostics_server.cpp`: PSRAM first: a full batch is 30 KB, too much to ask of fragmented internal RAM.
-- `mr_stabs_mk2/src/main.cpp`: Every 100 Hz telemetry frame, kept in PSRAM for GET /telemetry, so a WiFi client that drops out catches up instead of losing the gap. 9000 records of 155 B is 1.4 MB of the 2 MB PSRAM, 90 s. Without PSRAM it falls back to a few seconds in internal RAM.
 
 ### ESC Pin Mapping
 

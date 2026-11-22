@@ -16,7 +16,6 @@
 #include <espnow_link.h>
 #include <i2c_bus.h>
 #include <motor_guard.h>
-#include <telemetry_ring.h>
 #include <tuning_store.h>
 #include <updown_sensor.h>
 #include <usb_bridge.h>
@@ -58,10 +57,6 @@ const uint32_t GUARD_RTC_MAGIC = 0x4D475244;
 RTC_NOINIT_ATTR guard_rtc_t guard_rtc;
 DiagnosticsServer diag_server;
 
-const uint32_t TELEMETRY_RING_PSRAM_RECORDS = 9000;
-const uint32_t TELEMETRY_RING_HEAP_RECORDS = 500;
-telemetry_ring::TelemetryRing<espnow_protocol::TelemetryPayload> telemetry_ring_buffer;
-uint32_t last_ring_push_ms = 0;
 i2c_bus::scan_t bus_scan = {};
 uint32_t last_status_ms = 0;
 void request_status_refresh() { last_status_ms = 0; }
@@ -150,11 +145,6 @@ void stop_escs() {
     set_led_intensity(0);
 }
 
-void advance_fixed_rate_schedule(uint32_t &last_ms, uint32_t period_ms, uint32_t now_ms) {
-    last_ms += period_ms;
-    if (now_ms - last_ms >= period_ms) last_ms = now_ms;
-}
-
 void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, uint32_t now_ms) {
     diag.motor_rise_left_c = guard.rise_c(0);
     diag.motor_rise_right_c = guard.rise_c(1);
@@ -172,8 +162,7 @@ void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, 
         left_esc->reply_decode_errors() + right_esc->reply_decode_errors(), UINT16_MAX);
     diag_server.update(&diag);
     last_espnow_driving = espnow_active;
-    const bool ring_due = now_ms - last_ring_push_ms >= espnow_link::TELEMETRY_PERIOD_MS;
-    if (!ring_due && !ESPNOW_ENABLED) return;
+    if (!ESPNOW_ENABLED) return;
     espnow_protocol::TelemetryPayload telemetry = {};
     telemetry.timestamp_ms = diag.timestamp_ms;
     telemetry.loop_us = diag.loop_us;
@@ -220,25 +209,7 @@ void publish_diag(diag_data_t &diag, bool autonomy_enabled, bool espnow_active, 
     telemetry.guard_sensors = static_cast<uint8_t>(diag.guard_sensors);
     telemetry.stall_flags = diag.stall_flags;
     telemetry.erpm_crc_errors = diag.erpm_crc_errors;
-    if (ring_due) {
-        advance_fixed_rate_schedule(last_ring_push_ms, espnow_link::TELEMETRY_PERIOD_MS, now_ms);
-        telemetry_ring_buffer.push(telemetry);
-    }
-    if (ESPNOW_ENABLED) espnow.send_telemetry(telemetry, now_ms);
-}
-
-void setup_telemetry_ring() {
-    uint32_t capacity = TELEMETRY_RING_PSRAM_RECORDS;
-    void *storage =
-        psramFound() ? ps_malloc(capacity * sizeof(espnow_protocol::TelemetryPayload)) : nullptr;
-    if (!storage) {
-        capacity = TELEMETRY_RING_HEAP_RECORDS;
-        storage = malloc(capacity * sizeof(espnow_protocol::TelemetryPayload));
-    }
-    if (!storage) capacity = 0;
-    telemetry_ring_buffer.init(static_cast<espnow_protocol::TelemetryPayload *>(storage), capacity);
-    Serial.printf("telemetry ring: %lu records (%s)\n", (unsigned long)capacity,
-                  capacity == TELEMETRY_RING_PSRAM_RECORDS ? "PSRAM" : "internal RAM");
+    espnow.send_telemetry(telemetry, now_ms);
 }
 
 void publish_sensor_status(bool armed) {
@@ -417,8 +388,7 @@ void setup() {
     wifi.begin(HOSTNAME, WIFI_SSID, WIFI_PASSWORD, espnow_protocol::CHANNEL_OVERRIDE,
                ESPNOW_ENABLED);
     setup_ota();
-    setup_telemetry_ring();
-    diag_server.begin(&wifi, &telemetry_ring_buffer, esp_random(), &tuning_store, &esc_tuning);
+    diag_server.begin(&wifi, &tuning_store, &esc_tuning);
     usb_bridge::begin();
     if (ESPNOW_ENABLED) espnow.begin(WIFI_IF_AP, espnow_protocol::CHANNEL_OVERRIDE, &tuning_store);
 

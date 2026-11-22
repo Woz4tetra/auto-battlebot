@@ -512,7 +512,6 @@ if(BUILD_TESTING)
 
     target_include_directories(auto_battlebot_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
-        ${CMAKE_CURRENT_SOURCE_DIR}/firmware/mr_stabs_mk2/lib/telemetry_ring
     )
 
     include(GoogleTest)

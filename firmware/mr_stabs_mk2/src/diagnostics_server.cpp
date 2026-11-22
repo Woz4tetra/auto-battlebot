@@ -5,11 +5,9 @@
 #include <WiFi.h>
 #include <armed_guard.h>
 #include <status_doc.h>
-#include <telemetry_batch.h>
 #include <tuning_store.h>
 #include <web_assets.h>
 
-#include <memory>
 #include <vector>
 
 static AsyncWebServer server(80);
@@ -158,37 +156,6 @@ static String wifi_json(wifi_manager::WifiManager *wifi) {
     return out;
 }
 
-static void handle_telemetry(AsyncWebServerRequest *request, const telemetry_ring_t *ring,
-                             uint32_t boot_id) {
-    espnow_protocol::TelemetryBatchQuery query;
-    if (request->hasParam("max")) {
-        query.max = std::min<uint32_t>(
-            query.max, strtoul(request->getParam("max")->value().c_str(), nullptr, 10));
-    }
-    query.has_from = request->hasParam("from");
-    if (query.has_from) {
-        query.from = strtoul(request->getParam("from")->value().c_str(), nullptr, 10);
-    }
-
-    const size_t capacity_bytes = espnow_protocol::telemetry_batch_max_bytes(query);
-    uint8_t *raw = static_cast<uint8_t *>(psramFound() ? ps_malloc(capacity_bytes) : nullptr);
-    if (!raw) raw = static_cast<uint8_t *>(malloc(capacity_bytes));
-    if (!raw) return request->send(503, "text/plain", "out of memory");
-    std::shared_ptr<uint8_t> body(raw, free);
-
-    const size_t length = espnow_protocol::encode_telemetry_batch(*ring, boot_id, query, raw);
-
-    AsyncWebServerResponse *response = request->beginResponse(
-        "application/octet-stream", length,
-        [body, length](uint8_t *out, size_t max_len, size_t index) -> size_t {
-            const size_t n = std::min(max_len, length - index);
-            memcpy(out, body.get() + index, n);
-            return n;
-        });
-    response->addHeader("Cache-Control", "no-store");
-    request->send(response);
-}
-
 static String body_param(AsyncWebServerRequest *request, const char *name) {
     return request->hasParam(name, true) ? request->getParam(name, true)->value() : String();
 }
@@ -298,12 +265,9 @@ static void setup_esc_routes(AsyncWebServer &server, esc_config::EscConfig *esc,
     });
 }
 
-void DiagnosticsServer::begin(wifi_manager::WifiManager *wifi, const telemetry_ring_t *ring,
-                              uint32_t boot_id, TuningStore *tuning,
+void DiagnosticsServer::begin(wifi_manager::WifiManager *wifi, TuningStore *tuning,
                               esc_config::EscConfig *esc_tuning) {
     _wifi = wifi;
-    _ring = ring;
-    _boot_id = boot_id;
     _tuning = tuning;
     _esc = esc_tuning;
 
@@ -316,10 +280,6 @@ void DiagnosticsServer::begin(wifi_manager::WifiManager *wifi, const telemetry_r
             request->send(response);
         });
     }
-
-    server.on("/telemetry", HTTP_GET, [this](AsyncWebServerRequest *request) {
-        handle_telemetry(request, _ring, _boot_id);
-    });
 
     server.on("/wifi", HTTP_GET, [this](AsyncWebServerRequest *request) {
         request->send(200, "application/json", wifi_json(_wifi));
