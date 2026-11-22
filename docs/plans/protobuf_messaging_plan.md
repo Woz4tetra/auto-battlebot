@@ -12,17 +12,19 @@ string in `to_espnow_telemetry_json` (`src/transmitter/espnow_transmitter.cpp:61
 text kept byte-identical in `include/foxglove_adapters/json_schemas.hpp` and
 `auto_battlebot/recording/mcap_write.py`, and a table of type IDs and payload sizes with its own
 `struct.unpack` decoders in `firmware/espnow_dongle/scripts/espnow_diag.py`. The sim protocol is
-two hand-synced struct layouts (`simulation/protocol.py`,
-`src/simulation/sim_connection.cpp:24-38`). Changing one field means editing every copy and
+two hand-synced struct layouts (`auto_battlebot/kinematic_sim/protocol.py`,
+`src/simulation/sim_connection.cpp:23-37`). Changing one field means editing every copy and
 hoping a parity test covers it.
 
-## Status, 2026-11-18
+## Status, 2026-11-21
 
 Plan only. Nothing is implemented: there is no `proto/`, `.protobuf-version`,
 `install/install_protobuf.sh`, or `buf.yaml`, and no nanopb or protobuf-es dependency.
 
-The plan was written on 2026-10-17 and checked against the tree on 2026-11-18. That check
-changed these parts:
+The plan was written on 2026-10-17 and checked against the tree on 2026-11-18 and again on
+2026-11-21 (`74ef2fc3`).
+
+The 2026-11-18 check changed these parts:
 
 - `link.Telemetry` is nested. The motor stall guard added 12 fields, and the flat layout no
   longer fits one ESP-NOW frame (see Link size budget).
@@ -34,18 +36,40 @@ changed these parts:
   more.
 - Line-number lists of callers are replaced by a grep check per phase.
 
+The 2026-11-21 check changed these parts:
+
+- A second C++ reader exists. `src/health/mcap_grader.cpp` (`scripts/verify_mcap`,
+  `tools/verify_mcap.cpp`, added in `a2ee8582`) parses 10 JSON topics with nlohmann. Every phase
+  that moves one of them now moves the grader too, and gate R1 checks its verdicts.
+- ESP-NOW has a version handshake. `MSG_FIRMWARE_INFO = 0x06` carries `PROTOCOL_VERSION` and the
+  build stamp, and `PerformanceMonitor` already reports a mismatch. It stays a packed, frozen
+  struct like OTA, and Phase 5 bumps `PROTOCOL_VERSION` to 2 (decision 9).
+- The ESP32 WiFi telemetry client is deleted (`7befc72b`), so nothing writes
+  `/robot/esp32_diagnostics` and the old open questions about it are gone. The robot's
+  `GET /telemetry` route, its PSRAM telemetry ring, and `telemetry_batch.h` are deleted too, so
+  `TelemetryBatch`, the ring memory budget, and gate F4 are out of the plan.
+- The robot blob path is deleted (`f7b96502`). Nothing writes `/blob_detections`; only older
+  recordings carry it.
+- `/status/config` (`ResolvedConfig`) is a ninth status topic, and `TrackedRobot.stale` is gone
+  (`d8c7b7bd`). `status.proto` follows both.
+- `playground/` is retired (`c90faaaf`), so its readers drop out of the phases. The sim protocol
+  moved to `auto_battlebot/kinematic_sim/`, and `sysid_io.load_esp32_diagnostics` is now
+  `load_robot_telemetry`.
+- Line numbers, call-site counts, and test paths are refreshed.
+
 ## Scope
 
 | Path | In scope | Reason |
 | --- | --- | --- |
-| JSON recording topics: `/camera/frame_meta`, `/blob_detections`, `/keypoint_detections`, `/apriltag/robot_tags` | yes | Hand-built JSON in C++, schema texts duplicated |
+| JSON recording topics: `/camera/frame_meta`, `/keypoint_detections`, `/apriltag/robot_tags` | yes | Hand-built JSON in C++, schema texts duplicated |
+| `/blob_detections`, `/robot/esp32_diagnostics` | read only | No writer left; older recordings carry them, and their readers keep the JSON path (decision 4) |
 | `/diagnostics/<module>` | yes, behind gate D1 | Free-form tree; Foxglove plot paths may get worse |
 | `/status/*`, `/command/*` | yes | Already single-source (`AB_JSON_MESSAGE`), but only in C++; the web gets generated TS through a dump binary |
 | `/robot/espnow_telemetry` | yes | Hand copies of one message in C++ and Python |
 | ESP-NOW air and serial payloads: Command, Telemetry, TunableSet, LinkStats | yes | Packed structs, memcpy decode |
+| ESP-NOW FirmwareInfo (`MSG_FIRMWARE_INFO = 0x06`) | no, frozen | The version handshake. It must decode the same on every firmware so the host can say which protocol a robot speaks (decision 9) |
 | `firmware/espnow_dongle/scripts/espnow_diag.py` | yes | Its own copy of the type IDs, the payload sizes, and `struct.unpack` decoders for Command, Telemetry, TunableSet, and LinkStats; it also builds Command frames |
 | `firmware/mr_stabs_mk2/scripts/espnow_ota.py` | no | Speaks only the serial framing and the frozen OTA messages |
-| WiFi `GET /telemetry` batch body | yes | Same Telemetry record as ESP-NOW |
 | ESP-NOW OTA messages (`MSG_OTA_*`) | no, frozen | The chunk has 1 byte of margin under 250, and OTA must keep working against robots still on the old firmware |
 | Serial framing (`[7B B0][type][len][payload][crc16]`) and air header (`BWB\x01` + type) | no | Transport framing; protobuf has no framing or type tag of its own |
 | Lockstep sim TCP protocol | yes | Two hand-synced struct layouts |
@@ -53,7 +77,7 @@ changed these parts:
 | `viz` unix socket framing (`include/viz/frame.hpp`) | no | Container for already-encoded messages, like MCAP itself |
 | Foxglove SDK topics (`foxglove.*`) | no | Already protobuf |
 | CRSF, BLHeli MSP | no | External standard protocols |
-| Robot HTTP routes other than `/telemetry`: `/events` SSE CSV, `/status`, `/wifi*`, `/tuning`, `/record/*`, `/crash/erase`, `/i2c/scan` | no | Served by the robot for its own web page (`firmware/mr_stabs_mk2/web/`); nothing on the host reads them |
+| Robot HTTP routes: `/events` SSE CSV, `/status`, `/wifi*`, `/tuning`, `/record/*`, `/crash/erase`, `/i2c/scan` | no | Served by the robot for its own web page (`firmware/mr_stabs_mk2/web/`); nothing on the host reads them |
 | Robot ESC tuning routes: `/esc/status`, `/esc/tuning`, `/esc/4way` | no | `/esc/4way` relays BLHeli 4-way bytes, an external protocol. `/esc/status` is a small JSON poll with one host client, `auto_battlebot/blheli32/http_port.py` |
 | `velocity_jig` ASCII console protocol | no | Standalone tool, human-typed commands, never reaches the app |
 | `viz_relay` `/healthz` JSON | no | One-field HTTP probe for the kiosk |
@@ -62,45 +86,60 @@ changed these parts:
 ## What exists
 
 - **C++ JSON writers**: all hand-built `std::string` through `OutputChannel::log`
-  (`include/publisher/output_channel.hpp:32`). They are `to_frame_meta_json`
+  (`include/publisher/output_channel.hpp:31`). They are `to_frame_meta_json`
   (`src/foxglove_adapters/camera_info.cpp:43`), `to_detections_json`
-  (`src/foxglove_adapters/detections.cpp:10`), `diagnostics_module_json`
-  (`src/diagnostics_logger/foxglove_diagnostics_backend.cpp`), `to_espnow_telemetry_json`
-  (`src/transmitter/espnow_transmitter.cpp:61`), and
-  `AprilTagKeypointModel::to_json` (`src/keypoint_model/apriltag_keypoint_model.cpp:446`).
-  No C++ code writes `/robot/esp32_diagnostics`; only recordings before 2026-11-20 carry it.
-- **C++ JSON reader**: `video_playback_camera.cpp:199-200` string-scans `/camera/frame_meta`.
-  The same file hand-decodes protobuf `CompressedVideo` to avoid linking protobuf.
+  (`src/foxglove_adapters/detections.cpp:10`, `/keypoint_detections` only),
+  `diagnostics_module_json` (`src/diagnostics_logger/foxglove_diagnostics_backend.cpp:41`),
+  `to_espnow_telemetry_json` (`src/transmitter/espnow_transmitter.cpp:61`), and
+  `AprilTagKeypointModel::to_json` (`src/keypoint_model/apriltag_keypoint_model.cpp:443`).
+  `OutputChannel::log_message<T>` (`:36`) already encodes Foxglove SDK types into the reused
+  `buffer_`; `log_proto` goes beside it.
+- **C++ JSON readers**:
+  - `video_playback_camera.cpp:190-196` string-scans `/camera/frame_meta`. The same file
+    hand-decodes protobuf `CompressedVideo` to avoid linking protobuf.
+  - `src/health/mcap_grader.cpp` parses JSON with nlohmann from `/camera/frame_meta`,
+    `/keypoint_detections`, `/status/system`, `/status/tracks`, `/status/config`,
+    `/robot/espnow_telemetry`, and four `/diagnostics/<module>` topics (`espnow_transmitter`,
+    `opentx_transmitter`, `rl_policy_nav`, `kalman_motion_estimator`). `tools/verify_mcap.cpp`
+    and `scripts/verify_mcap` run it over recordings; `tests/health/test_mcap_grader.cpp` builds
+    JSON fixtures for it.
 - **Remote protocol**: structs with `AB_JSON_MESSAGE` (`include/remote/messages.hpp`), topic table
-  in `include/remote/protocol.hpp:38-63` (8 status, 12 command), encode/decode/schema in
+  in `include/remote/protocol.hpp:31-57` (9 status, 12 command), encode/decode/schema in
   `include/remote/json_message.hpp`. `tools/remote_protocol_dump.cpp` feeds
   `web/scripts/gen-protocol.mjs`, which writes `web/src/generated/protocol.ts`.
-- **Python**: almost every reader goes through `mcap_io.iter_messages` (`mcap_io.py:113`), then
-  either a typed decoder (`decode_frame_meta :195`, `decode_diagnostic_array :205`,
-  `decode_detections :471`, `sysid_io.parse_robot_tags :134`,
-  `sysid_io.load_esp32_diagnostics`) or a raw `decode_json(data)[...]`. There are 25 raw
-  `decode_json(` call sites in 14 files. `mcap_io._proto` (`:85`) already decodes protobuf from
-  the file's embedded schema through `mcap_protobuf`.
-- **Web**: `@foxglove/ws-protocol`, JSON decode in `web/src/lib/connection.ts:215`. `protobufjs`
+- **Python**: almost every reader goes through `mcap_io.iter_messages` (`mcap_io.py:116`), then
+  either a typed decoder (`decode_frame_meta :198`, `decode_diagnostic_array :216`,
+  `decode_detections :503`, `sysid_io.parse_robot_tags :138`,
+  `sysid_io.load_robot_telemetry`) or a raw `decode_json(data)[...]`. There are 16 raw
+  `decode_json(` call sites in 9 files, one of them a test. `mcap_io._proto` (`:88`) already
+  decodes protobuf from the file's embedded schema through `mcap_protobuf`.
+- **Web**: `@foxglove/ws-protocol`, JSON decode in `web/src/lib/connection.ts:204`. `protobufjs`
   (`^8.8.0`) already decodes `CompressedImage` and `CompressedVideo` from runtime descriptors
   (`web/src/lib/image.ts`).
 - **viz_relay**: forwards bytes and never parses payloads, but advertises
-  `supported_encodings = {"json"}` for client publishing (`src/viz_relay/main.cpp:238`).
-- **Firmware**: packed structs in `espnow_protocol.h:34-133` with size `static_assert`s
-  (`:162-169`). `TelemetryPayload` is 155 bytes. The host compiles that header
-  (`CMakeLists.txt:268-269`) and memcpys payloads after an exact length check
-  (`espnow_transmitter.cpp:259-266`).
+  `supported_encodings = {"json"}` for client publishing (`src/viz_relay/main.cpp:275`).
+- **Firmware**: packed structs in `espnow_protocol.h:55-145` with size `static_assert`s
+  (`:152-159`). `TelemetryPayload` is 155 bytes. The host compiles that header
+  (`CMakeLists.txt:257-258`) and memcpys payloads after an exact length check
+  (`espnow_transmitter.cpp:256-281`).
+- **Version handshake**: the robot sends `FirmwareInfoPayload` (`protocol_version`, 16-byte build
+  stamp) on `MSG_FIRMWARE_INFO = 0x06` every `FIRMWARE_INFO_PERIOD_MS` (1000 ms).
+  `espnow_protocol.h:20` sets `PROTOCOL_VERSION = 1`. The host decodes it in
+  `EspNowTransmitter::handle_firmware_info`, and `PerformanceMonitor`
+  (`src/health/performance_monitor.cpp:387-395`) reports "firmware protocol N, host speaks M"
+  when they differ. The dongle sends no FirmwareInfo.
 - **Dongle diagnostics tool**: `firmware/espnow_dongle/scripts/espnow_diag.py` reads the dongle's
-  serial stream and serves a live page. It holds the type IDs and payload sizes (`:35-57`) and
-  decodes payloads with `struct.unpack`. `firmware/espnow_dongle/scripts/tests/test_espnow_diag.py` pins its constants to
-  the header.
+  serial stream and serves a live page. It holds the type IDs and payload sizes (`:36-79`) and
+  decodes payloads with `struct.unpack`. It does not know 0x06 yet.
+  `firmware/espnow_dongle/scripts/tests/test_espnow_diag.py` pins its constants to the header.
 - **Dependencies**: no libprotobuf, protoc, or nanopb anywhere. The Foxglove C++ SDK encodes its
   own types in Rust and ships pre-serialized descriptors, so it brings no protobuf runtime. The
-  venv has Python `protobuf 7.34.1` (its metadata says `Requires-Python >=3.10`) and
-  `mcap-protobuf-support`, both transitive and unpinned. `onnx`, `onnxruntime`, and
-  `mcap-protobuf-support` set lower bounds on it (4.25.x) and no upper bound.
-- **Linking**: `auto_battlebot_lib` is a shared library (`CMakeLists.txt:271`). The dev box's
-  OpenCV build (`/usr/local/lib/libopencv_dnn.so.410`) bundles its own protobuf. It exports 22
+  venv has Python `protobuf 7.34.1` (its metadata says `Requires-Python >=3.10`), transitive and
+  unpinned. `mcap-protobuf-support` (0.5.4) is a direct, unpinned dependency in `pyproject.toml`.
+  `onnx`, `onnxruntime`, `onnxruntime-gpu`, and `mcap-protobuf-support` set lower bounds on
+  protobuf (4.25.x) and no upper bound.
+- **Linking**: `auto_battlebot_lib` is a shared library (`CMakeLists.txt:260`). The dev box's
+  OpenCV build (`/usr/local/lib/libopencv_dnn.so.408`) bundles its own protobuf. It exports 22
   symbols that mention `google::protobuf`; 19 are OpenCV and libstdc++ templates, and 3 are
   protobuf's own (`internal::byteswap<1>`, `<4>`, `<8>`).
 
@@ -159,8 +198,8 @@ accept both.
     problem `.llvm-version` exists to solve.
   - Rejected, FetchContent: adds protobuf plus abseil to every `clean_build.sh`, and clean builds
     are routine here.
-- **Link rules.** `auto_battlebot_lib` is a shared library, and the app, the tests, and
-  `remote_protocol_dump` all link it. A process must hold one libprotobuf and one copy of the
+- **Link rules.** `auto_battlebot_lib` is a shared library, and the app, the tests,
+  `remote_protocol_dump`, and `verify_mcap` all link it. A process must hold one libprotobuf and one copy of the
   generated code, or every descriptor registers twice. So:
   - The install builds protobuf and abseil as shared libraries
     (`protobuf_BUILD_SHARED_LIBS=ON`) under `/opt/protobuf-<version>/lib`, and CMake sets the
@@ -214,15 +253,21 @@ no converter.
   It is about 40 lines over `ListFields()` and the descriptor. It must not use
   `json_format.MessageToDict`, which turns 64-bit ints into strings and drops zero-valued
   fields.
-- **C++**: `video_playback_camera.cpp` is the only C++ reader. It parses `FrameMeta` when the
-  channel is protobuf and keeps the string scan for JSON channels.
+- **C++**: two readers, both keyed on the channel's `message_encoding`.
+  - `video_playback_camera.cpp` parses `FrameMeta` when the channel is protobuf and keeps the
+    string scan for JSON channels.
+  - `mcap_grader.cpp` gets one decode function per topic that returns the fields it grades from
+    either encoding, so `verify_mcap` keeps grading old recordings. Each phase moves the grader's
+    topics with the writer.
+- **Topics with no writer** (`/blob_detections`, `/robot/esp32_diagnostics`) keep their JSON
+  readers unchanged and get no `.proto` message.
 
 ### 5. Boundary types
 
 Two rules decide which C++ type a message uses:
 
 - **A struct that exists only to be sent becomes the generated message.** That covers everything
-  in `include/remote/messages.hpp` except `CameraSettings`, plus `FrameMeta`, `Detections`,
+  in `include/remote/messages.hpp` (including `ResolvedConfigMessage`) except `CameraSettings`, plus `FrameMeta`, `Detections`,
   `AprilTagRobotTags`, and `RobotTelemetry`. Producers fill the generated message directly.
   `json_message.hpp` and `AB_JSON_MESSAGE` are deleted.
 - **A domain type the C++ code uses for its own work stays a C++ type**, with one `to_msg`/
@@ -287,27 +332,34 @@ message types, and they get **new type IDs**:
 | Telemetry | 0x02 | 0x22 | robot to Jetson |
 | TunableSet | 0x03 | 0x23 | Jetson to robot |
 | LinkStats | 0x04 | 0x24 | dongle to Jetson |
-| Ping, OTA_* | 0x05, 0x10-0x14 | unchanged | |
+| Ping, FirmwareInfo, OTA_* | 0x05, 0x06, 0x10-0x14 | unchanged | |
 
-ESP-NOW is live: `ESPNOW_ENABLED = true` (`firmware/mr_stabs_mk2/src/main.cpp:96`) and the robot
+ESP-NOW is live: `ESPNOW_ENABLED = true` (`firmware/mr_stabs_mk2/src/main.cpp:89`) and the robot
 drives from it under the autonomy switch. This change swaps the payload of the drive path, so
 the robot, the dongle, and the host change in one flash-and-deploy.
 
 - **Mismatched builds fail closed.** An old robot ignores 0x21, so a new host sends commands
   that the robot never applies. An old host ignores 0x22, so it records no telemetry. Neither
   side misreads a struct as protobuf.
-- **The new host says so.** The dongle forwards every frame, so a new host still receives an old
-  robot's 0x02 telemetry and an old dongle's 0x04 stats. It counts frames on retired IDs and
-  reports "robot firmware uses the retired link protocol, reflash it" (or the dongle) at ERROR
-  in the ESP-NOW transmitter's diagnostics section and in the log. Without that, a mismatched
-  pair looks like a dead link.
+- **The new host says so.** Two signals cover the three old peers:
+  - A robot on `a2ee8582` or later sends FirmwareInfo. Phase 5 bumps `PROTOCOL_VERSION` to 2, so
+    the existing `PerformanceMonitor` check reports "firmware protocol 1, host speaks 2" with no
+    new code. FirmwareInfo itself stays a packed struct on 0x06, frozen like OTA, so every
+    firmware version can report its protocol.
+  - An older robot and any old dongle send no FirmwareInfo. The dongle forwards every frame, so a
+    new host still receives an old robot's 0x02 telemetry and an old dongle's 0x04 stats. It
+    counts frames on retired IDs and reports "robot firmware uses the retired link protocol,
+    reflash it" (or the dongle) at ERROR in the ESP-NOW transmitter's diagnostics section and in
+    the log.
+
+  Without these, a mismatched pair looks like a dead link.
 - **`AIR_MAGIC` keeps version byte `0x01`**, so the new host's `espnow_ota.py` can still flash a
   robot on old firmware. That robot is the one that needs flashing.
 - **The old IDs stay in the enum as retired entries**, not as a comment: `MSG_RETIRED_01` to
   `MSG_RETIRED_04`. The names keep the numbers from being reused, and the host's mismatch report
   switches on them. Nothing encodes or decodes their payloads.
 - **The dongle stays thin.** It stops checking `length != sizeof(CommandPayload)` for the
-  priority slot (`firmware/espnow_dongle/src/main.cpp:177`) and checks the type byte instead. It
+  priority slot (`firmware/espnow_dongle/src/main.cpp:169-170`) and checks the type byte instead. It
   forwards every payload untouched, and encodes only its own LinkStats with nanopb.
 
 ### 10. Hot paths
@@ -321,11 +373,9 @@ the robot, the dongle, and the host change in one flash-and-deploy.
   rebuilt for every module every cycle. The diagnostics backend builds each message on a
   `google::protobuf::Arena` with a reused initial block and resets the arena after each publish,
   so a steady-state cycle does not call the allocator. Gate L1 covers Phase 3 for this reason.
-- **Firmware**: nanopb encodes into a stack buffer with no heap.
-  - The ring (`lib/telemetry_ring/telemetry_ring.h`) stores the nanopb-generated
-    `auto_battlebot_msg_link_Telemetry` C struct. It is fixed-size because the message and its
-    three sub-messages have no strings or repeated fields.
-  - The ring encodes on HTTP serve, on the web server task, not in `loop()`.
+- **Firmware**: nanopb encodes into a stack buffer with no heap. `publish_diag()` fills the
+  generated `auto_battlebot_msg_link_Telemetry` C struct, which is fixed-size because the message
+  and its three sub-messages have no strings or repeated fields.
 
 ### 11. Comments in `.proto` files
 
@@ -342,7 +392,7 @@ language at once: `protoc` copies them into the generated C++, Python stubs, and
 - The exemption stops at `.proto`. Committed generated files (`*_pb2.py`, `*_pb.ts`) carry a
   "Generated by" or `@generated` header in their first 3 lines and are skipped by the existing
   rule; `link.options` and `buf.yaml` get no comments.
-- The `protocol.ts` special case at `comment_budget.py:450` goes when `protocol.ts` does
+- The `protocol.ts` special case at `comment_budget.py:457` goes when `protocol.ts` does
   (Phase 4).
 - `espnow_protocol.h` is not exempt, which is why the retired type IDs are enum entries
   (decision 9).
@@ -477,7 +527,7 @@ message Detection {
   repeated Keypoint kps = 8;
 }
 
-// /blob_detections and /keypoint_detections.
+// /keypoint_detections. Older recordings also carry it on /blob_detections.
 message Detections {
   // Frame stamp, s.
   double stamp = 1;
@@ -586,7 +636,7 @@ message Diagnostics {
 
 ### `telemetry.proto`
 
-One host message for both robot telemetry topics. It wraps the record the robot sends, so the
+One host message for `/robot/espnow_telemetry`. It wraps the record the robot sends, so the
 robot's fields are defined only in `link.proto`.
 
 ```proto
@@ -622,10 +672,9 @@ What changes:
   loaders flatten the record by dropping the `robot`, `imu`, `guard`, and `espnow` levels, so old
   JSON files and new protobuf files give the same columns. A test checks that the leaf names are
   unique and equal the JSON key set.
-- `/robot/esp32_diagnostics` loses `wifi_clients`, which the binary batch path cannot carry
-  today (`TelemetryPayload` has no such field).
-- Its `seq` becomes `robot.telemetry_seq`, the rename `calibration/sysid/telemetry.py` already
-  does.
+- `/robot/esp32_diagnostics` has no writer and gets no message. `sysid_io.load_robot_telemetry`
+  and `calibration/sysid/sources.py` keep decoding it as JSON from older recordings, and keep
+  mapping its `seq` to `telemetry_seq`.
 
 ### `link/link.proto` (firmware and host)
 
@@ -709,7 +758,7 @@ message EspNowStatus {
   uint32 espnow_lq = 6;
 }
 
-// Type 0x22, robot to Jetson at 100 Hz over ESP-NOW; also the record in TelemetryBatch.
+// Type 0x22, robot to Jetson at 100 Hz over ESP-NOW.
 // Leaf field names are unique across this message and its sub-messages, and equal the JSON keys
 // of the recordings made before protobuf.
 message Telemetry {
@@ -726,7 +775,7 @@ message Telemetry {
   float yaw_rate = 7;
   // deg/s clockwise; absent when the yaw loop is not running.
   optional float yaw_rate_cmd = 8;
-  // +1 per frame sent; a gap means dropped frames. In the WiFi ring copy this is the ring seq.
+  // +1 per frame sent; a gap means dropped frames.
   uint32 telemetry_seq = 9;
   float pid_setpoint = 10;
   float pid_output = 11;
@@ -768,22 +817,6 @@ message LinkStats {
   // False while the dongle broadcasts, true once it has learned the robot MAC.
   bool robot_known = 6;
 }
-
-// Body of GET /telemetry.pb?from=<seq>&max=<n>. Replaces TelemetryBatchHeader plus raw records;
-// the new path replaces the magic, version, and record_size checks.
-message TelemetryBatch {
-  // Random per boot; a change means seqs restarted at 0.
-  fixed32 boot_id = 1;
-  // Records the ring holds.
-  uint32 capacity = 2;
-  // Seq the next record gets; head - 1 is the newest.
-  uint32 head = 3;
-  // Oldest seq still in the ring.
-  uint32 oldest = 4;
-  // Seq of records[0].
-  uint32 first_seq = 5;
-  repeated Telemetry records = 6;
-}
 ```
 
 `Telemetry` is grouped into three sub-messages because a proto tag costs one byte only for field
@@ -795,8 +828,7 @@ integers today, and the dict shim would turn an enum into a name.
 
 `link.options` sets `int_size:IS_8` on the `imu_calib_*`, `espnow_channel`, `espnow_lq`,
 `flip_switch`, `guard_state`, `guard_sensors`, and `stall_flags` fields, and `int_size:IS_16` on
-`erpm_crc_errors`, so the generated C struct stays small. It also makes `TelemetryBatch.records`
-a callback that encodes straight from the ring. Ping (0x05) has no payload and keeps none. The
+`erpm_crc_errors`, so the generated C struct stays small. Ping (0x05) has no payload and keeps none. The
 OTA structs stay in `espnow_protocol.h`, unchanged.
 
 ### `status.proto`
@@ -854,6 +886,21 @@ message App {
   string version = 7;
 }
 
+// One resolved config key. value is TOML text; source names the profile file that set it, or
+// "default" for a struct default.
+message ResolvedConfigField {
+  string section = 1;
+  string key = 2;
+  string value = 3;
+  string source = 4;
+}
+
+// /status/config, every 20 s, latched.
+message ResolvedConfig {
+  string profile = 1;
+  repeated ResolvedConfigField fields = 2;
+}
+
 // /status/sticks, 20 Hz: our robot's sticks as the transmitter read them back, [-1, 1].
 message Sticks {
   double linear = 1;
@@ -866,12 +913,11 @@ message TrackedRobot {
   string id = 1;
   string label = 2;
   bool ours = 3;
-  bool stale = 4;
-  double x = 5;
-  double y = 6;
-  double yaw = 7;
+  double x = 4;
+  double y = 5;
+  double yaw = 6;
   // Absent when the robot projects behind the camera.
-  ImagePoint image = 8;
+  ImagePoint image = 7;
 }
 
 // Where navigation is steering this cycle.
@@ -1028,7 +1074,7 @@ message CameraProfile {
 ### `sim.proto`
 
 Replaces `REQUEST_FMT`, `RESPONSE_HEADER_FMT`, and the GT and measurement blocks in
-`simulation/protocol.py`, and the packed structs in `src/simulation/sim_connection.cpp`. Each
+`auto_battlebot/kinematic_sim/protocol.py`, and the packed structs in `src/simulation/sim_connection.cpp`. Each
 message on the TCP stream is prefixed by a little-endian `u32` length.
 
 ```proto
@@ -1147,7 +1193,7 @@ message DriveCommand {
 ## Link size budget
 
 Worst case: every field present, every varint at its widest. Today's sizes come from the
-`static_assert`s in `espnow_protocol.h:162-169` and the payload struct definitions. The worst
+`static_assert`s in `espnow_protocol.h:152-159` and the payload struct definitions. The worst
 case uses the widths nanopb's `*_size` macros are expected to use: 4 bytes for a float or
 fixed32, 1 for a bool, 5 for a `uint32`, 2 for an `IS_8` integer (128 to 255 take two varint
 bytes), and 3 for an `IS_16` one. Gate F1 records the real macro values here.
@@ -1158,7 +1204,6 @@ bytes), and 3 for an `IS_16` one. Gate F1 records the real macro values here.
 | Telemetry | 155 | 237 | 242 | 250 |
 | TunableSet | 5 | 7 | 12 | 250 |
 | LinkStats | 18 | 32 | serial only, 38 | 261 serial |
-| TelemetryBatch, 256 records | 32 + 39,680 | about 61,500 | HTTP | none |
 
 Telemetry worst case adds up as follows:
 
@@ -1191,22 +1236,6 @@ rate, the extra 82 bytes cost at most 109 us of air time per telemetry frame, an
 `*_size` macros replace the hand `static_assert`s:
 `static_assert(auto_battlebot_msg_link_Telemetry_size <= AIR_MAX_PAYLOAD)`.
 
-**Ring memory.** The ring holds 9000 records (`TELEMETRY_RING_PSRAM_RECORDS`,
-`firmware/mr_stabs_mk2/src/main.cpp:63`), 90 s at 100 Hz, in 1.40 MB of the QT Py's 2 MB PSRAM.
-The generated C struct is larger than the packed 155 bytes: it adds a presence flag for each
-`optional` field and each sub-message, and it is aligned. By hand count it comes to about 192
-bytes, or about 166 with `packed_struct:true` in `link.options`.
-
-| Ring record | Bytes | 9000 records | Records in today's 1.40 MB |
-| --- | --- | --- | --- |
-| `TelemetryPayload` today | 155 | 1.40 MB | 9000, 90 s |
-| Generated struct, aligned | about 192 | 1.73 MB | about 7,260, 73 s |
-| Generated struct, `packed_struct` | about 166 | 1.49 MB | about 8,400, 84 s |
-
-Gate F4 measures `sizeof` and free PSRAM after the allocation. `packed_struct` is the first
-choice, since `TelemetryPayload` is already packed and the ESP32-S3 reads it unaligned today.
-`TELEMETRY_RING_PSRAM_RECORDS` then drops to whatever keeps free PSRAM where it is.
-
 ## Steps
 
 Each phase lands on its own and leaves the tree working. Old recordings stay readable after
@@ -1224,14 +1253,15 @@ grep -rIn "decode_json(\|decode_string(\|json\.loads(" --include=*.py \
   | grep -v "^auto_battlebot/recording/mcap_io.py"
 ```
 
-Hits that parse a file, not a message, stay. Today the command finds 25 `decode_json(` call
-sites in 14 files, plus `json.loads(` on message bytes in at least `match_windows.py`,
-`render_match_prediction_camera.py`, and `score_field_session.py`. Phase 1 classifies the
-unchecked `json.loads(` hits in files that call `iter_messages`
-(`auto_battlebot/nav/repro_1025.py`, `auto_battlebot/nav/step_test.py`,
-`auto_battlebot/rl/lockstep_eval.py`, `scripts/calibration/render_mujoco_overlay.py`,
-`auto_battlebot/calibration/sim_stop_test.py`, `auto_battlebot/perception/sysid_sessions.py`) and
-adds each message reader to the phase that owns its topic.
+Hits that parse a file, not a message, stay. On 2026-11-21 the command finds 16
+`decode_json(` call sites in 9 files. The message readers among the `json.loads(` hits are
+`match_windows.py` and `render_match_prediction_camera.py` (`/camera/frame_meta`),
+`score_field_session.py` (`/status/tracks`), and `auto_battlebot/nav/repro_1025.py` and
+`auto_battlebot/nav/step_test.py` (`/robot/espnow_telemetry`). The `json.loads(` hits in
+`lockstep_eval.py`, `sim_stop_test.py`, and `sysid_sessions.py` parse files and stay.
+
+The C++ side has no grep: `mcap_grader.cpp` is the one C++ reader besides
+`video_playback_camera.cpp`, and each phase lists the grader topics it moves.
 
 ### Phase 0: toolchain (gate T1)
 
@@ -1267,17 +1297,20 @@ adds each message reader to the phase that owns its topic.
      `convert_ros1_mcap.py`.
    - The raw readers move to `decode_frame_meta` or `decode_dict`:
      `auto_battlebot/calibration/match/match_windows.py`,
-     `playground/opponent_prediction/render_dropout_videos.py`,
      `auto_battlebot/calibration/match/render_match_prediction_camera.py`,
-     `auto_battlebot/calibration/sysid/check_sysid_recordings.py`, `scripts/combine_mcap_svo.py`.
+     `auto_battlebot/calibration/sysid/check_sysid_recordings.py`, `scripts/combine_mcap_svo.py`
+     (which reads `svo_path`, a key no current writer sets; it keeps working on old files only).
+   - `mcap_grader.cpp` decodes `/camera/frame_meta` from both encodings.
 
 ### Phase 2: the other recording topics (gate L1)
 
-1. Detections: `to_detections_json`, `decode_detections`, `read_detections`, the raw reader in
-   `render_dropout_videos.py`, and `CameraView.svelte`'s hand-written `Detections` interface
-   (the web subscribes to `/keypoint_detections`).
-2. AprilTagRobotTags: `AprilTagKeypointModel::to_json`, `sysid_io.parse_robot_tags`, and the
-   writer in `calibration/sysid/synthetic.py`.
+1. Detections: `to_detections_json`, `decode_detections`, `read_detections`, the
+   `/keypoint_detections` handler in `mcap_grader.cpp`, and `CameraView.svelte`'s hand-written
+   `Detections` interface (the web subscribes to `/keypoint_detections`). `/blob_detections`
+   has no writer; `decode_detections` keeps reading it from old files.
+2. AprilTagRobotTags: `AprilTagKeypointModel::to_json`, `sysid_io.parse_robot_tags` (called from
+   `sysid_io.py` and `calibration/sysid/sources.py`), and the writer in
+   `calibration/sysid/synthetic.py`.
 3. Calibration tool topics: the writers and readers in
    `auto_battlebot/calibration/apriltag/apriltag_mcap.py` (4 `log_json` calls, 3 `decode_json`
    calls), and `auto_battlebot/calibration/apriltag/analyze_apriltag_mcap.py`.
@@ -1289,9 +1322,10 @@ adds each message reader to the phase that owns its topic.
    - `diagnostics_module_json` becomes `to_diagnostics_msg`, built on a reused arena
      (decision 10).
    - `decode_diagnostic_array` handles both encodings.
-   - The raw readers move to `decode_dict`: `compare_replays.py`,
-     `fit_opponent_sensing_model.py`, `plot_dropout_samples.py`, `fit_sensing_model.py`,
-     `fit_provisional_ekf_error.py`.
+   - The raw readers move to `decode_dict`: `auto_battlebot/rl/fit_sensing_model.py`
+     (`/diagnostics/kalman_motion_estimator`) and `auto_battlebot/rl/fit_provisional_ekf_error.py`
+     (`kalman_motion_estimator`, `sim_camera`, `rl_policy_nav`).
+   - `mcap_grader.cpp` decodes its four `/diagnostics/<module>` topics from both encodings.
    - The writers move over: `McapWriter.log_diagnostics` and `convert_ros1_mcap.py`.
    - The web's `diagnostics.svelte.ts` moves over.
    - Gate L1 runs on the Jetson with every diagnostics module publishing.
@@ -1309,18 +1343,20 @@ adds each message reader to the phase that owns its topic.
    over, then goes.
 4. Web:
    - protobuf-es types replace `protocol.ts`, `gen-protocol.mjs`, and the schema half of
-     `remote_protocol_dump`.
+     `remote_protocol_dump`. `ResolvedConfig.svelte` and `status.svelte.ts` read
+     `/status/config` from the generated type.
    - `connection.ts` decodes by topic and advertises command channels as protobuf, with the
      `FileDescriptorSet` from the generated file.
    - The command builders set every field.
    - `comment_budget.py` loses its `protocol.ts` special case.
 5. Python readers of `/status/tracks` move to `decode_dict`:
-   `playground/opponent_prediction/compare_replays.py`,
-   `auto_battlebot/rl/fit_sensing_model.py`, and `auto_battlebot/rl/score_field_session.py`
+   `auto_battlebot/rl/fit_sensing_model.py` and `auto_battlebot/rl/score_field_session.py`
    (which calls `json.loads` on the bytes today). `field_outline` comes back as lists of points
    either way.
+6. `mcap_grader.cpp` decodes `/status/system`, `/status/tracks`, and `/status/config` from both
+   encodings.
 
-### Phase 5: ESP-NOW link and robot telemetry (gates F1 to F4)
+### Phase 5: ESP-NOW link and robot telemetry (gates F1 to F3)
 
 ESP-NOW drives the robot today, so this phase starts with the F3 baseline on the current
 firmware and ends with the robot, the dongle, and the host changed together.
@@ -1330,10 +1366,8 @@ firmware and ends with the robot, the dongle, and the host changed together.
 3. Firmware:
    - nanopb in the robot and dongle builds.
    - `publish_diag()` fills `auto_battlebot_msg_link_Telemetry` and its three sub-messages.
-   - The ring stores the generated struct, with `TELEMETRY_RING_PSRAM_RECORDS` set by gate F4.
-   - `/telemetry` becomes `/telemetry.pb`, encoding `TelemetryBatch` with the `records`
-     callback.
    - The new type IDs go in, and 0x01 to 0x04 become `MSG_RETIRED_*` entries.
+   - `PROTOCOL_VERSION` goes to 2. FirmwareInfo (0x06) stays as it is.
    - The packed payload structs are deleted from `espnow_protocol.h`, leaving the framing, the
      CRC, `SerialFrameParser`, and the OTA structs.
    - Native googletest env tests encode golden fixtures.
@@ -1343,25 +1377,32 @@ firmware and ends with the robot, the dongle, and the host changed together.
      `RobotTelemetry`.
    - It counts frames on the retired IDs and reports the mismatch (decision 9).
    - `to_espnow_telemetry_json` is deleted.
+   - `mcap_grader.cpp` decodes `/robot/espnow_telemetry` from both encodings.
 6. Python:
    - `calibration/sysid/telemetry.py` takes its columns from the `link.Telemetry` descriptor
      plus the `RobotTelemetry` host fields, flattening the sub-messages by leaf name.
-   - `sysid_io.load_esp32_diagnostics` and `calibration/sysid/sources.py` decode both encodings.
+   - `sysid_io.load_robot_telemetry` and `calibration/sysid/sources.py` decode both encodings of
+     `/robot/espnow_telemetry`, and keep the JSON-only path for `/robot/esp32_diagnostics`.
+   - `auto_battlebot/nav/repro_1025.py` and `auto_battlebot/nav/step_test.py` move to
+     `decode_dict`.
    - `calibration/sysid/synthetic.py` writes `RobotTelemetry`.
    - `firmware/espnow_dongle/scripts/espnow_diag.py` takes its type IDs from one table and
      decodes Command, Telemetry, TunableSet, and LinkStats with `auto_battlebot.msg.link`. Its
-     payload-size table and `struct.unpack` decoders for those four go; the OTA ones stay.
+     payload-size table and `struct.unpack` decoders for those four go; the OTA ones stay, and it
+     learns FirmwareInfo (0x06).
      `firmware/espnow_dongle/scripts/tests/test_espnow_diag.py` checks the new IDs against the header.
 7. Firmware, dongle, and host flash and deploy together. They fail closed if they are not, and
    the host reports which side is old.
 
 ### Phase 6: sim protocol (gate S1)
 
-`simulation/protocol.py`, `kinematic_sim_server.py`, `rl_eval_server.py`, `sim_connection.cpp`,
-and `auto_battlebot/kinematic_sim/tests/test_sim_protocol.py` move to length-prefixed `StepRequest`/`StepResponse`.
+`auto_battlebot/kinematic_sim/protocol.py`, `kinematic_sim_server.py`, `rl_eval_server.py` (all
+three in `auto_battlebot/kinematic_sim/`; `simulation/rl_eval_server.py` is a shim),
+`src/simulation/sim_connection.cpp`, and `auto_battlebot/kinematic_sim/tests/test_sim_protocol.py`
+move to length-prefixed `StepRequest`/`StepResponse`.
 
 Today the client receives `rgb` and `depth` straight into the `cv::Mat` buffers
-(`sim_connection.cpp:159-167`). As `bytes` fields they are copied once on serialize and once on
+(`sim_connection.cpp:158-166`). As `bytes` fields they are copied once on serialize and once on
 parse: 640x360 RGB plus float depth is 1.6 MB per tick on each side. Gate S1 checks the tick
 rate for that reason.
 
@@ -1372,8 +1413,7 @@ rate for that reason.
    - the schema texts and `JSON_TOPIC_SCHEMAS` in `mcap_write.py`
    - `auto_battlebot/recording/tests/test_json_schema_parity.py`
    - the C++ `json_number`/`json_escape` helpers once nothing uses them
-   - `McapWriter.log_json`, if nothing outside the legacy-read tests calls it
-2. Rewrite `docs/reference/recording/foxglove_recording_format.md`:
+   - `McapWriter.log_json`, if nothing outside the legacy-read tests calls it2. Rewrite `docs/reference/recording/foxglove_recording_format.md`:
    - the channel table and per-topic sections point at the `.proto` files
    - a "Reading older files" section lists the JSON layouts readers still accept
 3. `CLAUDE.md`, Conventions:
@@ -1388,15 +1428,14 @@ rate for that reason.
 
 | Gate | Phase | Passes when |
 | --- | --- | --- |
-| T1 | 0 | The hello message round-trips in C++, Python, TS, and native firmware on dev x86 (22.04 and 24.04), the JP7 Orin NX, and the JP6 ZED Box Mini. With hello compiled into `auto_battlebot_lib`, `./scripts/build_and_test.sh` passes and one playback replay runs to the end. `ldd` on the app, the test binary, and `remote_protocol_dump` shows one libprotobuf, and `viz_relay` shows none. The Python runtime installs in the 3.10 and 3.12 venvs with the pin. The playback Docker image builds. The protobuf build time on the ZED Box Mini is recorded here |
-| R1 | 1 | A new C++-written MCAP decodes in Python and in the Foxglove app. Every typed decoder returns identical results before and after the change on the NHRL May replay set and the four `nhrl_keypoints_eval_test` recordings |
+| T1 | 0 | The hello message round-trips in C++, Python, TS, and native firmware on dev x86 (22.04 and 24.04), the JP7 Orin NX, and the JP6 ZED Box Mini. With hello compiled into `auto_battlebot_lib`, `./scripts/build_and_test.sh` passes and one playback replay runs to the end. `ldd` on the app, the test binary, `remote_protocol_dump`, and `verify_mcap` shows one libprotobuf, and `viz_relay` shows none. The Python runtime installs in the 3.10 and 3.12 venvs with the pin. The playback Docker image builds. The protobuf build time on the ZED Box Mini is recorded here |
+| R1 | 1 | A new C++-written MCAP decodes in Python and in the Foxglove app. Every typed decoder returns identical results before and after the change on the NHRL May replay set and the four `nhrl_keypoints_eval_test` recordings. `scripts/verify_mcap` gives the same verdicts on those recordings and on one new protobuf recording of the same SVO |
 | D1 | 3 | In Foxglove, a diagnostics value plots from a message path a person can type, e.g. `/diagnostics/nav.sections[:]{key=="nav"}.value.values[:]{key=="speed"}.value.number`. If that is the best Foxglove offers and it is unusable in practice, diagnostics stays JSON |
-| W1 | 4 | On the ZED Box, every dashboard panel renders and every command is acked against the live app. A command with an `UNSPECIFIED` enum is refused. Open question 4 is answered before JSON command channels are removed |
+| W1 | 4 | On the ZED Box, every dashboard panel renders and every command is acked against the live app. A command with an `UNSPECIFIED` enum is refused. Open question 2 is answered before JSON command channels are removed |
 | L1 | 1, 2, 3, 4 | Loop time p99 from `scripts/mcap_latency_report.py` on the Jetson regresses by no more than 0.5 ms against a baseline taken the same day on the same build box. For Phase 3 the run has every diagnostics module publishing |
 | F1 | 5 | The nanopb `*_size` `static_assert`s hold, and the macro values are written into the Link size budget table. Golden bytes encoded by nanopb decode identically in libprotobuf and Python, and the reverse for Command |
 | F2 | 5 | `pb_encode` of a full Telemetry on the ESP32-S3 takes under 100 us, measured with `esp_timer` over 10,000 frames |
-| F3 | 5 | Over a 5-minute bench session, `round_trip_us` p50 and p99 are within 0.2 ms of the baseline taken from the current firmware in Phase 5 step 1. With an old robot and a new host, and with an old dongle and a new host, the host reports the mismatch within 1 s |
-| F4 | 5 | `sizeof(auto_battlebot_msg_link_Telemetry)` is recorded in the Ring memory table. Free PSRAM after the ring allocation is at least what it is today, with `TELEMETRY_RING_PSRAM_RECORDS` cut to match |
+| F3 | 5 | Over a 5-minute bench session, `round_trip_us` p50 and p99 are within 0.2 ms of the baseline taken from the current firmware in Phase 5 step 1. The host reports the mismatch within 1 s in three pairings: a protocol-1 robot that sends FirmwareInfo, a robot from before `a2ee8582` that does not, and an old dongle |
 | S1 | 6 | The lockstep smoke test (Mr Stabs Mk2, MotionProfile, 450 ticks, `config/simulation/mr_stabs_mk2_kinematic_sim_sensing.toml`) gives the same result as before: the same tick count to first command and the same final distance. Its wall-clock tick rate is within 5% of a baseline taken the same day |
 
 ## Tests
@@ -1408,9 +1447,10 @@ rate for that reason.
   This replaces `test_json_schema_parity.py`.
 - **Legacy decode**: the existing JSON-text tests (`test_detections.cpp`, `test_camera_info.cpp`,
   `test_foxglove_diagnostics_backend.cpp`, `test_espnow_transmitter.cpp`,
-  `test_video_playback_camera.cpp`,
-  `test_status_bus.cpp`) become protobuf tests. A JSON message from each kept as a fixture
-  checks that the readers still accept old files.
+  `test_video_playback_camera.cpp`, `test_status_bus.cpp`, `test_mcap_grader.cpp`, under
+  `tests/` and its `foxglove_adapters/`, `diagnostics_logger/`, `camera/`, `remote/`, and
+  `health/` directories) become protobuf tests. A JSON message from each kept as a fixture checks
+  that the readers still accept old files.
 - **`decode_dict`**: for each topic, the JSON and protobuf forms of the same message give equal
   dicts. That covers NaN, absent optionals, 64-bit ints, and enums.
 - **Enum mirrors**: compile-time, through the magic_enum name `static_assert`s.
@@ -1419,7 +1459,7 @@ rate for that reason.
 - **Telemetry leaf names**: the leaf field names of `link.Telemetry` are unique and equal the
   key set of a JSON `/robot/espnow_telemetry` fixture, minus the host fields.
 - **Link mismatch**: a frame on a retired type ID raises the host's mismatch report and is
-  never decoded.
+  never decoded. A protocol-1 FirmwareInfo raises the `PerformanceMonitor` protocol warning.
 - **`espnow_diag.py`**: decodes the `link.proto` golden fixtures, and its type IDs match the
   header.
 - **Comment policy**: a commented `.proto` file passes `comment_budget.py check`.
@@ -1450,8 +1490,8 @@ rate for that reason.
   catches whichever breaks.
 - **Mixed robot and host builds during Phase 5** fail closed. ESP-NOW is the live drive path, so
   a field session with a mismatched pair has no autonomy until both are reflashed. The new host
-  names the old side in diagnostics and the log (decision 9); an old host with new firmware shows
-  only `LinkStats.robot_known` with no telemetry.
+  names the old side in diagnostics and the log (decision 9). An old host with new firmware still
+  decodes FirmwareInfo, so its `PerformanceMonitor` reports "firmware protocol 2, host speaks 1".
 - **Foxglove paths change.** The telemetry topics gain `.robot.` (and `.imu.`, `.guard.`, or
   `.espnow.` for the grouped fields), and the schema names gain `.msg.`. There are no committed
   layouts. Paths quoted in prose under `docs/` and in script help text get updated in the phase
@@ -1459,13 +1499,9 @@ rate for that reason.
 
 ## Open questions
 
-1. Should `/robot/esp32_diagnostics` keep its name, or become `/robot/wifi_telemetry` now that it
-   carries `RobotTelemetry`? This plan keeps the name.
-2. Is dropping `wifi_clients` from `/robot/esp32_diagnostics` fine? Only the legacy CSV path ever
-   filled it.
-3. Should Phase 6 (sim) wait until the nav v2 work in `nav_scoring_and_rl_v2_plan.md` is not
+1. Should Phase 6 (sim) wait until the nav v2 work in `nav_scoring_and_rl_v2_plan.md` is not
    using the lockstep server daily?
-4. Does anyone send commands from the Foxglove app's Publish panel? `protocol.hpp` says a
+2. Does anyone send commands from the Foxglove app's Publish panel? `protocol.hpp` says a
    Foxglove panel can use them. If so, check that the panel can publish to a protobuf channel
    before Phase 4 drops JSON from `supported_encodings`; if it cannot, the relay keeps JSON
    command channels and `decode_command` keeps a JSON path.
