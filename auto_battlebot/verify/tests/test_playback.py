@@ -343,3 +343,47 @@ def test_verify_cli_adds_playback_groups(tmp_path: Path) -> None:
         "--tier",
         "lockstep",
     ]
+
+
+def test_clip_proofs_grade_metrics_topic_rates_and_checks(tmp_path: Path) -> None:
+    got = playback.digest_mcap(write_clip(tmp_path / "a.mcap"), "lockstep")
+    baselines = baselines_with("m", "clip", got)
+    results = {
+        r.id: r.status for r in playback.clip_proofs("clip", "lockstep", got, baselines, "m", 1.0)
+    }
+    assert results["playback:clip:hashes"] == "passed"
+    assert results["playback:clip:opponent_coverage"] == "passed"
+    assert results["mcap:topic_rate:/camera/frame_meta"] == "passed"
+    assert results["mcap:camera_frames_link"] == "failed"
+    assert "mcap:topic_rate:/tf" not in results
+    moved = playback.digest_mcap(write_clip(tmp_path / "b.mcap", linear=0.6), "lockstep")
+    moved_results = {
+        r.id: r.status for r in playback.clip_proofs("clip", "lockstep", moved, baselines, "m", 1.0)
+    }
+    assert moved_results["playback:clip:hashes"] == "failed"
+    assert moved_results["playback:clip:linear_mean_abs"] == "failed"
+    assert moved_results["playback:clip:opponent_coverage"] == "passed"
+
+
+def test_per_frame_topic_rate_needs_most_frames() -> None:
+    got = playback.Digest({}, {"frames": 100.0}, [], {"/tf": 90, "/log": 1, "/status/system": 3})
+    statuses = playback.topic_rate_statuses(got)
+    assert statuses["/tf"] == "failed"
+    assert statuses["/log"] == "passed"
+    assert statuses["/status/system"] == "passed"
+    assert (
+        playback.topic_rate_statuses(playback.Digest({}, {"frames": 100.0}, [], {"/tf": 96}))["/tf"]
+        == "passed"
+    )
+
+
+def test_cross_class_metrics_grade_only_toleranced_ones() -> None:
+    reference = digest({"/a": "1"})
+    baselines = baselines_with("x86", "clip", reference)
+    statuses = playback.metric_statuses(
+        "clip", "lockstep", digest({"/a": "2"}, opponent_coverage=0.9), baselines, "jetson"
+    )
+    assert "hashes" not in statuses
+    assert statuses["opponent_coverage"] == "failed"
+    assert statuses["moving_fraction"] == "passed"
+    assert playback.metric_statuses("clip", "realtime", reference, baselines, "x86") == {}

@@ -222,15 +222,16 @@ std::string format_resolved_toml(const ResolvedConfig &resolved) {
     return os.str();
 }
 
-ConfigDefaultsRecorder::ConfigDefaultsRecorder() : previous_(active_recorder) {
+ConfigDefaultsRecorder::ConfigDefaultsRecorder(RecorderMode mode)
+    : mode_(mode), previous_(active_recorder) {
     active_recorder = this;
 }
 
 ConfigDefaultsRecorder::~ConfigDefaultsRecorder() { active_recorder = previous_; }
 
 void ConfigDefaultsRecorder::record(const toml::table &table, const std::string &section_name,
-                                    const std::string &key, std::string value) {
-    defaults_.push_back({&table, section_name, key, std::move(value)});
+                                    const std::string &key, std::string value, bool required) {
+    defaults_.push_back({&table, section_name, key, std::move(value), required});
 }
 
 ResolvedConfig ConfigDefaultsRecorder::resolve(const toml::table &root,
@@ -238,6 +239,7 @@ ResolvedConfig ConfigDefaultsRecorder::resolve(const toml::table &root,
     Resolver resolver(config_root);
     resolver.walk(root, "");
     for (const auto &recorded : defaults_) {
+        if (recorded.required) continue;
         resolver.add_default(recorded.table, recorded.section_name, recorded.key, recorded.value);
     }
     return resolver.finish();
@@ -248,5 +250,12 @@ void record_config_default(const toml::table &table, const std::string &section_
     if (active_recorder) {
         active_recorder->record(table, section_name, key, std::move(value));
     }
+}
+
+bool probe_required_field(const toml::table &table, const std::string &section_name,
+                          const std::string &key) {
+    if (!active_recorder || active_recorder->mode() != RecorderMode::PROBE_SCHEMA) return false;
+    active_recorder->record(table, section_name, key, kUnsetValue, true);
+    return true;
 }
 }  // namespace auto_battlebot

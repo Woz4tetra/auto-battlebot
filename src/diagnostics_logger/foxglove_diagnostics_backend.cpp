@@ -18,7 +18,7 @@ OutputChannel &FoxgloveDiagnosticsBackend::channel_for(const std::string &module
         it = channels_
                  .emplace(module,
                           std::make_unique<OutputChannel>(
-                              "/diagnostics/" + module, "json",
+                              diagnostics_topic(module), "json",
                               VizSchema::jsonschema(foxglove_adapters::kDiagnosticsSchemaName,
                                                     foxglove_adapters::kDiagnosticsSchema),
                               false, sink_, mcap_recorder_))

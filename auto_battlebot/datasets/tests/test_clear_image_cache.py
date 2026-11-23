@@ -80,3 +80,26 @@ def test_own_process_chain_is_skipped_by_busy_scan(cache, tmp_path: Path, monkey
     finally:
         child.kill()
         child.wait()
+
+
+def test_dry_run_cli_reports_stale_caches_and_deletes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import runpy
+
+    from auto_battlebot.paths import REPO_ROOT
+
+    images = tmp_path / "old_set" / "images" / "train"
+    images.mkdir(parents=True)
+    stale = []
+    for i in range(3):
+        npy = images / f"frame_{i}.npy"
+        npy.write_bytes(b"\0" * 1000)
+        os.utime(npy, (1_000_000_000, 1_000_000_000))
+        stale.append(npy)
+    argv = ["clear_image_cache.py", str(tmp_path), "--time-source", "mtime", "--dry-run"]
+    monkeypatch.setattr("sys.argv", argv)
+    runpy.run_path(str(REPO_ROOT / "training/yolo/clear_image_cache.py"), run_name="__main__")
+    out = capsys.readouterr().out
+    assert "dry run: would free" in out
+    assert all(npy.exists() for npy in stale)

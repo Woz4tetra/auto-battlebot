@@ -372,3 +372,38 @@ class TestSubmitNcclEnv:
     ) -> None:
         job = self._submit(monkeypatch, tmp_path, [0])
         assert "NCCL_P2P_DISABLE" not in job["env"]
+
+
+def test_status_cli_estimates_a_queued_job_from_history(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import json
+    import runpy
+
+    from auto_battlebot.paths import REPO_ROOT
+
+    for name, rel in (
+        ("QUEUE_DIR", ""),
+        ("STATE_PATH", "state.json"),
+        ("STATE_LOCK", "state.lock"),
+        ("WORKER_LOCK", "worker.lock"),
+        ("LOG_DIR", "logs"),
+    ):
+        monkeypatch.setattr(queue, name, tmp_path / rel if rel else tmp_path)
+    monkeypatch.setattr(queue, "gpu_busy_processes", lambda ignore_pids: [])
+    command = ["python", "training/yolo/train.py", "data", "yolo26s", "-e", "10"]
+    state = {
+        "next_id": 3,
+        "jobs": [make_job(1, command, seconds=3600), make_job(2, command)],
+        "worker_stop": False,
+    }
+    (tmp_path / "state.json").write_text(json.dumps(state))
+    monkeypatch.setattr("sys.argv", ["gpu_queue.py", "status", "--json"])
+    with pytest.raises(SystemExit) as exit_info:
+        runpy.run_path(str(REPO_ROOT / "training/gpu_queue.py"), run_name="__main__")
+    assert exit_info.value.code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["run_order"] == [2]
+    assert report["worker_alive"] is False
+    queued = next(job for job in report["jobs"] if job["id"] == 2)
+    assert queued["estimated_seconds"] == 3600

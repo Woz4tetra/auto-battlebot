@@ -124,3 +124,59 @@ def test_rl_eval_server_skips_the_camera_compositor() -> None:
     with mock.patch.object(server, "_world", create=True) as world:
         server._render_camera()
     world.compose_world.assert_not_called()
+
+
+def recv_exact(sock: object, size: int) -> bytes:
+    import socket
+
+    assert isinstance(sock, socket.socket)
+    data = b""
+    while len(data) < size:
+        chunk = sock.recv(size - len(data))
+        assert chunk, "server closed the connection"
+        data += chunk
+    return data
+
+
+def test_wrapper_script_serves_a_frame_to_the_cpp_wire_format(tmp_path) -> None:
+    import socket
+    import struct
+    import time
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    config = (REPO_ROOT / "simulation" / "sim_mrs_buff_mk3.toml").read_text()
+    config = re.sub(r"(?m)^port = \d+$", f"port = {port}", config, count=1)
+    (tmp_path / "sim.toml").write_text(config)
+    server = subprocess.Popen(
+        [sys.executable, "simulation/kinematic_sim_server.py", str(tmp_path / "sim.toml")],
+        cwd=REPO_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        deadline = time.monotonic() + 60.0
+        while True:
+            try:
+                sock = socket.create_connection(("127.0.0.1", port), timeout=30.0)
+                break
+            except OSError:
+                assert server.poll() is None, server.stderr.read() if server.stderr else ""
+                assert time.monotonic() < deadline, "server never listened"
+                time.sleep(0.2)
+        with sock:
+            sock.sendall(struct.pack("<3d", 0.5, 0.0, 0.0))
+            header = recv_exact(sock, 4 + 4 + 16 * 8 + 5 * 8)
+            width, height = struct.unpack_from("<II", header)
+            fx, _fy, _cx, _cy, sim_time = struct.unpack_from("<5d", header, 8 + 16 * 8)
+            assert (width, height) == (640, 360)
+            assert fx > 0.0 and sim_time >= 0.0
+            recv_exact(sock, width * height * 3 + width * height * 4)
+            (robots,) = struct.unpack("<I", recv_exact(sock, 4))
+            assert robots >= 2
+            poses = struct.unpack(f"<{3 * robots}d", recv_exact(sock, 24 * robots))
+            assert all(math.isfinite(v) for v in poses)
+    finally:
+        server.kill()
+        server.wait(timeout=10)

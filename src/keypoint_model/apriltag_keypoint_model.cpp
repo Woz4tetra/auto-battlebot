@@ -17,7 +17,6 @@
 
 namespace auto_battlebot {
 namespace {
-constexpr const char *kTopic = "/apriltag/robot_tags";
 constexpr double kDegrees = M_PI / 180.0;
 constexpr double kSameFloorDirectionToleranceRad = 5.0 * kDegrees;
 constexpr double kRivalClusterMinAngleRad = 10.0 * kDegrees;
@@ -230,10 +229,10 @@ AprilTagKeypointModel::AprilTagKeypointModel(const AprilTagKeypointModelConfigur
     : config_(config),
       detector_(cv::aruco::getPredefinedDictionary(cv::aruco::DICT_APRILTAG_36h11),
                 small_apriltag_detector_parameters()),
-      channel_(kTopic, "json",
+      channel_(viz_topic(VizTopicId::APRILTAG_ROBOT_TAGS),
                VizSchema::jsonschema(foxglove_adapters::kAprilTagRobotTagsSchemaName,
                                      foxglove_adapters::kAprilTagRobotTagsSchema),
-               false, std::move(sink), std::move(mcap_recorder)),
+               std::move(sink), std::move(mcap_recorder)),
       diagnostics_logger_(DiagnosticsLogger::get_logger("apriltag_keypoint_model")) {
     for (const auto &tag : config_.tags) {
         mounts_.push_back(make_tag_mount(tag, config_.rest_pitch_rad));

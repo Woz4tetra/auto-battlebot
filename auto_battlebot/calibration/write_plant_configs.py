@@ -11,7 +11,7 @@ from pathlib import Path
 from auto_battlebot.compat import tomllib
 from auto_battlebot.paths import REPO_ROOT
 
-DEFAULT_FIT = REPO_ROOT / "scripts" / "calibration" / "plant_stageA.toml"
+DEFAULT_FIT = Path(__file__).with_name("plant_stageA.toml")
 SIM_CONFIG = REPO_ROOT / "simulation" / "sim_mrs_buff_mk3.toml"
 PLANT_CONFIG = REPO_ROOT / "config" / "robots" / "mrs_buff_mk3.toml"
 MR_STABS_PLANT_CONFIG = REPO_ROOT / "config" / "robots" / "mr_stabs_mk2.toml"

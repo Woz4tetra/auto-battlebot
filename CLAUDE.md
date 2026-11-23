@@ -98,9 +98,9 @@ Do not use `uv run` or create a `uv.lock`. The venv is the intended environment 
   file and its tests inside: Rust (`Cargo.toml`), Go (`go.mod`), C++, or a TypeScript frontend that
   needs a build step (`package.json`). A built frontend that a Python module serves writes its
   output into that module's `static/`; the TypeScript source stays in `tools/`. `web/` stays the
-  dashboard. `scripts/verify` and `scripts/lint` do not cover `tools/<name>/` yet; the first tool in
-  a new language adds its suite and lint step. Shell entry points stay at the top level of
-  `scripts/`.
+  dashboard. `scripts/verify` (`tools` suite) and `scripts/lint` (prettier) cover TypeScript tools
+  with a `package.json`; the first tool in another language adds its suite and lint step. Shell
+  entry points stay at the top level of `scripts/`.
 - Tests load a non-package script with `auto_battlebot.script_loader.load_script("training/x/y.py")`.
 - Golden fixture generators live in `tests/fixtures/generators/`. Synthgen scene pipelines live in
   `training/synthetic/scenes/`. Promoted MuJoCo plant fits live in `training/rl/plant_fits/`.
@@ -185,6 +185,11 @@ All code is in namespace `auto_battlebot`. Interfaces live in `include/<module>/
   (`docs/reference/tools/thread_safety.md`)
 - Remote UI status topics and commands are added in `include/remote/protocol.hpp` (one row each,
   structs in `include/remote/messages.hpp`); `./scripts/lint` regenerates the web page's types
+- Foxglove topics are rows of `kVizTopics` in `include/publisher/viz_topics.hpp`, never a string
+  literal at the call site
+- A new command, status topic, factory type, CLI, transmitter control, dashboard readout, profile,
+  unit, or Foxglove topic is a reach point: claim it in `docs/features.toml` with a proof that
+  exercises it from there, or lint reports it (`docs/reference/tools/feature_map.md`)
 
 ## Comments
 

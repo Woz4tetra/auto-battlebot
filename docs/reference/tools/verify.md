@@ -15,6 +15,9 @@ scripts/verify --changed a.cpp b.py     # suites these paths affect
 scripts/verify --changed --files-from list.txt
 scripts/verify --suite gtest --suite web
 scripts/verify --changed --list src/crsf/crsf_parser.cpp   # print the selection, run nothing
+scripts/verify --only gtest:EspNow.Sends pytest:a/tests/test_x.py::test_a   # exactly these proofs
+scripts/verify --stale                  # every proof the feature map shows stale
+scripts/verify --coverage               # record which files each proof executes
 ```
 
 Exit code 0 is pass, 1 is a failing step, 2 is a usage error. `--playback` and `--realtime` run
@@ -27,6 +30,10 @@ Step logs go to `.claude/state/verify-logs/<step>.log` (gitignored), or `--log-d
 and `hooks suites` log to `.claude/state/verify-logs/<change hash>/`, so two runs never share a log. A failing step
 prints its last 40 lines.
 
+Every run writes its per-proof results to the run store, `data/verify/runs/` (gitignored); the
+feature map reads it. `--only`, `--stale`, and `--coverage` are described in
+`docs/reference/tools/feature_map.md`.
+
 ## Suites
 
 | Suite | Steps | Full run on the dev box (2026-11-20) |
@@ -36,6 +43,7 @@ prints its last 40 lines.
 | `synthetic` | `pytest training/synthetic` | 2 s for 458 tests |
 | `firmware` | `pio test -e native` in `firmware/mr_stabs_mk2` | 22 s for 216 cases |
 | `web` | `npm run check`, then `npm test` (vitest) in `web/` | under 30 s |
+| `tools` | `npm run check`, then `npm test` in each `tools/<name>/` with a `package.json` | 2 s for `feature_map` |
 
 Lint runs first and alone, because `scripts/lint --quick` rewrites files. The suites then run in
 parallel, one thread per suite; steps within a suite run in order and stop at the first failure.

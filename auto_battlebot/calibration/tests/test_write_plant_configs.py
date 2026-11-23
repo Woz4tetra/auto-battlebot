@@ -42,3 +42,11 @@ def test_rewrite_refuses_a_field_name_that_appears_in_two_sections() -> None:
         writer._rewrite(
             text, writer.TOML_FIELD, {"k_fwd": "k_fwd"}, {"k_fwd": 3.0}, writer.SIM_CONFIG
         )
+
+
+def test_check_reads_the_default_fit_beside_the_module(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("sys.argv", ["write_plant_configs", "--check"])
+    assert writer.main() in (0, 1)
+    assert "auto_battlebot/calibration/plant_stageA.toml" in capsys.readouterr().out

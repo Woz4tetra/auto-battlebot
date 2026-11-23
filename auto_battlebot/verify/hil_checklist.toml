@@ -1,0 +1,34 @@
+[[steps]]
+id = "arm"
+prompt = "Flip SH to arm the drive"
+expect = "armed state reported in telemetry within 200 ms"
+
+[[steps]]
+id = "drive_forward"
+prompt = "Push the right stick forward for 2 s"
+expect = "our robot track moves forward and the sent linear command is positive"
+
+[[steps]]
+id = "spin"
+prompt = "Push the right stick sideways for 2 s"
+expect = "IMU yaw rate and tracked heading change agree in sign"
+
+[[steps]]
+id = "flip_sa"
+prompt = "Flip SA down, then up"
+expect = "the ESP-NOW substitution flag changes within 200 ms of each flip"
+
+[[steps]]
+id = "flip_sf"
+prompt = "Move SF to each position"
+expect = "the autonomy behavior mode follows SF"
+
+[[steps]]
+id = "flip_sb"
+prompt = "Move SB through off, middle, and full"
+expect = "the flip override in telemetry follows SB"
+
+[[steps]]
+id = "throttle"
+prompt = "Move the left stick vertical with SH released"
+expect = "the weapon channel stays at -100"

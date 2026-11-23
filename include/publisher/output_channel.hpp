@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "mcap_recorder/mcap_recorder.hpp"
+#include "publisher/viz_topics.hpp"
 #include "viz/schema.hpp"
 #include "viz/viz_sink.hpp"
 
@@ -24,6 +25,10 @@ class OutputChannel {
    public:
     OutputChannel(std::string topic, std::string message_encoding, VizSchema schema, bool latch,
                   std::shared_ptr<VizSink> sink, std::shared_ptr<McapRecorder> recorder);
+    OutputChannel(const VizTopic& row, VizSchema schema, std::shared_ptr<VizSink> sink,
+                  std::shared_ptr<McapRecorder> recorder)
+        : OutputChannel(std::string(row.topic), std::string(row.encoding), std::move(schema),
+                        row.latch, std::move(sink), row.recorded ? std::move(recorder) : nullptr) {}
 
     const std::string& topic() const { return topic_; }
 

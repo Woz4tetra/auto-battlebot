@@ -1,10 +1,12 @@
 #pragma once
 
+#include <algorithm>
 #include <functional>
 #include <magic_enum.hpp>
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "config/config_parser.hpp"
 
@@ -23,6 +25,13 @@ class ConfigFactory {
     void register_type(const std::string &type_name, Creator creator, Parser parser) {
         creators_[type_name] = creator;
         parsers_[type_name] = parser;
+    }
+
+    std::vector<std::string> type_names() const {
+        std::vector<std::string> names;
+        for (const auto &[name, creator] : creators_) names.push_back(name);
+        std::sort(names.begin(), names.end());
+        return names;
     }
 
     std::unique_ptr<BaseConfig> create(const std::string &type_name) const {
@@ -114,13 +123,14 @@ class ConfigRegistrar {
         field_name = enum_val.value();                                           \
     }
 
-#define PARSE_ENUM_REQUIRED(field_name, EnumType)                                \
-    {                                                                            \
-        auto str = parser.get_required_string(#field_name);                      \
-        auto enum_val = magic_enum::enum_cast<EnumType>(str);                    \
-        if (!enum_val.has_value()) {                                             \
-            throw std::invalid_argument("Invalid " #EnumType " value: '" + str + \
-                                        "' for field '" #field_name "'");        \
-        }                                                                        \
-        field_name = enum_val.value();                                           \
+#define PARSE_ENUM_REQUIRED(field_name, EnumType)                                  \
+    {                                                                              \
+        auto str = parser.get_required_string(                                     \
+            #field_name, std::string(magic_enum::enum_names<EnumType>().front())); \
+        auto enum_val = magic_enum::enum_cast<EnumType>(str);                      \
+        if (!enum_val.has_value()) {                                               \
+            throw std::invalid_argument("Invalid " #EnumType " value: '" + str +   \
+                                        "' for field '" #field_name "'");          \
+        }                                                                          \
+        field_name = enum_val.value();                                             \
     }

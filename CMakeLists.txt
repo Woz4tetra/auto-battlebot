@@ -17,6 +17,12 @@ endif()
 if(BUILD_DEBUG)
     message("Building with debug flags")
 endif()
+option(AUTO_BATTLEBOT_COVERAGE "Instrument every C++ target with gcov" OFF)
+if(AUTO_BATTLEBOT_COVERAGE)
+    message("Building with --coverage")
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:--coverage>")
+    add_link_options(--coverage)
+endif()
 set(AUTO_BATTLEBOT_SANITIZER "none" CACHE STRING "Sanitizer for every target: none, address or thread")
 set_property(CACHE AUTO_BATTLEBOT_SANITIZER PROPERTY STRINGS none address thread)
 if(NOT AUTO_BATTLEBOT_SANITIZER MATCHES "^(none|address|thread)$")
@@ -414,6 +420,18 @@ add_executable(remote_protocol_dump
 )
 target_link_libraries(remote_protocol_dump auto_battlebot_lib)
 target_compile_options(remote_protocol_dump PRIVATE ${COMMON_COMPILE_FLAGS})
+
+add_executable(viz_topic_dump
+    tools/viz_topic_dump.cpp
+)
+target_link_libraries(viz_topic_dump auto_battlebot_lib)
+target_compile_options(viz_topic_dump PRIVATE ${COMMON_COMPILE_FLAGS})
+
+add_executable(config_schema_dump
+    tools/config_schema_dump.cpp
+)
+target_link_libraries(config_schema_dump auto_battlebot_lib CLI11::CLI11)
+target_compile_options(config_schema_dump PRIVATE ${COMMON_COMPILE_FLAGS})
 
 add_executable(verify_mcap
     tools/verify_mcap.cpp

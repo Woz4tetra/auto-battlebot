@@ -570,3 +570,56 @@ def test_change_report_says_whether_suites_passed_for_the_hash(repo: Path) -> No
     state.pass_marker(repo, change).parent.mkdir(parents=True, exist_ok=True)
     state.pass_marker(repo, change).touch()
     assert "suites: passed for this hash" in hooks.change_report(repo, SESSION)
+
+
+def test_verify_script_lists_the_suites_a_file_selects() -> None:
+    result = subprocess.run(
+        [str(REPO_ROOT / "scripts/verify"), "--changed", "--list", "firmware/shared/x.h"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "firmware: all" in result.stdout.splitlines()
+
+
+def test_verify_script_rejects_a_file_list_without_changed() -> None:
+    result = subprocess.run(
+        [str(REPO_ROOT / "scripts/verify"), "--list", "a.cpp"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "a file list needs --changed" in result.stderr
+
+
+def verify_mcap_binary() -> Path:
+    for build in ("build", "build-test"):
+        binary = REPO_ROOT / build / "verify_mcap"
+        if binary.exists():
+            return binary
+    pytest.skip("scripts/verify_mcap needs build/verify_mcap")
+
+
+def test_verify_mcap_script_grades_a_recording(tmp_path: Path) -> None:
+    from auto_battlebot.recording import mcap_write
+
+    verify_mcap_binary()
+    path = tmp_path / "session.mcap"
+    with mcap_write.McapWriter(path, active_profile="unit_test") as writer:
+        for i in range(90):
+            stamp = (i + 1) * 33_333_333
+            meta = {"image_stamp_ns": str(stamp), "video_frame_index": i}
+            writer.log_json("/camera/frame_meta", meta, stamp)
+    script = str(REPO_ROOT / "scripts/verify_mcap")
+    graded = subprocess.run([script, str(path)], capture_output=True, text=True, check=False)
+    assert graded.returncode == 0, graded.stdout + graded.stderr
+    assert "camera_frames=90" in graded.stdout
+    assert "verdict: OK" in graded.stdout
+    missing = subprocess.run(
+        [script, str(tmp_path / "absent.mcap")], capture_output=True, text=True, check=False
+    )
+    assert missing.returncode != 0

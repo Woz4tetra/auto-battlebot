@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-SUITES = ("gtest", "pytest", "synthetic", "firmware", "web")
+SUITES = ("gtest", "pytest", "synthetic", "firmware", "web", "tools")
 GTEST_DECL = re.compile(
     r"^\s*(?:TEST|TEST_F|TEST_P|TYPED_TEST|TYPED_TEST_P)\(\s*(\w+)\s*,", re.MULTILINE
 )
@@ -19,6 +19,7 @@ CPP_SUFFIXES = {".cpp", ".hpp", ".h", ".c", ".cu", ".cuh"}
 FIRMWARE_NATIVE = ("firmware/mr_stabs_mk2/", "firmware/shared/")
 WEB = ("web/", "include/remote/")
 SYNTHETIC = "training/synthetic/"
+TOOLS_DIR = "tools"
 PYTEST_ROOTS = (
     "auto_battlebot",
     "scripts",
@@ -79,10 +80,14 @@ def gtest_suites_in(text: str) -> set[str]:
 
 
 def gtest_filter(suites: Iterable[str]) -> str:
-    """A --gtest_filter that matches plain, parameterized, and typed tests of each suite."""
+    """A --gtest_filter for whole suites or `Suite.Case` items, plain, parameterized, or typed."""
     patterns = []
-    for suite in sorted(suites):
-        patterns += [f"{suite}.*", f"*/{suite}.*", f"{suite}/*"]
+    for item in sorted(suites):
+        suite, _, case = item.partition(".")
+        if case:
+            patterns += [f"{suite}.{case}", f"*/{suite}.{case}/*", f"{suite}/*.{case}"]
+        else:
+            patterns += [f"{suite}.*", f"*/{suite}.*", f"{suite}/*"]
     return ":".join(patterns)
 
 
@@ -315,6 +320,25 @@ def _select_gtest(path: str, root: Path, index: GtestIndex, scope: Scope) -> boo
     return True
 
 
+def node_tools(root: Path) -> list[str]:
+    """Tools under tools/ that carry their own package.json."""
+    base = root / TOOLS_DIR
+    if not base.is_dir():
+        return []
+    return sorted(d.name for d in base.iterdir() if (d / "package.json").is_file())
+
+
+def node_tool(path: str, root: Path) -> str | None:
+    parts = Path(path).parts
+    if (
+        len(parts) >= 2
+        and parts[0] == TOOLS_DIR
+        and (root / TOOLS_DIR / parts[1] / "package.json").is_file()
+    ):
+        return parts[1]
+    return None
+
+
 def select(paths: Iterable[str], root: Path) -> Selection:
     """Suites and cases affected by a list of repo-relative paths."""
     selection = Selection()
@@ -331,6 +355,10 @@ def select(paths: Iterable[str], root: Path) -> Selection:
         if path.startswith(WEB):
             scopes["web"].add_everything()
             covered = covered or path.startswith("web/")
+        tool = node_tool(path, root)
+        if tool:
+            scopes["tools"].add(tool)
+            covered = True
         if path.startswith(SYNTHETIC):
             scopes["synthetic"].add_everything()
             covered = True

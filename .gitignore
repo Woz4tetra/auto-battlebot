@@ -95,3 +95,5 @@ web/node_modules/
 !/web/src/lib/
 build-asan/
 build-tsan/
+build-coverage/
+auto_battlebot/features/static/

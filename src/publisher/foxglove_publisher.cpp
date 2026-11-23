@@ -37,9 +37,6 @@ VizSchema json_schema(const char *name, const char *text) {
     return VizSchema::jsonschema(name, text);
 }
 
-constexpr bool kLatched = true;
-constexpr bool kUnlatched = false;
-
 std::unique_ptr<ImageEncoderWorker> make_jpeg_worker(std::string name, OutputChannel &channel,
                                                      int quality) {
     std::shared_ptr<JpegEncoderInterface> worker_thread_encoder;
@@ -62,37 +59,37 @@ FoxglovePublisher::FoxglovePublisher(std::shared_ptr<VizSink> sink,
                                      const FoxglovePublisherConfiguration &config)
     : sink_(std::move(sink)),
       mcap_recorder_(std::move(mcap_recorder)),
-      rgb_image_("/camera/image", "protobuf", sdk_schema<CompressedImage>(), kUnlatched, sink_,
+      rgb_image_(viz_topic(VizTopicId::CAMERA_IMAGE), sdk_schema<CompressedImage>(), sink_,
                  mcap_recorder_),
-      camera_info_("/camera/camera_info", "protobuf", sdk_schema<CameraCalibration>(), kUnlatched,
+      camera_info_(viz_topic(VizTopicId::CAMERA_CAMERA_INFO), sdk_schema<CameraCalibration>(),
                    sink_, mcap_recorder_),
       frame_meta_(
-          "/camera/frame_meta", "json",
+          viz_topic(VizTopicId::CAMERA_FRAME_META),
           json_schema(foxglove_adapters::kFrameMetaSchemaName, foxglove_adapters::kFrameMetaSchema),
-          kUnlatched, sink_, mcap_recorder_),
-      tf_("/tf", "protobuf", sdk_schema<FrameTransforms>(), kUnlatched, sink_, mcap_recorder_),
-      field_mask_("/field_mask", "protobuf", sdk_schema<CompressedImage>(), kLatched, sink_,
+          sink_, mcap_recorder_),
+      tf_(viz_topic(VizTopicId::TF), sdk_schema<FrameTransforms>(), sink_, mcap_recorder_),
+      field_mask_(viz_topic(VizTopicId::FIELD_MASK), sdk_schema<CompressedImage>(), sink_,
                   mcap_recorder_),
-      field_mask_camera_info_("/field_mask/camera_info", "protobuf",
-                              sdk_schema<CameraCalibration>(), kLatched, sink_, mcap_recorder_),
-      field_markers_("/field_markers", "protobuf", sdk_schema<SceneUpdate>(), kLatched, sink_,
+      field_mask_camera_info_(viz_topic(VizTopicId::FIELD_MASK_CAMERA_INFO),
+                              sdk_schema<CameraCalibration>(), sink_, mcap_recorder_),
+      field_markers_(viz_topic(VizTopicId::FIELD_MARKERS), sdk_schema<SceneUpdate>(), sink_,
                      mcap_recorder_),
-      field_points_("/field_points", "protobuf", sdk_schema<foxglove::schemas::PointCloud>(),
-                    kLatched, sink_, mcap_recorder_),
-      hazard_markers_("/hazard_markers", "protobuf", sdk_schema<SceneUpdate>(), kLatched, sink_,
+      field_points_(viz_topic(VizTopicId::FIELD_POINTS),
+                    sdk_schema<foxglove::schemas::PointCloud>(), sink_, mcap_recorder_),
+      hazard_markers_(viz_topic(VizTopicId::HAZARD_MARKERS), sdk_schema<SceneUpdate>(), sink_,
                       mcap_recorder_),
-      robot_markers_("/robot_markers", "protobuf", sdk_schema<SceneUpdate>(), kLatched, sink_,
+      robot_markers_(viz_topic(VizTopicId::ROBOT_MARKERS), sdk_schema<SceneUpdate>(), sink_,
                      mcap_recorder_),
-      nav_markers_("/nav_markers", "protobuf", sdk_schema<SceneUpdate>(), kLatched, sink_,
+      nav_markers_(viz_topic(VizTopicId::NAV_MARKERS), sdk_schema<SceneUpdate>(), sink_,
                    mcap_recorder_),
-      keypoint_detections_("/keypoint_detections", "json",
+      keypoint_detections_(viz_topic(VizTopicId::KEYPOINT_DETECTIONS),
                            json_schema(foxglove_adapters::kDetectionsSchemaName,
                                        foxglove_adapters::kDetectionsSchema),
-                           kUnlatched, sink_, mcap_recorder_),
-      keypoint_annotations_("/keypoint_detections/annotations", "protobuf",
-                            sdk_schema<ImageAnnotations>(), kUnlatched, sink_, nullptr),
-      preview_image_("/camera/preview", "protobuf", sdk_schema<CompressedImage>(), kUnlatched,
-                     sink_, nullptr),
+                           sink_, mcap_recorder_),
+      keypoint_annotations_(viz_topic(VizTopicId::KEYPOINT_ANNOTATIONS),
+                            sdk_schema<ImageAnnotations>(), sink_, mcap_recorder_),
+      preview_image_(viz_topic(VizTopicId::CAMERA_PREVIEW), sdk_schema<CompressedImage>(), sink_,
+                     mcap_recorder_),
       config_(config),
       field_mask_encoder_(make_jpeg_encoder()),
       preview_gate_(config.preview_rate_hz),
@@ -104,9 +101,9 @@ FoxglovePublisher::FoxglovePublisher(std::shared_ptr<VizSink> sink,
     if (sink_ && config_.preview_width > 0 &&
         (VideoEncoder::hardware_encoder_installed() ||
          VideoEncoder::software_encoder_available())) {
-        preview_video_ = std::make_unique<OutputChannel>("/camera/preview_video", "protobuf",
-                                                         sdk_schema<CompressedVideo>(), kUnlatched,
-                                                         sink_, nullptr);
+        preview_video_ =
+            std::make_unique<OutputChannel>(viz_topic(VizTopicId::CAMERA_PREVIEW_VIDEO),
+                                            sdk_schema<CompressedVideo>(), sink_, mcap_recorder_);
     }
 }
 

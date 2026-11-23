@@ -1,9 +1,11 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 
 #include "config/config.hpp"
+#include "config/config_factory.hpp"
 #include "config/config_provenance.hpp"
 
 namespace auto_battlebot {
@@ -158,5 +160,34 @@ TEST(FormatTomlValue, PrintsShortestRoundTripDoubles) {
     toml::array array{0.25, 3.0};
     EXPECT_EQ(format_toml_value(array), "[0.25, 3.0]");
 }
+TEST(ConfigSchemaProbeTest, RequiredFieldsAreListedInsteadOfThrown) {
+    toml::table table{{"type", "x"}};
+    ConfigParser parser(table, "plant");
+    ConfigDefaultsRecorder recorder(RecorderMode::PROBE_SCHEMA);
+    EXPECT_EQ(parser.get_required_double("k_fwd"), 0.0);
+    EXPECT_EQ(parser.get_required_string("bundle", "probe"), "probe");
+    EXPECT_EQ(parser.get_optional_int("rate_hz", 250), 250);
+    ASSERT_EQ(recorder.recorded().size(), 3u);
+    EXPECT_TRUE(recorder.recorded()[0].required);
+    EXPECT_EQ(recorder.recorded()[0].key, "k_fwd");
+    EXPECT_FALSE(recorder.recorded()[2].required);
+    EXPECT_EQ(recorder.recorded()[2].value, "250");
+}
+
+TEST(ConfigSchemaProbeTest, RecordModeStillThrowsOnMissingRequired) {
+    toml::table table{{"type", "x"}};
+    ConfigParser parser(table, "plant");
+    ConfigDefaultsRecorder recorder;
+    EXPECT_THROW(parser.get_required_double("k_fwd"), ConfigValidationError);
+    EXPECT_TRUE(recorder.recorded().empty());
+}
+
+TEST(ConfigSchemaProbeTest, FactoryListsEveryRegisteredType) {
+    const auto names = ConfigFactory<TransmitterConfiguration>::instance().type_names();
+    EXPECT_NE(std::find(names.begin(), names.end(), "EspNowTransmitter"), names.end());
+    EXPECT_NE(std::find(names.begin(), names.end(), "NoopTransmitter"), names.end());
+    EXPECT_TRUE(std::is_sorted(names.begin(), names.end()));
+}
+
 }  // namespace
 }  // namespace auto_battlebot

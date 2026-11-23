@@ -1,0 +1,1161 @@
+enforce = false
+
+[features.camera_input]
+name = "Camera input"
+reach = [
+  "topic:/camera/frame_meta",
+  "topic:/camera/camera_info",
+]
+code = [
+  "src/rgbd_camera/",
+  "include/rgbd_camera/",
+]
+proofs = [
+  "mcap:topic_rate:/camera/frame_meta",
+  "mcap:topic_rate:/camera/camera_info",
+  "playback:clyde:frames",
+  "playback:clyde:frame_drop_rate",
+  "mcap:camera_frames_link",
+]
+supporting = [
+  "gtest:FoxglovePublisherTest.FrameMetaFromAnEarlierRecordingGenerationIsDropped",
+  "gtest:CameraCalibrationAdapterTest.EncodesToProtobuf",
+  "gtest:LockstepProfileTest.ResolvesToDeterministicPlayback",
+]
+links = ["camera_frames"]
+status = "draft"
+
+[features.camera_input.variants]
+NoopRgbdCamera = ["gtest:NoopRgbdCameraTest.BasicBehavior"]
+SimRgbdCamera = ["gtest:FactoryVariantTest.SimRgbdCameraSendsTheCommandAndDecodesAFrame"]
+VideoPlaybackCamera = [
+  "gtest:VideoPlaybackCameraTest.FullDataPipeline",
+  "gtest:VideoPlaybackCameraTest.ReachesTheEndOfTheRecording",
+]
+ZedRgbdCamera = [
+  "gtest:ZedRgbdFakeDeviceTest.DestructorLeavesTheHandleOpenWhenTheCaptureThreadIsStuckInGrab",
+]
+ZedSvoPlaybackCamera = [
+  "gtest:ZedSvoPlaybackCameraTest.FullDataPipeline",
+  "gtest:ZedSvoPlaybackCameraTest.FrameIndexMatchesGrabbedFrame",
+  "playback:clyde:frames",
+]
+ZedOneRgbCamera = [
+  "gtest:ZedOneFakeDeviceTest.FramesAreBgrCopiesWithZeroDistortionAndMatchingHeaders",
+]
+
+[features.camera_settings]
+name = "Camera exposure and white balance"
+reach = [
+  "command:/command/set_camera_settings",
+  "command:/command/camera_profile",
+  "status:/status/camera_settings",
+  "readout:CameraSettings",
+]
+code = [
+  "src/rgbd_camera/",
+  "src/config/camera_profile_store.cpp",
+  "web/src/components/CameraSettings.svelte",
+]
+proofs = [
+  "gtest:CameraSettingsCommandsTest.LiveEditMarksModifiedAndSaveStoresIt",
+  "gtest:CameraSettingsCommandsTest.ApplyDefaultRestoresWhatTheCameraOpenedWith",
+  "gtest:CameraSettingsCommandsTest.RefusalsLeaveTheActiveProfile",
+  "gtest:RunnerCommandsTest.CameraWithoutLiveControlsRefusesSettings",
+]
+supporting = [
+  "gtest:CameraProfileStoreTest.SaveRoundTripsAndKeepsDefaultFirst",
+  "gtest:CameraProfileParse.RejectsUnknownFieldsAndBadEnums",
+  "gtest:CameraSettingsTest.ExposureRangeCappedAtFramePeriod",
+]
+status = "draft"
+
+[features.field_mask]
+name = "Field mask"
+reach = [
+  "topic:/field_mask",
+  "topic:/field_mask/camera_info",
+]
+code = [
+  "src/mask_model/",
+  "include/mask_model/",
+]
+proofs = [
+  "gtest:FoxglovePublisherTest.FieldMaskIsStampedInTheFrozenCameraWorldFrame",
+  "mcap:topic_rate:/field_mask",
+  "mcap:topic_rate:/field_mask/camera_info",
+]
+supporting = ["gtest:DeepLabInputTest.TrainingStatsMatchThePythonTransforms"]
+status = "draft"
+
+[features.field_mask.variants]
+NoopMaskModel = ["gtest:FactoryVariantTest.NoopMaskModelMasksNothing"]
+FixedMaskModel = ["gtest:FactoryVariantTest.FixedMaskModelMarksEveryPixelFieldAtTheImageStamp"]
+FreeRoamMaskModel = [
+  "gtest:FreeRoamMaskModelTest.RoiOnlyMasksCenteredRectangle",
+  "gtest:FreeRoamMaskModelTest.RoiAndColorMustBothPass",
+]
+DeepLabMaskModel = [
+  "gtest:DeepLabMaskModelTest.UpdateWithoutInitialization",
+  "playback:clyde:hashes",
+]
+
+[features.field_pose]
+name = "Field pose"
+reach = [
+  "command:/command/reinit_field",
+  "topic:/field_markers",
+  "topic:/field_points",
+]
+code = [
+  "src/field_filter/",
+  "include/field_filter/",
+]
+proofs = [
+  "gtest:CommandDecodeTest.EmptyObjectAndEmptyPayloadReinitField",
+  "mcap:topic_rate:/field_markers",
+  "mcap:topic_rate:/field_points",
+]
+supporting = [
+  "gtest:PlaneNormalFromCoefficients.SignIsConsistentForBothRansacOrientations",
+  "gtest:FieldPoseTest.ThreeLineSolveRecoversThePoseWhenWindingMatches",
+]
+status = "draft"
+
+[features.field_pose.variants]
+NoopFieldFilter = ["gtest:FactoryVariantTest.NoopFieldFilterReturnsAnEmptyField"]
+FixedFieldFilter = [
+  "gtest:FixedFieldFilterTest.TrackFieldPassesSimCameraPose",
+  "gtest:FixedFieldFilterTest.ComputeFieldMarksThePlaneFound",
+]
+HomographyFieldFilter = [
+  "gtest:HomographyFieldFilterTest.RecoversAnOverheadPoseWithinTenMillimetres",
+  "gtest:HomographyFieldFilterTest.RejectsAnEmptyMask",
+]
+FiducialFieldFilter = [
+  "gtest:FiducialFieldFilterTest.RecoversTheFieldPoseFromARenderedBoard",
+  "gtest:FiducialFieldFilterTest.RejectsAFrameWithNoBoard",
+]
+PointCloudFieldFilter = ["playback:clyde:hashes"]
+
+[features.hazard_zones]
+name = "Hazard keep-out zones"
+reach = ["topic:/hazard_markers"]
+code = [
+  "src/hazards/",
+  "config/hazards/",
+]
+proofs = [
+  "gtest:FoxglovePublisherTest.HazardsArePublishedEvenWhenThereAreNone",
+  "mcap:topic_rate:/hazard_markers",
+]
+supporting = [
+  "gtest:HazardAssemblerTest.StaticHazardIsInflatedOnceByOurSizePlusMargin",
+  "gtest:HazardAvoidanceTest.BlockedRunSubstitutesAClearWaypoint",
+]
+status = "draft"
+
+[features.robot_detection]
+name = "Robot detection"
+reach = [
+  "topic:/keypoint_detections",
+  "topic:/keypoint_detections/annotations",
+  "topic:/apriltag/robot_tags",
+]
+code = [
+  "src/keypoint_model/",
+  "src/keypoint_filter/",
+  "include/keypoint_model/",
+]
+proofs = [
+  "gtest:FoxglovePublisherTest.DetectionsAreRecordedAtTheFrameStamp",
+  "gtest:FoxglovePublisherTest.AnnotationsAreLiveOnly",
+  "mcap:topic_rate:/keypoint_detections",
+  "mcap:perception_link",
+]
+supporting = [
+  "gtest:YoloKeypointModelTest.BoxesAlignWithDetectionIndex",
+  "gtest:KeypointHeightGateTest.RejectsDetectionFlatOnTheField",
+]
+links = ["perception"]
+status = "draft"
+
+[features.robot_detection.variants]
+NoopKeypointModel = ["gtest:FactoryVariantTest.NoopKeypointModelDetectsNothing"]
+YoloKeypointModel = [
+  "gtest:LetterboxGeometryTest.ImageExtentsMapBackThroughScaleBoxes",
+  "playback:clyde:hashes",
+]
+AprilTagKeypointModel = [
+  "gtest:AprilTagKeypointModelTest.DetectsRenderedTagAndRecoversPose",
+  "gtest:AprilTagKeypointModelTest.BottomTagMeansUpsideDown",
+]
+SimKeypointModel = ["gtest:SimKeypointModelTest.MeasuredRobotsBecomeFrontBackPairsAtCaptureStamp"]
+
+[features.robot_tracking]
+name = "Robot tracking"
+reach = [
+  "topic:/robot_markers",
+  "status:/status/tracks",
+  "command:/command/set_opponent_count",
+]
+code = [
+  "src/robot_filter/",
+  "include/robot_filter/",
+]
+proofs = [
+  "gtest:RunnerCommandsTest.SetOpponentCount",
+  "playback:clyde:opponent_coverage",
+  "playback:sphinx:opponent_coverage",
+  "playback:wreck_creation:opponent_coverage",
+  "playback:clyde:our_coverage",
+  "playback:clyde:opponent_jumps_per_min",
+  "mcap:topic_rate:/robot_markers",
+  "mcap:topic_rate:/status/tracks",
+  "mcap:filter_link",
+]
+supporting = [
+  "gtest:FrontBackKeypointConverterTest.EmitsOnlyCompleteFrontBackAssignments",
+  "gtest:ControlLoopTest.FilterCorrectsBeforeItPredicts",
+  "pytest:auto_battlebot/perception/tests/test_opponent_filter.py::test_mirror_reproduces_golden_fixture",
+]
+links = ["filter"]
+status = "draft"
+
+[features.robot_tracking.variants]
+NoopRobotFilter = ["gtest:FactoryVariantTest.NoopRobotFilterTracksNobody"]
+GroundTruthRobotFilter = ["gtest:GroundTruthRobotFilterTest.NeutralSlotsFollowOpponents"]
+RobotFrontBackFilter = [
+  "gtest:RobotFrontBackFilterTest.RejectsLargeJumpThenAcceptsAfterThreshold",
+  "playback:clyde:opponent_coverage",
+]
+KalmanMotionEstimator = [
+  "gtest:KalmanMotionEstimatorTest.ConvergesToConstantVelocityAndPredictsAhead",
+  "gtest:KalmanMotionEstimatorTest.OpponentArmMatchesPythonMirrorGoldenFixture",
+]
+
+[features.target_selection]
+name = "Target selection"
+reach = [
+  "command:/command/set_auto_tracking",
+  "command:/command/set_manual_target",
+]
+code = [
+  "src/target_selector/",
+  "include/target_selector/",
+]
+proofs = [
+  "gtest:RunnerCommandsTest.SetAutoTracking",
+  "gtest:RunnerCommandsTest.SetAutoTrackingOffHoldsFieldCenter",
+  "gtest:RunnerCommandsTest.SetManualTargetRefusedWhileAuto",
+  "gtest:RunnerCommandsTest.SetManualTargetNeedsExactlyOneOfFieldOrImage",
+]
+supporting = [
+  "gtest:ControlLoopTest.TargetOverrideBypassesSelectorUntilCleared",
+  "gtest:FieldProjectionTest.UnprojectInvertsProject",
+]
+status = "draft"
+
+[features.target_selection.variants]
+NearestTarget = ["gtest:SafestPointTargetTest.AttackMatchesNearestTarget"]
+NoopTarget = ["gtest:FactoryVariantTest.NoopTargetAlwaysPicksTheFieldCenter"]
+SafestPointTarget = [
+  "gtest:SafestPointTargetTest.RunAwayNoOpponentsTargetsFieldCenter",
+  "gtest:SafestPointTargetTest.HeldTargetSurvivesSmallOpponentMove",
+  "playback:clyde:hashes",
+]
+
+[features.autonomous_driving]
+name = "Autonomous driving"
+reach = ["topic:/nav_markers"]
+code = [
+  "src/navigation/",
+  "include/navigation/",
+  "src/rl_policy/",
+  "src/command_shaper/",
+  "src/plant/",
+]
+proofs = [
+  "mcap:topic_rate:/nav_markers",
+  "playback:clyde:linear_mean_abs",
+  "playback:clyde:angular_mean_abs",
+  "playback:clyde:moving_fraction",
+  "playback:sphinx:linear_mean_abs",
+  "playback:wreck_creation:linear_mean_abs",
+]
+supporting = [
+  "gtest:SceneAdapterTest.NavigationDrawsPathAndVelocity",
+  "gtest:NetworkPolicyTest.ActReproducesThePyTorchActions",
+]
+status = "draft"
+
+[features.autonomous_driving.variants]
+NoopNavigation = ["gtest:FactoryVariantTest.NoopNavigationCommandsZeroAndEchoesTheRobots"]
+MotionProfileNavigation = [
+  "gtest:MotionProfileModeTest.AttackKeepsDrivingInsideStopDistance",
+  "gtest:MotionProfileGateTest.BarrierClipsWallReverseTowardHole",
+  "playback:clyde:linear_mean_abs",
+]
+RlPolicyNavigation = [
+  "gtest:RlPolicyNavigationTest.ConstantPolicyDrivesItsActionUnedited",
+  "gtest:RlPolicyNavigationTest.TheHazardBarrierClipsDrivingTowardAHole",
+]
+PlantCommandShaper = [
+  "gtest:CommandShaperTest.LinearDividesByTheGainForItsSign",
+  "gtest:CommandShaperTest.MissingSectionBuildsAPlantShaperAtFullSaturation",
+]
+
+[features.behavior_mode]
+name = "Attack or run away"
+reach = [
+  "command:/command/set_behavior_mode",
+  "channel:SF",
+]
+code = [
+  "src/navigation/",
+  "src/remote/command_decode.cpp",
+]
+proofs = [
+  "gtest:RunnerCommandsTest.SetBehaviorMode",
+  "hil:flip_sf",
+]
+supporting = [
+  "gtest:ControlLoopTest.BehaviorModeReachesSelectorAndOutput",
+  "gtest:MotionProfileModeTest.RunAwayCutsTheCommandInsideStopDistance",
+]
+status = "draft"
+
+[features.autonomy_enable]
+name = "Autonomy enable"
+reach = [
+  "command:/command/set_autonomy",
+  "channel:SA",
+  "readout:ControlTiles",
+]
+code = [
+  "src/transmitter/",
+  "src/remote/command_decode.cpp",
+  "web/src/components/ControlTiles.svelte",
+  "firmware/mr_stabs_mk2/src/",
+]
+proofs = [
+  "gtest:RunnerCommandsTest.SetAutonomyIsAnExplicitSet",
+  "gtest:RunnerCommandsTest.ResendingTheSameAutonomyValueDoesNotToggle",
+  "gtest:EspNowTransmitterPtyTest.FeedbackAndSwitchComeFromTelemetry",
+  "gtest:EspNowTransmitterPtyTest.ReEnablingWithSaOnRampsFromStandstill",
+  "native:test_drive_gate::Substitution.NeedsEveryConditionIncludingTheAutonomySwitch",
+  "hil:flip_sa",
+]
+supporting = [
+  "gtest:ControlLoopTest.InitialAutonomyStateReachesTransmitter",
+  "gtest:RunnerCommandsTest.StalledControlLoopCutsAutonomyAndLogsOnce",
+]
+status = "draft"
+
+[features.command_transmit]
+name = "Command transmit to the robot"
+reach = ["topic:/robot/espnow_telemetry"]
+code = [
+  "src/transmitter/",
+  "include/transmitter/",
+  "src/crsf/",
+  "src/channels/",
+  "src/serial/",
+]
+proofs = [
+  "mcap:transmit_link",
+  "playback:clyde:linear_mean_abs",
+  "playback:clyde:angular_mean_abs",
+]
+supporting = [
+  "gtest:EspNowTelemetryJsonTest.NonFiniteFloatsAndMissingCommandBecomeNull",
+  "gtest:CrsfParserCaptureTest.EveryCapturedEdgeTxFrameDecodesToWhatTheCaptureScriptRead",
+  "native:test_espnow_protocol::CommandTracker.NeedsAStreakBeforeFresh",
+]
+links = [
+  "transmit",
+  "crsf_telemetry",
+  "espnow",
+  "imu",
+]
+status = "draft"
+
+[features.command_transmit.variants]
+NoopTransmitter = ["gtest:FactoryVariantTest.NoopTransmitterAcceptsCommandsAndReportsNothing"]
+PlaybackTransmitter = [
+  "gtest:PlaybackTransmitterTest.FeedbackReportsStickCommand",
+  "gtest:PlaybackTransmitterTest.NoFeedbackBeforeFirstSend",
+  "playback:clyde:hashes",
+]
+OpenTxTransmitter = [
+  "gtest:OpenTxTransmitterTest.EveryOpenWritesThePrimingCommands",
+  "gtest:OpenTxTransmitterTest.LinkReportNamesTheLinksAndCountsSends",
+]
+SimTransmitter = [
+  "gtest:SimTransmitterTest.FeedbackReportsLastSentStickCommand",
+  "gtest:SimTransmitterTest.DisableClearsFeedback",
+]
+EspNowTransmitter = [
+  "gtest:EspNowTransmitterPtyTest.SendsProcessedCommandsWithIncreasingSeqOnlyWhileEnabled",
+  "gtest:EspNowTransmitterPtyTest.LinkReportCountsTelemetryImuAndSentCommands",
+]
+
+[features.manual_driving]
+name = "Manual driving"
+reach = [
+  "channel:Ele",
+  "channel:Ail",
+  "status:/status/sticks",
+]
+code = [
+  "firmware/mr_stabs_mk2/src/",
+  "src/transmitter/",
+]
+proofs = [
+  "hil:drive_forward",
+  "hil:spin",
+  "mcap:topic_rate:/status/sticks",
+]
+supporting = [
+  "native:test_drive_gate::Mix.SteerDifferentialSplitsLeftPositiveRightNegative",
+  "native:test_yaw_control::YawController.StickCommandsRate",
+  "native:test_esc_map::EscMap.MonotonicAndSymmetric",
+]
+status = "draft"
+
+[features.arming]
+name = "Arming"
+reach = ["channel:SH"]
+code = ["firmware/mr_stabs_mk2/src/"]
+proofs = ["hil:arm"]
+supporting = [
+  "native:test_drive_gate::LoopGates.ArmedNeedsTheRadio",
+  "native:test_drive_gate::LoopMode.DisarmedOrTuningStopsTheEscs",
+  "native:test_armed_guard::ArmedGuard.EscTuningEntryIsRefusedWhileArmedOrDriving",
+]
+status = "draft"
+
+[features.weapon_speed]
+name = "Weapon speed"
+reach = ["channel:Thr"]
+code = ["firmware/config/opentx/"]
+proofs = ["hil:throttle"]
+supporting = [
+  "pytest:firmware/config/opentx/tests/test_otx_tool.py::test_mr_stabs_otx_decodes_ch7_as_si_and_trainer_as_tr1",
+]
+status = "draft"
+
+[features.flip_direction]
+name = "Flip direction override"
+reach = ["channel:SB"]
+code = ["firmware/mr_stabs_mk2/src/"]
+proofs = [
+  "native:test_drive_gate::Orientation.UpAndMiddleIgnoreTheSensor",
+  "native:test_drive_gate::Orientation.DownFollowsTheSensorAndEnablesAutoSteer",
+  "hil:flip_sb",
+]
+supporting = [
+  "native:test_drive_gate::ThrottleSign.UpsideDownReversesBothSides",
+  "gtest:EspNowTelemetryChannelsTest.UndoesTheFirmwareNegationAndTheUpsideDownFlip",
+]
+status = "draft"
+
+[features.pipeline_clock]
+name = "Pipeline clock"
+code = [
+  "src/time/",
+  "src/control_loop/",
+]
+proofs = ["playback:clyde:hashes"]
+supporting = ["gtest:ControlLoopTest.SteppedCatchUpCappedAfterStall"]
+status = "draft"
+
+[features.pipeline_clock.variants]
+SystemClock = ["gtest:FactoryVariantTest.SystemClockReadsWallTime"]
+ManualClock = ["gtest:ControlLoopTest.ZeroRateRunsExactlyOneCyclePerAdvance"]
+CameraFollowingClock = ["gtest:FactoryVariantTest.CameraFollowingClockStartsAtZeroThenRunsFromTheCameraStamp"]
+SteppedClock = [
+  "gtest:SteppedClockTest.FollowsFramesUntilTheLoopSteps",
+  "gtest:SteppedClockTest.FactoryBuildsSteppedClockFromToml",
+  "playback:clyde:hashes",
+]
+
+[features.live_visualization]
+name = "Live Foxglove visualization"
+reach = [
+  "topic:/tf",
+  "topic:/camera/image",
+  "topic:/camera/preview",
+  "topic:/camera/preview_video",
+  "topic:/log",
+  "unit:viz-relay",
+  "cli:scripts/run_viz_relay.sh",
+]
+code = [
+  "src/publisher/",
+  "src/viz/",
+  "src/viz_relay/",
+  "src/foxglove_adapters/",
+  "src/logging/",
+]
+proofs = [
+  "gtest:FoxglovePublisherTest.FieldTransformIsRepublishedOnEveryCall",
+  "gtest:FoxglovePublisherTest.CameraFrameHasOnlyTheCameraWorldParentOnTf",
+  "mcap:topic_rate:/tf",
+  "gtest:VizSinkTest.ReplaysAdvertisesThenStreamsAndReadsSubscriberCounts",
+]
+supporting = [
+  "gtest:OutputChannelTest.UnrecordedRowNeverReachesTheRecorder",
+  "gtest:VizSinkTest.ReconnectsAndReplaysAdvertiseAfterRelayDrop",
+  "gtest:LoggingTest.FullQueueDropsOldestWithoutBlocking",
+]
+links = ["relay_publish"]
+status = "draft"
+
+[features.live_visualization.variants]
+NoopPublisher = ["gtest:FactoryVariantTest.NoopPublisherTakesEveryMessageWithoutASink"]
+FoxglovePublisher = ["gtest:FoxglovePublisherTest.PublishesWithoutSinks", "playback:clyde:hashes"]
+
+[features.match_recording]
+name = "Match recording"
+reach = [
+  "command:/command/set_recording",
+  "topic:/camera/video",
+]
+code = [
+  "src/mcap_recorder/",
+  "src/rgbd_camera/svo_recorder.cpp",
+]
+proofs = [
+  "gtest:RunnerCommandsTest.SetRecording",
+  "gtest:RunnerCommandsTest.OffThenOnBothApply",
+  "gtest:RunnerRecordingOrderTest.RecordingOnOpensMcapBeforeTheEncoderStarts",
+  "gtest:ZedOneFakeDeviceTest.VideoMessagesAreLoggedAtStrictlyIncreasingTimes",
+]
+supporting = [
+  "gtest:McapRecorderToggleTest.OffClosesTheFileAndOnStartsANewOne",
+  "gtest:SvoRecorderTest.FramesClaimConsecutiveIndicesFromZeroAfterStart",
+]
+status = "draft"
+
+[features.dashboard_camera]
+name = "Dashboard camera view"
+reach = [
+  "readout:CameraView",
+  "readout:CameraTile",
+]
+code = [
+  "web/src/components/CameraView.svelte",
+  "web/src/components/CameraTile.svelte",
+  "web/src/lib/video.ts",
+  "web/src/lib/image.ts",
+]
+proofs = [
+  "vitest:web/src/browser/dashboard.test.ts::paints the JPEG preview and drops the no-preview tag",
+]
+supporting = [
+  "gtest:JpegEncoderTest.RoundTripsAtInputSizeWithLowError",
+  "gtest:CompressedImageAdapterTest.EncodesJpegWithHeader",
+]
+status = "draft"
+
+[features.dashboard_top_down]
+name = "Dashboard top-down field view"
+reach = ["readout:TopDown"]
+code = [
+  "web/src/components/TopDown.svelte",
+  "src/remote/field_projection.cpp",
+]
+proofs = [
+  "vitest:web/src/browser/dashboard.test.ts::draws each tracked robot on the top-down view",
+]
+supporting = [
+  "gtest:FieldProjectionTest.WholeFieldIsOneClosedLoop",
+  "gtest:FieldProjectionTest.CameraMarkerMatchesTheTopDownTriangle",
+]
+status = "draft"
+
+[features.system_status]
+name = "System status readout"
+reach = [
+  "status:/status/system",
+  "readout:StatusBar",
+  "readout:StatusList",
+  "readout:Header",
+  "readout:HostInfo",
+  "readout:WarningStrip",
+  "readout:LinkPill",
+  "readout:Notice",
+]
+code = [
+  "src/remote/status_bus.cpp",
+  "src/health/",
+  "web/src/lib/status.svelte.ts",
+]
+proofs = ["mcap:topic_rate:/status/system"]
+supporting = [
+  "gtest:StatusBusTest.ThrottlesInsideTheRateWindow",
+  "gtest:StatusBusTest.PayloadParsesBackToTheStruct",
+  "gtest:PerformanceMonitorLinkTest.SilentConfiguredLinkGoesRedOnlyAfterTheGracePeriod",
+]
+status = "draft"
+
+[features.dashboard_diagnostics]
+name = "Dashboard diagnostics plots"
+reach = [
+  "readout:Diagnostics",
+  "readout:DiagPlot",
+]
+code = [
+  "web/src/components/Diagnostics.svelte",
+  "web/src/components/DiagPlot.svelte",
+  "web/src/lib/diagnostics.svelte.ts",
+  "src/diagnostics_logger/",
+]
+proofs = [
+  "vitest:web/src/browser/dashboard.test.ts::lists diagnostics modules and plots a selected value",
+]
+supporting = [
+  "gtest:FoxgloveDiagnosticsBackendTest.ModuleJsonKeepsTypesAndKeysBySubsection",
+  "gtest:DiagnosticsLoggerTest.PublishCycle",
+]
+status = "draft"
+
+[features.dashboard_connection]
+name = "Dashboard connection"
+reach = [
+  "readout:ConnectionBanner",
+  "status:/status/command_ack",
+]
+code = [
+  "web/src/lib/connection.ts",
+  "web/src/components/ConnectionBanner.svelte",
+]
+proofs = [
+  "vitest:web/src/browser/dashboard.test.ts::connects with no alert banner while the app sends status",
+  "vitest:web/src/browser/dashboard.test.ts::shows the offline banner once the relay goes away",
+]
+supporting = [
+  "vitest:web/src/lib/connection.test.ts::abandons a handshake that has not opened and retries",
+  "vitest:web/src/lib/connection.test.ts::drops a silent socket when the probe fails",
+  "vitest:web/src/lib/connection.test.ts::resubscribes listeners after a reconnect",
+  "gtest:StatusBusTest.UnthrottledTopicPublishesEveryCall",
+]
+status = "draft"
+
+[features.profile_selection]
+name = "Profile selection"
+reach = [
+  "command:/command/select_profile",
+  "status:/status/app",
+  "readout:ProfilePicker",
+  "profile:mr_stabs_mk2_aer_zed_box",
+  "profile:mr_stabs_mk2_desktop",
+  "profile:mr_stabs_mk2_fid_zed_box",
+  "profile:mr_stabs_mk2_sysid_zed_box",
+  "profile:mrs_buff_mk3_aer_zed_box",
+  "profile:mrs_buff_mk3_zed_box",
+  "cli:scripts/list_deployable_profiles.sh",
+]
+code = [
+  "src/config/",
+  "config/",
+]
+proofs = [
+  "gtest:RunnerCommandsTest.SelectProfilePersists",
+  "gtest:ProfilePattern.OffersExactlyTheDeployableProfiles",
+  "gtest:ProfilePattern.EveryOfferedProfileLoads",
+  "pytest:scripts/tests/test_deploy_profile_list_matches_app.py::test_real_config_matches_app",
+]
+supporting = [
+  "gtest:ProfilePattern.ExcludesBasesSectionFilesAndDesktopProfiles",
+  "gtest:ConfigTest.ExtendsMultiLevelChain",
+]
+status = "draft"
+
+[features.resolved_config]
+name = "Resolved config view"
+reach = [
+  "status:/status/config",
+  "readout:ResolvedConfig",
+]
+code = [
+  "src/config/config_provenance.cpp",
+  "web/src/components/ResolvedConfig.svelte",
+]
+proofs = [
+  "mcap:topic_rate:/status/config",
+]
+supporting = [
+  "gtest:ConfigProvenanceTest.NamesTheFileAndLineThatSetEachValue",
+  "gtest:ConfigProvenanceTest.FormattedOutputReloadsAsTheSameValues",
+]
+status = "draft"
+
+[features.system_actions]
+name = "Shutdown and reboot"
+reach = [
+  "command:/command/system_action",
+  "readout:SystemMenu",
+]
+code = [
+  "src/host/system_actions.cpp",
+  "web/src/components/SystemMenu.svelte",
+]
+proofs = [
+  "gtest:RunnerCommandsTest.SystemActionStopsTheLoop",
+  "gtest:RunnerCommandsTest.SystemActionClosesRecordingsBeforeTheHostGoesDown",
+  "gtest:CommandQueueTest.SystemActionInvokesInterruptOnPostingThread",
+]
+supporting = ["gtest:SystemActionsTest.CommandsAreNonInteractive"]
+status = "draft"
+
+[features.phone_access]
+name = "Phone Wi-Fi access"
+reach = [
+  "command:/command/set_wifi_access",
+  "status:/status/network",
+  "readout:PhoneAccess",
+]
+code = [
+  "src/host/host_services.cpp",
+  "web/src/components/PhoneAccess.svelte",
+]
+proofs = [
+  "gtest:HostServicesTest.SetWifiAccessDoesNotWaitForSystemctl",
+  "gtest:HostServicesTest.SettingPersistsAndIsAppliedAtStartup",
+]
+supporting = [
+  "gtest:HostServicesTest.FailedSystemctlKeepsTheOldSetting",
+  "gtest:HostServicesNetworkTest.ReadsHostname",
+]
+status = "draft"
+
+[features.boot_services]
+name = "App, relay, and kiosk start on boot"
+reach = [
+  "unit:auto-battlebot",
+  "unit:dashboard-kiosk",
+]
+code = ["service/"]
+proofs = [
+  "pytest:service/tests/test_service_scripts_sh.py::test_installer_copies_reloads_and_enables_each_unit",
+  "pytest:service/tests/test_service_scripts_sh.py::test_headless_box_installs_the_kiosk_unit_without_enabling_it",
+]
+supporting = [
+  "pytest:service/tests/test_service_scripts_sh.py::test_desktop_box_waits_for_xorg_to_start",
+]
+status = "draft"
+
+[features.deploy]
+name = "Deploy to a Jetson"
+reach = [
+  "cli:scripts/deploy_to_jetson.sh",
+  "cli:scripts/build_and_install.sh",
+  "cli:scripts/sync_models.py",
+]
+code = [
+  "scripts/deploy_to_jetson.sh",
+  "scripts/build_and_install.sh",
+  "scripts/sync_models.py",
+]
+proofs = [
+  "pytest:scripts/tests/test_deploy_to_jetson_sh.py::test_gitignored_build_version_still_reaches_the_remote",
+  "pytest:scripts/tests/test_deploy_to_jetson_sh.py::test_other_gitignored_files_stay_off_the_remote",
+]
+supporting = [
+  "pytest:scripts/tests/test_scripts_misc.py::test_sync_models_never_overwrites_existing_files",
+]
+status = "draft"
+
+[features.build]
+name = "Build and run on a dev box"
+reach = [
+  "cli:scripts/build.sh",
+  "cli:scripts/build_debug.sh",
+  "cli:scripts/build_and_run.sh",
+  "cli:scripts/build_and_test.sh",
+  "cli:scripts/clean_build.sh",
+  "cli:scripts/build_web.sh",
+  "cli:scripts/run.sh",
+]
+code = [
+  "CMakeLists.txt",
+  "scripts/build.sh",
+  "scripts/build_and_run.sh",
+]
+proofs = [
+  "pytest:install/tests/test_install_scripts_fakes.py::test_build_web_reinstalls_only_when_the_lockfile_changes",
+]
+status = "draft"
+
+[features.machine_install]
+name = "Machine install"
+reach = [
+  "cli:scripts/install_handheld_autonomy.sh",
+  "cli:scripts/install_jetson_ci.sh",
+  "cli:scripts/install_ubuntu_22.sh",
+  "cli:scripts/install_ubuntu_24.sh",
+  "cli:scripts/install_zed_box.sh",
+  "cli:scripts/setup_python.sh",
+  "cli:scripts/setup_claude_code.sh",
+]
+code = ["install/"]
+proofs = [
+  "pytest:scripts/tests/test_setup_claude_code_sh.py::test_skill_clone_runs_with_git_prompts_disabled",
+  "pytest:scripts/tests/test_setup_claude_code_sh.py::test_failed_skill_clone_warns_and_does_not_abort",
+]
+supporting = [
+  "pytest:install/tests/test_install_scripts_fakes.py::test_check_jetson_orin_gates_on_jetpack_6_2_3",
+]
+status = "draft"
+
+[features.simulation]
+name = "Simulation"
+reach = [
+  "cli:scripts/run_simulation.sh",
+  "cli:scripts/setup_simulation.sh",
+  "cli:simulation/kinematic_sim_server.py",
+  "cli:simulation/rl_eval_server.py",
+  "cli:auto_battlebot.calibration.sim_stop_test",
+]
+code = [
+  "src/simulation/",
+  "auto_battlebot/kinematic_sim/",
+  "simulation/",
+]
+proofs = [
+  "pytest:auto_battlebot/kinematic_sim/tests/test_kinematic_sim_server.py::test_wrapper_script_serves_a_frame_to_the_cpp_wire_format",
+]
+supporting = [
+  "pytest:auto_battlebot/kinematic_sim/tests/test_kinematic_sim_server.py::test_respawn_keeps_time_and_opponents",
+  "pytest:auto_battlebot/calibration/tests/test_sim_stop_test.py::test_python_sim_server_listens_where_the_cpp_profile_connects",
+  "pytest:auto_battlebot/kinematic_sim/tests/test_sim_protocol.py::test_formats_match_cpp_header",
+]
+status = "draft"
+
+[features.verify_suites]
+name = "Verify suites and gates"
+reach = [
+  "cli:scripts/verify",
+  "cli:auto_battlebot.verify.cli",
+]
+code = ["auto_battlebot/verify/"]
+proofs = [
+  "pytest:auto_battlebot/verify/tests/test_verify.py::test_verify_script_lists_the_suites_a_file_selects",
+  "pytest:auto_battlebot/verify/tests/test_verify.py::test_verify_script_rejects_a_file_list_without_changed",
+]
+supporting = [
+  "pytest:auto_battlebot/verify/tests/test_verify.py::test_stop_blocks_on_failure_then_gives_up_after_two_blocks",
+  "pytest:auto_battlebot/verify/tests/test_run_store.py::test_suite_steps_write_their_reports",
+]
+status = "draft"
+
+[features.playback_regression]
+name = "Playback regression"
+reach = ["cli:auto_battlebot.verify.playback"]
+code = [
+  "auto_battlebot/verify/playback.py",
+  "config/playback/",
+]
+proofs = [
+  "playback:clyde:hashes",
+  "playback:sphinx:hashes",
+  "playback:wreck_creation:hashes",
+]
+supporting = [
+  "pytest:auto_battlebot/verify/tests/test_playback.py::test_compare_lockstep_fails_on_any_hash_change_on_the_same_machine_class",
+  "pytest:auto_battlebot/verify/tests/test_playback.py::test_clip_proofs_grade_metrics_topic_rates_and_checks",
+]
+status = "draft"
+
+[features.recording_grading]
+name = "Recording grading"
+reach = ["cli:scripts/verify_mcap"]
+code = [
+  "src/health/mcap_grader.cpp",
+  "tools/verify_mcap.cpp",
+]
+proofs = [
+  "pytest:auto_battlebot/verify/tests/test_verify.py::test_verify_mcap_script_grades_a_recording",
+]
+supporting = [
+  "gtest:McapGraderTest.HealthySessionGradesOk",
+  "gtest:McapGraderTest.CrsfSilenceCalibrationAndPhantomAllFireOffline",
+  "gtest:McapGraderRecordedTest.MayNhrlEdgeTxSessionHasCrsfTelemetry",
+]
+links = [
+  "camera_frames",
+  "perception",
+  "filter",
+  "transmit",
+  "crsf_telemetry",
+  "espnow",
+  "imu",
+]
+status = "draft"
+
+[features.feature_map]
+name = "Feature map"
+reach = [
+  "cli:auto_battlebot.features.cli",
+  "cli:auto_battlebot.verify.coverage",
+  "cli:auto_battlebot.features.serve",
+  "cli:scripts/feature_map",
+]
+code = [
+  "auto_battlebot/features/",
+  "auto_battlebot/verify/coverage.py",
+  "auto_battlebot/verify/gcda.py",
+  "auto_battlebot/verify/run_store.py",
+]
+proofs = [
+  "pytest:auto_battlebot/features/tests/test_features.py::test_cli_check_prints_a_summary",
+  "pytest:auto_battlebot/features/tests/test_features.py::test_scripts_wrapper_runs_registry_commands_and_the_server_help",
+  "vitest:tools/feature_map/src/browser/page.test.ts::shows stage counts, the graph, the side panel, and copies a command",
+]
+supporting = [
+  "pytest:auto_battlebot/features/tests/test_features.py::test_build_map_joins_runs_and_marks_the_diff",
+  "pytest:auto_battlebot/verify/tests/test_run_store.py::test_gcda_blocks_and_moved_functions",
+  "pytest:auto_battlebot/verify/tests/test_run_store.py::test_server_serves_the_map_and_the_bundle",
+]
+status = "draft"
+
+[features.lint]
+name = "Lint and comment budget"
+reach = [
+  "cli:scripts/lint",
+  "cli:scripts/comment_budget.py",
+  "cli:scripts/no_ai_slop_check.sh",
+  "cli:scripts/check_install_option_leaks.sh",
+  "cli:scripts/check_no_nvjpeg_link.sh",
+]
+code = [
+  "scripts/lint",
+  "scripts/comment_budget.py",
+]
+proofs = [
+  "pytest:scripts/tests/test_lint_script_tool_wiring.py::test_clang_tidy_runs_through_the_versioned_driver_not_the_bare_one",
+  "pytest:scripts/tests/test_comment_budget.py::test_check_fails_over_budget_and_passes_within",
+  "pytest:scripts/tests/test_comment_budget.py::test_hook_exits_2_on_a_commented_edit",
+  "pytest:scripts/tests/test_scripts_misc.py::test_slop_check_flags_prose_with_line_numbers",
+  "pytest:scripts/tests/test_lint_install_option_leaks.py::test_repo_install_scripts_are_clean",
+]
+supporting = [
+  "pytest:scripts/tests/test_comment_budget.py::test_ratchet_lowers_never_raises_and_drops_zeros",
+]
+status = "draft"
+
+[features.recording_tools]
+name = "Recording download and inspection"
+reach = [
+  "cli:scripts/download_recordings.sh",
+  "cli:scripts/combine_mcap_svo.py",
+  "cli:scripts/convert_ros1_mcap.py",
+  "cli:scripts/mcap_auto_percentage.py",
+  "cli:scripts/mcap_latency_report.py",
+  "cli:scripts/mcap_out.py",
+  "cli:scripts/mcap_topic_sizes.py",
+  "cli:scripts/nhrl_to_recordings.py",
+  "cli:scripts/video_to_mcap.py",
+]
+code = [
+  "auto_battlebot/recording/",
+  "scripts/",
+]
+proofs = [
+  "pytest:scripts/tests/test_download_recordings_sh.py::test_lists_recordings_when_most_search_dirs_are_missing_remotely",
+  "pytest:scripts/tests/test_download_recordings_sh.py::test_recordings_already_held_locally_are_not_listed",
+]
+supporting = [
+  "pytest:scripts/tests/test_combine_mcap_svo_decode_pairing.py::test_jpegs_come_out_in_message_order",
+  "pytest:scripts/tests/test_convert_ros1_mcap_failures.py::test_torn_header_fails_the_file_without_raising",
+]
+status = "draft"
+
+[features.jig_calibration]
+name = "Velocity jig calibration"
+reach = [
+  "cli:auto_battlebot.calibration.jig.find_flip_accel",
+  "cli:auto_battlebot.calibration.jig.fit_encoder_scale",
+  "cli:auto_battlebot.calibration.jig.fit_gyro_noise",
+  "cli:auto_battlebot.calibration.jig.fit_gyro_scale",
+  "cli:auto_battlebot.calibration.jig.fit_jig_plant",
+  "cli:auto_battlebot.calibration.jig.plot_jig_runs",
+  "cli:auto_battlebot.calibration.jig.velocity_jig_drive",
+]
+code = ["auto_battlebot/calibration/jig/"]
+proofs = [
+  "pytest:auto_battlebot/calibration/jig/tests/test_fit_gyro_noise_cli.py::test_cli_prints_the_injected_bias_per_axis",
+]
+supporting = [
+  "pytest:auto_battlebot/calibration/jig/tests/test_find_flip_accel.py::test_close_zeroes_both_channels",
+  "pytest:auto_battlebot/calibration/jig/tests/test_velocity_jig_drive.py::test_mix_defaults_read_channel_b_negated",
+]
+status = "draft"
+
+[features.apriltag_calibration]
+name = "AprilTag plant calibration"
+reach = [
+  "cli:auto_battlebot.calibration.apriltag.analyze_apriltag_mcap",
+  "cli:auto_battlebot.calibration.apriltag.fit_plant_calib",
+  "cli:auto_battlebot.calibration.apriltag.make_print_tags",
+  "cli:auto_battlebot.calibration.apriltag.make_robot_tag_3d",
+]
+code = ["auto_battlebot/calibration/apriltag/"]
+proofs = [
+  "pytest:auto_battlebot/calibration/apriltag/tests/test_make_print_tags.py::test_robot_tag_id_is_outside_floor_range",
+]
+supporting = [
+  "pytest:auto_battlebot/calibration/apriltag/tests/test_make_robot_tag_3d.py::test_mesh_decodes_unmirrored",
+  "pytest:auto_battlebot/calibration/apriltag/tests/test_apriltag_detect.py::test_floor_extrinsic_recovers_pose_of_rendered_board",
+]
+status = "draft"
+
+[features.sysid]
+name = "System identification sessions"
+reach = [
+  "cli:auto_battlebot.calibration.sysid.check_sysid_recordings",
+  "cli:auto_battlebot.calibration.sysid.detect_robot_yolo",
+  "cli:auto_battlebot.calibration.sysid.plot_sysid_bundle",
+  "cli:auto_battlebot.calibration.sysid.smooth_tag_poses",
+  "cli:auto_battlebot.calibration.sysid.sysid_coverage",
+]
+code = ["auto_battlebot/calibration/sysid/"]
+proofs = [
+  "pytest:auto_battlebot/perception/tests/test_tag_pose_smoother.py::test_cli_writes_bundle",
+]
+supporting = [
+  "pytest:auto_battlebot/calibration/sysid/tests/test_check_sysid_recordings.py::test_torn_files_fail_the_check_instead_of_crashing",
+]
+status = "draft"
+
+[features.plant_fit]
+name = "Plant fit"
+reach = [
+  "cli:auto_battlebot.calibration.distill_mujoco_plant",
+  "cli:auto_battlebot.calibration.fit_mrs_buff_mk3_interim_plant",
+  "cli:auto_battlebot.calibration.fit_mujoco_plant",
+  "cli:auto_battlebot.calibration.write_plant_configs",
+  "cli:auto_battlebot.calibration.match.fit_match_plant",
+  "cli:auto_battlebot.calibration.match.render_match_prediction",
+  "cli:auto_battlebot.calibration.match.render_match_prediction_camera",
+]
+code = [
+  "auto_battlebot/calibration/",
+  "auto_battlebot/mujoco_sim/",
+]
+proofs = [
+  "pytest:auto_battlebot/calibration/tests/test_write_plant_configs.py::test_check_reads_the_default_fit_beside_the_module",
+]
+supporting = [
+  "pytest:auto_battlebot/calibration/tests/test_write_plant_configs.py::test_every_mapped_field_appears_exactly_once_in_its_target_config",
+  "pytest:auto_battlebot/calibration/match/tests/test_fit_match_plant.py::test_noise_floor_skips_overlapping_windows_from_the_same_run",
+]
+status = "draft"
+
+[features.mujoco_model]
+name = "MuJoCo robot model"
+reach = [
+  "cli:auto_battlebot.mujoco_sim.build_mr_stabs_mjcf",
+  "cli:auto_battlebot.mujoco_sim.build_mrs_buff_mk3_model",
+  "cli:auto_battlebot.mujoco_sim.lump_mr_stabs_mass_properties",
+]
+code = ["auto_battlebot/mujoco_sim/"]
+proofs = [
+  "pytest:auto_battlebot/mujoco_sim/tests/test_lump_mass_properties.py::test_cli_regenerates_the_committed_mass_table",
+]
+supporting = [
+  "pytest:auto_battlebot/mujoco_sim/tests/test_mujoco_sim.py::test_model_rests_on_nose_and_hits_free_speed",
+  "pytest:auto_battlebot/mujoco_sim/tests/test_lump_mass_properties.py::test_fullinertia_order",
+]
+status = "draft"
+
+[features.rl_training]
+name = "RL policy training and export"
+reach = [
+  "cli:auto_battlebot.rl.export_checkpoint",
+  "cli:auto_battlebot.rl.fit_provisional_ekf_error",
+  "cli:auto_battlebot.rl.fit_sensing_model",
+  "cli:auto_battlebot.rl.lockstep_eval",
+  "cli:auto_battlebot.rl.score_field_session",
+]
+code = ["auto_battlebot/rl/"]
+proofs = [
+  "pytest:auto_battlebot/rl/tests/test_export_checkpoint_cli.py::test_cli_writes_a_bundle_whose_selftest_matches_the_checkpoint",
+]
+supporting = [
+  "pytest:auto_battlebot/rl/envs/tests/test_rl_core.py::test_export_round_trip",
+  "pytest:auto_battlebot/rl/export/tests/test_bundle_format_version.py::test_cpp_loader_reads_the_format_version_the_exporter_writes",
+]
+status = "draft"
+
+[features.nav_field_tests]
+name = "Navigation field tests"
+reach = [
+  "cli:auto_battlebot.nav.repro_1025",
+  "cli:auto_battlebot.nav.step_test",
+]
+code = ["auto_battlebot/nav/"]
+proofs = [
+  "pytest:auto_battlebot/nav/tests/test_repro_1025_report.py::test_report_cli_summarizes_each_arm_against_the_field",
+]
+supporting = [
+  "pytest:auto_battlebot/nav/tests/test_eval_tick_constants.py::test_repro_1025_tick_matches_eval_server",
+  "pytest:auto_battlebot/nav/tests/test_step_test.py::test_max_motor_rpm_matches_profile",
+]
+status = "draft"
+
+[features.datasets]
+name = "Detector datasets"
+reach = [
+  "cli:auto_battlebot.datasets.annotate_cage_video",
+  "cli:training/yolo/clear_image_cache.py",
+  "cli:auto_battlebot.datasets.download_cage_video",
+  "cli:training/yolo/seg_to_bbox.py",
+  "cli:auto_battlebot.eval.cache_gt_depth",
+]
+code = [
+  "auto_battlebot/datasets/",
+  "auto_battlebot/eval/",
+]
+proofs = [
+  "pytest:auto_battlebot/datasets/tests/test_clear_image_cache.py::test_dry_run_cli_reports_stale_caches_and_deletes_nothing",
+]
+supporting = [
+  "pytest:auto_battlebot/datasets/tests/test_annotate_cage_video.py::test_keypoint_order_matches_scoring",
+  "pytest:auto_battlebot/datasets/tests/test_download_cage_video.py::test_bot_fights_keyed_by_gameid_reach_build_clip_as_id",
+]
+status = "draft"
+
+[features.gpu_queue]
+name = "GPU training queue"
+reach = ["cli:training/gpu_queue.py"]
+code = ["auto_battlebot/gpu_queue.py"]
+proofs = [
+  "pytest:auto_battlebot/tests/test_gpu_queue.py::test_status_cli_estimates_a_queued_job_from_history",
+]
+supporting = [
+  "pytest:auto_battlebot/tests/test_gpu_queue.py::TestJobEnv::test_job_env_strips_unsafe_inherited_vars",
+  "pytest:auto_battlebot/tests/test_gpu_queue.py::TestTypicalSeconds::test_eta_beats_history",
+]
+status = "draft"
+
+[features.splash_animation]
+name = "Splash animation"
+reach = ["cli:logo/gen_splash_animation.py"]
+code = ["auto_battlebot/branding/"]
+proofs = [
+  "pytest:auto_battlebot/branding/tests/test_splash_animation.py::test_wrapper_cli_writes_a_gif_of_the_requested_size",
+]
+supporting = [
+  "pytest:auto_battlebot/branding/tests/test_splash_animation.py::test_halves_meet_at_centre_before_spin",
+]
+status = "draft"
+
+[ignored]
+"channel:Rud" = "spare passthrough channel with no function on either robot"
+"readout:Tabs" = "page layout: switches between views, shows no robot state"
+"cli:scripts/activate_python.sh" = "sourced by a shell to enter the venv, not run"
+"cli:auto_battlebot.verify.hooks" = "Claude Code hook entry point; verify_suites covers what it runs"
+"status:/status/battery" = "no publisher since cd50df05 deleted the battery backend"
