@@ -101,7 +101,7 @@ class McapLogSink : public spdlog::sinks::base_sink<std::mutex> {
             return;
         }
         channel_ = std::make_unique<OutputChannel>(
-            viz_topic(VizTopicId::LOG), VizSchema::from_sdk(foxglove::schemas::Log::schema()), sink,
+            "/log", "protobuf", VizSchema::from_sdk(foxglove::schemas::Log::schema()), false, sink,
             recorder_);
     }
 

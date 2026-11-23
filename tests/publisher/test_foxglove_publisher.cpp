@@ -18,7 +18,6 @@
 #include "diagnostics_logger/diagnostics_logger.hpp"
 #include "publisher/foxglove_publisher.hpp"
 #include "publisher/output_channel.hpp"
-#include "publisher/viz_topics.hpp"
 #include "viz/frame.hpp"
 #include "viz/viz_sink.hpp"
 
@@ -295,27 +294,6 @@ TEST(FoxglovePublisherTest, SubscribedAnnotationsStayOutOfTheRecording) {
     EXPECT_NE(contents.find("/keypoint_detections"), std::string::npos);
     EXPECT_EQ(contents.find("/keypoint_detections/annotations"), std::string::npos);
     std::filesystem::remove_all(scratch);
-}
-
-TEST(OutputChannelTest, UnrecordedRowNeverReachesTheRecorder) {
-    const Recording recording = record_to([](const std::shared_ptr<McapRecorder> &recorder) {
-        OutputChannel live_only(viz_topic(VizTopicId::KEYPOINT_ANNOTATIONS),
-                                VizSchema{"n", "jsonschema", "{}"}, nullptr, recorder);
-        OutputChannel recorded(viz_topic(VizTopicId::LOG), VizSchema{"n", "jsonschema", "{}"},
-                               nullptr, recorder);
-        EXPECT_FALSE(live_only.records());
-        live_only.log(std::string("{}"), 1);
-        recorded.log(std::string("{}"), 2);
-    });
-    EXPECT_EQ(recording.count("/keypoint_detections/annotations"), 0u);
-    ASSERT_EQ(recording.count("/log"), 1u);
-    EXPECT_EQ(recording.at("/log").size(), 1u);
-}
-
-TEST(VizTopicsTest, RowsMatchTheirIds) {
-    EXPECT_EQ(viz_topic(VizTopicId::TF).topic, "/tf");
-    EXPECT_EQ(viz_topic(VizTopicId::APRILTAG_ROBOT_TAGS).topic, "/apriltag/robot_tags");
-    EXPECT_EQ(diagnostics_topic("runner"), "/diagnostics/runner");
 }
 
 TEST(OutputChannelTest, ZeroLengthPayloadsNeverReachTheRelay) {

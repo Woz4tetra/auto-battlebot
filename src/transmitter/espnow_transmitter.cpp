@@ -15,6 +15,7 @@ namespace {
 constexpr auto kDongleLinkStatsPeriod = std::chrono::milliseconds(100);
 constexpr auto kDongleSilence = 5 * kDongleLinkStatsPeriod;
 constexpr auto kHealthPeriod = std::chrono::seconds(1);
+constexpr const char *kTopic = "/robot/espnow_telemetry";
 
 void append_key(std::string &json, const char *key) {
     if (json.size() > 1) json += ',';
@@ -140,10 +141,10 @@ EspNowTransmitter::EspNowTransmitter(const EspNowTransmitterConfiguration &confi
                                           .reverse_angular = config.reverse_angular_channel,
                                       },
                                       logger_)),
-      telemetry_channel_(viz_topic(VizTopicId::ESPNOW_TELEMETRY),
+      telemetry_channel_(kTopic, "json",
                          VizSchema::jsonschema(foxglove_adapters::kEspNowTelemetrySchemaName,
                                                foxglove_adapters::kEspNowTelemetrySchema),
-                         std::move(sink), std::move(mcap_recorder)) {
+                         false, std::move(sink), std::move(mcap_recorder)) {
     if (config_.max_motor_rpm_per_s && config_.max_motor_rpm > 0.0) {
         max_normalized_linear_rate_per_s_ = *config_.max_motor_rpm_per_s / config_.max_motor_rpm;
     }

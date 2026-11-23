@@ -1,9 +1,0 @@
-#!/bin/bash
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON="$ROOT/venv/bin/python"
-[ -x "$PYTHON" ] || PYTHON=python3
-cd "$ROOT" || exit 1
-if [ $# -eq 0 ] || [[ "$1" == --* ]]; then
-    exec "$PYTHON" -m auto_battlebot.features.serve "$@"
-fi
-exec "$PYTHON" -m auto_battlebot.features "$@"

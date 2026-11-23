@@ -233,12 +233,6 @@ if [ $comment_rc -eq 0 ] && [ "$DRY_RUN" = false ]; then
 fi
 record "comment budget" $comment_rc
 
-header "feature map"
-FEATURE_PYTHON="$PROJECT_ROOT/venv/bin/python"
-[ -x "$FEATURE_PYTHON" ] || FEATURE_PYTHON=python3
-(cd "$PROJECT_ROOT" && "$FEATURE_PYTHON" -m auto_battlebot.features check --quiet)
-record "feature map" $?
-
 WEB_DIR="$PROJECT_ROOT/web"
 PROTOCOL_TS="$WEB_DIR/src/generated/protocol.ts"
 PROTOCOL_DUMP="$BUILD_DIR/remote_protocol_dump"
@@ -288,24 +282,6 @@ run_prettier() {
     fi
 }
 run_prettier
-
-run_tools_prettier() {
-    for tool in "$PROJECT_ROOT"/tools/*/; do
-        [ -f "$tool/package.json" ] || continue
-        name=$(basename "$tool")
-        header "prettier tools/$name ($FORMATTER_MODE)"
-        if [ ! -d "$tool/node_modules" ]; then
-            missing "prettier tools/$name" "tools/$name/node_modules (run npm ci there)"
-        elif [ "$DRY_RUN" = true ]; then
-            (cd "$tool" && npx --no-install prettier --check --config .prettierrc src)
-            record "prettier tools/$name" $?
-        else
-            (cd "$tool" && npx --no-install prettier --write --log-level warn --config .prettierrc src)
-            record "prettier tools/$name" $?
-        fi
-    done
-}
-run_tools_prettier
 
 refresh_compile_commands_after_renames() {
     if ! cmake -S "$PROJECT_ROOT" -B "$BUILD_DIR" >/dev/null; then

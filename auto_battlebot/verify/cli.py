@@ -5,11 +5,10 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
-from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from auto_battlebot.verify import only, run_store, suites
+from auto_battlebot.verify import suites
 from auto_battlebot.verify.selection import SUITES, Selection, everything, select
 from auto_battlebot.verify.state import STATE_DIR
 
@@ -78,7 +77,6 @@ class Outcome:
     ok: bool
     results: list[suites.StepResult]
     selection: Selection
-    run_file: Path | None = None
 
     def failures(self) -> list[suites.StepResult]:
         return [r for r in self.results if not r.ok]
@@ -101,16 +99,9 @@ def verify(
     echo: bool = False,
     playback: tuple[str, ...] = (),
     suites_too: bool = True,
-    tier: str = "",
-    store: bool = True,
-    preselected: Selection | None = None,
-    clips: Sequence[str] = (),
 ) -> Outcome:
     """Run lint (with --fast), the suites a file list selects or every suite, and playback tiers."""
-    if preselected is not None:
-        selection = preselected
-    else:
-        selection = everything() if files is None else select(files, root)
+    selection = everything() if files is None else select(files, root)
     if only:
         selection = restrict(selection, only)
     if not suites_too:
@@ -122,29 +113,16 @@ def verify(
             mark = "ok  " if result.ok else "FAIL"
             print(f"{mark} {result.name} ({result.seconds:.0f} s)", flush=True)
 
-    logs = log_dir or root / STATE_DIR / "verify-logs"
-    groups = suites.plan(root, selection, fast, logs) + [
-        suites.playback_group(root, name, logs, clips) for name in playback
+    groups = suites.plan(root, selection, fast) + [
+        suites.playback_group(root, tier) for tier in playback
     ]
-    results = suites.run(groups, logs, before, report)
-    run_file = store_run(root, results, tier or run_tier(files, fast, playback)) if store else None
-    return Outcome(all(r.ok for r in results), results, selection, run_file)
-
-
-def run_tier(files: list[str] | None, fast: bool, playback: tuple[str, ...]) -> str:
-    parts = ["fast" if fast else "full", "changed" if files is not None else "all"]
-    return "+".join([*parts, *playback])
-
-
-def store_run(root: Path, results: list[suites.StepResult], tier: str) -> Path | None:
-    """Write the run's per-proof results to the run store, if any step reported some."""
-    proofs: list[run_store.ProofResult] = []
-    for result in results:
-        if result.report:
-            proofs += run_store.read_report(result.report.kind, result.report.path, root)
-    if not proofs:
-        return None
-    return run_store.write_run(root, tier, proofs)
+    results = suites.run(
+        groups,
+        log_dir or root / STATE_DIR / "verify-logs",
+        before,
+        report,
+    )
+    return Outcome(all(r.ok for r in results), results, selection)
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -171,13 +149,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     for tier in LATER_TIERS:
         parser.add_argument(f"--{tier}", action="store_true", help=f"Lands in {LATER_TIERS[tier]}")
-    parser.add_argument(
-        "--only", nargs="+", metavar="PROOF", help="Run exactly these proof ids (gtest:..., ...)"
-    )
-    parser.add_argument("--stale", action="store_true", help="Rerun every stale proof")
-    parser.add_argument(
-        "--coverage", action="store_true", help="Record which files each proof executes"
-    )
     return parser.parse_args(argv)
 
 
@@ -196,73 +167,6 @@ def file_list(args: argparse.Namespace, root: Path) -> list[str] | None:
     return [f.strip() for f in files if f.strip()]
 
 
-def print_selection(selection: Selection, playback: tuple[str, ...], clips: Sequence[str]) -> int:
-    which = ", ".join(clips) if clips else "every clip"
-    lines = describe(selection) + [f"playback {tier}: {which}" for tier in playback]
-    print("\n".join(lines) or "nothing to run")
-    for path in selection.uncovered:
-        print(f"no test covers {path}")
-    return 0
-
-
-def report_outcome(root: Path, outcome: Outcome) -> int:
-    for failure in outcome.failures():
-        print(f"\n==> {failure.name} failed; last lines of {failure.log}:")
-        print(suites.tail(failure.log))
-    for path in outcome.selection.uncovered:
-        print(f"no test covers {path}")
-    if outcome.run_file:
-        print(f"results stored in {outcome.run_file.relative_to(root)}")
-    print("verify: " + ("PASS" if outcome.ok else "FAIL"))
-    return 0 if outcome.ok else 1
-
-
-def stale_ids(root: Path) -> list[str]:
-    from auto_battlebot.features.feature_map import build_map
-
-    data = build_map(root, with_git=True)
-    found = []
-    for feature in data["features"]:
-        entries = feature["proofs"] + feature["supporting"]
-        entries += [e for variant in feature["variants"] for e in variant["proofs"]]
-        found += [e["id"] for e in entries if e["state"] == "stale" and e["id"] not in found]
-    return found
-
-
-def run_only(root: Path, args: argparse.Namespace, ids: list[str]) -> int:
-    plan = only.plan_only(ids)
-    for problem in plan.problems:
-        print(problem, file=sys.stderr)
-    if args.list:
-        return print_selection(plan.selection, plan.playback, plan.clips)
-    if not ids:
-        print("nothing is stale")
-        return 0
-    outcome = verify(
-        root,
-        None,
-        args.fast,
-        args.suite,
-        args.log_dir,
-        echo=True,
-        playback=plan.playback,
-        tier="only",
-        preselected=plan.selection,
-        clips=plan.clips,
-    )
-    code = report_outcome(root, outcome)
-    return code or (2 if plan.problems else 0)
-
-
-def run_coverage(root: Path, args: argparse.Namespace) -> int:
-    from auto_battlebot.verify import coverage
-
-    chosen = [s for s in (args.suite or []) if s in coverage.SUITES]
-    path = coverage.run(chosen or list(coverage.SUITES))
-    print(f"coverage written to {path.relative_to(root)}")
-    return 0
-
-
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     for tier, phase in LATER_TIERS.items():
@@ -270,10 +174,6 @@ def main(argv: list[str] | None = None) -> int:
             print(f"--{tier} is not built yet; it lands in {phase}", file=sys.stderr)
             return 2
     root = repo_root()
-    if args.coverage:
-        return run_coverage(root, args)
-    if args.only or args.stale:
-        return run_only(root, args, list(args.only or []) + (stale_ids(root) if args.stale else []))
     try:
         files = file_list(args, root)
     except ValueError as error:
@@ -287,7 +187,11 @@ def main(argv: list[str] | None = None) -> int:
             selection = restrict(selection, args.suite)
         if not suites_too:
             selection = restrict(selection, [])
-        return print_selection(selection, playback, ())
+        lines = describe(selection) + [f"playback {tier}: every clip" for tier in playback]
+        print("\n".join(lines) or "nothing to run")
+        for path in selection.uncovered:
+            print(f"no test covers {path}")
+        return 0
     outcome = verify(
         root,
         files,
@@ -298,7 +202,13 @@ def main(argv: list[str] | None = None) -> int:
         playback=playback,
         suites_too=suites_too,
     )
-    return report_outcome(root, outcome)
+    for failure in outcome.failures():
+        print(f"\n==> {failure.name} failed; last lines of {failure.log}:")
+        print(suites.tail(failure.log))
+    for path in outcome.selection.uncovered:
+        print(f"no test covers {path}")
+    print("verify: " + ("PASS" if outcome.ok else "FAIL"))
+    return 0 if outcome.ok else 1
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ CameraSettings default_manual_settings(const CameraSettingLimits &limits) {
 constexpr auto kGrabErrorWindow = std::chrono::seconds(10);
 constexpr double kGrabErrorExitThreshold = 0.70;
 constexpr auto kGetWaitTimeout = std::chrono::milliseconds(100);
+constexpr const char *kVideoTopic = "/camera/video";
 }  // namespace
 
 #define AB_ZED_HAS_ANTIBANDING \
@@ -130,8 +131,8 @@ void ZedOneRgbCamera::read_calibration() {
 
 bool ZedOneRgbCamera::start_encoder() {
     video_channel_ = std::make_unique<OutputChannel>(
-        viz_topic(VizTopicId::CAMERA_VIDEO),
-        VizSchema::from_sdk(foxglove::schemas::CompressedVideo::schema()), nullptr, mcap_recorder_);
+        kVideoTopic, "protobuf", VizSchema::from_sdk(foxglove::schemas::CompressedVideo::schema()),
+        false, nullptr, mcap_recorder_);
     VideoEncoderOptions encoder_options;
     encoder_options.width = width_;
     encoder_options.height = height_;

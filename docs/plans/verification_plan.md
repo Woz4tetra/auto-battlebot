@@ -19,9 +19,6 @@ The decisions come from a grilling session on 2026-11-15. The full question and 
   laptop nor megamind; see [Phase 2 outcome](#phase-2-outcome-2026-11-21).
 - Phase 3 done 2026-11-22 except `--sim`, which waits on nav plan WP-14; see
   [Phase 3 outcome](#phase-3-outcome-2026-11-22).
-- Phase 4: WP-V11a-d done 2026-11-22 and every proof backfilled; enforcement waits on the user's
-  review of the 50 draft entries; see
-  [Phase 4 outcome](#phase-4-outcome-2026-11-22).
 
 ## What went wrong
 
@@ -385,10 +382,10 @@ resolving the `config/` extends chain for each top-level profile.
 
 **UI.** `tools/feature_map/`, the first TypeScript tool:
 
-- Svelte 5 and Vite at `web/`'s versions; Cytoscape.js with fixed columns (preset layout)
+- Svelte 5 and Vite at `web/`'s versions; Cytoscape.js with the ELK layered layout
 - Builds into `auto_battlebot/features/static/` (gitignored). `serve` rebuilds when the bundle is
   missing or older than the source, and says to run `npm ci` when `node_modules` is missing
-- `python -m auto_battlebot.features.serve` binds the Tailscale IPv4 (127.0.0.1 without Tailscale). A stdlib loop checks mtimes
+- `python -m auto_battlebot.features.serve` binds 127.0.0.1 only. A stdlib loop checks mtimes
   once a second (`docs/features.toml`, `data/verify/runs/`, `data/verify/coverage/`,
   `.git/HEAD` and refs, the working tree for the diff overlay) and pushes Server-Sent Events; the
   page refetches `/api/map`
@@ -399,9 +396,9 @@ Views:
 
 | View | Shows |
 | --- | --- |
-| Overview (landing) | shape C: a lane per stage (camera → perception → filter → target → nav → transmit → robot) with counts and feature chips, cross-stage features as bands, platform features grouped below; no proof edges |
+| Overview (landing) | camera → perception → filter → target → nav → transmit → robot, with proven, stale and gap counts per stage; no proof edges |
 | Map (main) | reach → feature → proof; proofs grouped one node per tier per feature, expand on click; click a node for its neighborhood |
-| Impact | shape B: reach → feature → module → proof, proofs hung off the modules their coverage runs through; modules used by more than half their root's features collapse into one infrastructure node, expandable |
+| Impact | adds code modules from `touches`; modules touched by more than half the features collapse into one infrastructure node |
 
 A diff overlay toggle on the map highlights features whose `touches` or `code` overlap
 `git diff` plus untracked files, and lists the proofs `scripts/verify --changed` would run.
@@ -423,53 +420,6 @@ exact `scripts/verify --only <ids>` command.
   carry its proof (verifier check).
 - `scripts/lint` enforcement switches on in the commit that closes the last gap: it fails when a
   reach point is unclaimed, a feature has no proof, or a listed proof, link, or doc doesn't exist.
-
-#### Phase 4 outcome (2026-11-22)
-
-How it works now: `docs/reference/tools/feature_map.md`. Coverage cost:
-`docs/experiments/platform/2026-11-22_proof_coverage_cost.md`.
-
-- Reach discovery reads the headers and source directly instead of the dump binaries, so lint
-  needs no build; `viz_topic_dump` and `remote_protocol_dump` are cross-checked against the parse
-  by a test. Discovery finds 204 reach points: 85 CLIs, 41 factory types (the 34 of 2026-11-21 plus
-  clocks), 20 readouts, 19 Foxglove topics, 12 commands, 9 status topics, 8 controls, 6 profiles,
-  3 units.
-- Foxglove topics moved into `kVizTopics` (`include/publisher/viz_topics.hpp`); every call site
-  takes its row, and `recorded = false` rows never reach the recorder.
-- `variants` is a table of type to proof ids instead of a list, so each factory type carries its
-  own proof. Listed references (reach ids, types, proofs, links, code, docs) fail lint from the
-  start; only completeness (unclaimed, proofless, draft) waits for `enforce = true`.
-- Proof existence comes from the source (gtest and native declarations, pytest AST, vitest titles)
-  rather than each runner's listing, again so lint needs no build.
-- `hil:` ids resolve against `auto_battlebot/verify/hil_checklist.toml`, the seven steps phase 6
-  will drive.
-- Coverage is per gtest case: 1,063 cases in 329 s, 631 s for all four suites. Functions are
-  attributed to their own source file from the gcno and diffed against a no-test run.
-- The UI runs on port 8780 because the Foxglove relay holds 8765.
-- Bootstrap grouped the 204 reach points into 50 draft features and 4 ignored points
-  (`docs/features.toml`). Existing tests covered two thirds of the entry points. New proofs cover
-  the rest: `tests/test_factory_variants.cpp` for the 12 `Noop*`, sim, fixed-mask and clock types,
-  `web/src/browser/dashboard.test.ts` driving the dashboard from a fake relay for the four
-  readouts, and one entry test per CLI feature.
-- Backfill found two real problems. `write_plant_configs` looked for its default fit under the old
-  `scripts/calibration/` path and could not run without `--fit`; it now reads the file beside the
-  module. `--check` then reports 12 `mrs_buff_mk3.toml` plant fields that differ from
-  `plant_stageA.toml`; nothing was written. `/status/battery` keeps its `protocol.hpp` row, but
-  `cd50df05` deleted the battery backend, so nothing publishes it and `battery_readout` has no
-  proof.
-- Reach discovery first counted guardless modules (`gpu_queue`, `splash_animation`, the sim
-  servers) as `python -m` CLIs; they only run through wrapper scripts, which are now the reach
-  points.
-- The backfilled CLI tests pass on the base commit, because they prove behavior that already
-  existed; reverting the diff leaves the code they run untouched. Each was mutation-checked
-  against the code it covers instead: the splash wrapper exiting early, gyro scale halved,
-  `--dry-run` ignored, mass scaled by 1.1, reverse threshold -0.5 to -1.5, `run_order` emptied,
-  the firmware selection dropped, the `--changed` check removed, `verify_mcap` short-circuited,
-  the sim server never started, and the checkpoint never loaded. Every test failed on its mutant
-  and passed restored.
-- `/status/battery` is in `[ignored]`: `cd50df05` deleted the battery backend, so nothing
-  publishes it.
-- `enforce` stays false until the user reviews the 50 draft entries.
 
 ### Phase 5: CI
 
@@ -625,8 +575,4 @@ The script never sends autonomous drive commands; the user drives. HIL runs on d
 1. Grade the three 2026-10-25 recordings with `scripts/verify_mcap` when the ZED Box is reachable.
 2. Record lockstep and real-time baselines on the CI Jetson once WP-V13 brings it up.
 3. Wire `--sim` to the nav plan smoke tier when nav plan WP-14 lands.
-4. Review the 50 draft entries in `docs/features.toml` (grouping, names, ignored points) and mark
-   them `reviewed`.
-5. Set `enforce = true` once every entry is `reviewed`.
-6. Decide whether `config/robots/mrs_buff_mk3.toml` should take the 12 plant values
-   `write_plant_configs --check` reports from `plant_stageA.toml`.
+4. Start phase 4 (WP-V11a) on go-ahead.

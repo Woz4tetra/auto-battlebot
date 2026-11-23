@@ -55,11 +55,10 @@ class ConfigParser {
     ConfigParser(const toml::table &table, const std::string &section_name)
         : table_(table), section_name_(section_name) {}
 
-    std::string get_required_string(const std::string &key, const std::string &probe_value = "") {
+    std::string get_required_string(const std::string &key) {
         mark_accessed(key);
         auto value = table_[key].value<std::string>();
         if (!value) {
-            if (probe_required_field(table_, section_name_, key)) return probe_value;
             throw ConfigValidationError("Missing required field '" + key + "' in section [" +
                                         section_name_ + "]");
         }
@@ -76,7 +75,6 @@ class ConfigParser {
         mark_accessed(key);
         auto value = table_[key].value<int64_t>();
         if (!value) {
-            if (probe_required_field(table_, section_name_, key)) return int64_t{};
             throw ConfigValidationError("Missing required field '" + key + "' in section [" +
                                         section_name_ + "]");
         }
@@ -93,7 +91,6 @@ class ConfigParser {
         mark_accessed(key);
         auto value = table_[key].value<double>();
         if (!value) {
-            if (probe_required_field(table_, section_name_, key)) return double{};
             throw ConfigValidationError("Missing required field '" + key + "' in section [" +
                                         section_name_ + "]");
         }
@@ -110,7 +107,6 @@ class ConfigParser {
         mark_accessed(key);
         auto value = table_[key].value<bool>();
         if (!value) {
-            if (probe_required_field(table_, section_name_, key)) return bool{};
             throw ConfigValidationError("Missing required field '" + key + "' in section [" +
                                         section_name_ + "]");
         }
@@ -145,7 +141,6 @@ class ConfigParser {
         mark_accessed(key);
         const toml::array *arr = table_[key].as_array();
         if (!arr) {
-            if (probe_required_field(table_, section_name_, key)) return {};
             throw ConfigValidationError("Missing required field '" + key + "' in section [" +
                                         section_name_ + "] (expected array)");
         }

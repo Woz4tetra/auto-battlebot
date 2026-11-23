@@ -57,5 +57,4 @@ here so they read as tools rather than as dead files.
 | Script | When to run it |
 | --- | --- |
 | `lint` | Apply formatters, then run clang-tidy, ruff, and mypy. `--quick` skips the slow two. Run before committing. |
-| `feature_map` | With no arguments, serve the feature map UI on the Tailscale IP at port 8780 (`--port N`, `--host ADDR` to override). With `check`, `draft`, `reach` or `map`, run that registry command. See `docs/reference/tools/feature_map.md`. |
 | `no_ai_slop_check.sh` | Wording check. Wired to PostToolUse in `.claude/settings.json`, so it runs on write. |

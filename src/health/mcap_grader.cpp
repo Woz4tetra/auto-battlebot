@@ -10,21 +10,18 @@
 #include <set>
 #include <string_view>
 
-#include "publisher/viz_topics.hpp"
-#include "remote/protocol.hpp"
-
 namespace auto_battlebot {
 namespace {
 
 using nlohmann::json;
 
-constexpr std::string_view kFrameMeta = viz_topic(VizTopicId::CAMERA_FRAME_META).topic;
-constexpr std::string_view kVideo = viz_topic(VizTopicId::CAMERA_VIDEO).topic;
-constexpr std::string_view kDetections = viz_topic(VizTopicId::KEYPOINT_DETECTIONS).topic;
-constexpr std::string_view kTracks = remote::status_topic<remote::TracksMessage>().topic;
-constexpr std::string_view kSystem = remote::status_topic<remote::SystemStatusMessage>().topic;
-constexpr std::string_view kConfig = remote::status_topic<remote::ResolvedConfigMessage>().topic;
-constexpr std::string_view kTelemetry = viz_topic(VizTopicId::ESPNOW_TELEMETRY).topic;
+constexpr std::string_view kFrameMeta = "/camera/frame_meta";
+constexpr std::string_view kVideo = "/camera/video";
+constexpr std::string_view kDetections = "/keypoint_detections";
+constexpr std::string_view kTracks = "/status/tracks";
+constexpr std::string_view kSystem = "/status/system";
+constexpr std::string_view kConfig = "/status/config";
+constexpr std::string_view kTelemetry = "/robot/espnow_telemetry";
 constexpr std::string_view kEspNowDiagnostics = "/diagnostics/espnow_transmitter";
 constexpr std::string_view kOpenTxDiagnostics = "/diagnostics/opentx_transmitter";
 constexpr std::string_view kPolicyDiagnostics = "/diagnostics/rl_policy_nav";

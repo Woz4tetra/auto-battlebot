@@ -1,7 +1,6 @@
 """Key frames of splash_animation land on the events they are named for."""
 
 import shutil
-from pathlib import Path
 from types import ModuleType
 
 import pytest
@@ -53,31 +52,3 @@ def test_final_frames_hold_the_settled_layout(splash: ModuleType) -> None:
 def test_pill_layer_survives_dangling_clip_path(splash: ModuleType) -> None:
     layer = splash.render_pill_layer(splash.ASSETS_DIR / "bwbots_logo.svg", 100.0)
     assert layer.width > 50 and layer.height > 10
-
-
-def test_wrapper_cli_writes_a_gif_of_the_requested_size(tmp_path: Path) -> None:
-    import subprocess
-    import sys
-
-    from PIL import Image
-
-    from auto_battlebot.paths import REPO_ROOT
-
-    out = tmp_path / "splash.gif"
-    subprocess.run(
-        [
-            sys.executable,
-            "logo/gen_splash_animation.py",
-            "--size",
-            "160x128",
-            "--no-verify",
-            "--out",
-            str(out),
-        ],
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-    )
-    with Image.open(out) as gif:
-        assert gif.size == (160, 128)
-        assert gif.n_frames > 10

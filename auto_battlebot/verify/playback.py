@@ -22,7 +22,6 @@ from auto_battlebot.compat import tomllib
 from auto_battlebot.paths import REPO_ROOT
 from auto_battlebot.recording import mcap_io
 from auto_battlebot.recording.recording_catalog import load_catalog
-from auto_battlebot.verify import run_store
 
 CLIPS_FILE = Path(__file__).with_name("playback_clips.toml")
 BASELINE_FILE = Path(__file__).with_name("playback_baselines.json")
@@ -44,7 +43,6 @@ WALL_TIME_VALUE_SUFFIX = "elapsed_ms"
 JUMP_M = 0.3
 MOVING_THRESHOLD = 0.05
 RED_LEVEL = 2
-PER_FRAME_SHARE = 0.95
 LIVENESS_IGNORED = {"lockstep": frozenset({"relay_publish_link"}), "realtime": frozenset()}
 
 CROSS_CLASS_TOLERANCE = {
@@ -56,18 +54,6 @@ CROSS_CLASS_TOLERANCE = {
     "angular_mean_abs": 0.05,
     "moving_fraction": 0.05,
 }
-CLIP_METRICS = (
-    "frames",
-    "opponent_coverage",
-    "our_coverage",
-    "opponent_jumps_per_min",
-    "our_jumps_per_min",
-    "linear_mean_abs",
-    "angular_mean_abs",
-    "moving_fraction",
-    "latency_p95_ms",
-    "frame_drop_rate",
-)
 REALTIME_METRICS = ("latency_p95_ms", "frame_drop_rate")
 REALTIME_FLOOR = {"latency_p95_ms": 5.0, "frame_drop_rate": 0.02}
 
@@ -288,11 +274,6 @@ class Digest:
     hashes: dict[str, str]
     metrics: dict[str, float]
     red_checks: list[str]
-    topic_counts: dict[str, int] = field(default_factory=dict)
-    check_levels: dict[str, int] = field(default_factory=dict)
-
-    def baseline(self) -> dict[str, Any]:
-        return {"hashes": self.hashes, "metrics": self.metrics, "red_checks": self.red_checks}
 
 
 @dataclass
@@ -372,18 +353,10 @@ def summarize(messages: Iterable[tuple[str, bytes]], tier: str) -> Digest:
     """Hashes, track and command metrics, and liveness from a clip's output messages."""
     collected: list[tuple[str, bytes]] = []
     readings = ClipReadings(tier)
-    counts: dict[str, int] = defaultdict(int)
     for topic, data in messages:
         collected.append((topic, data))
-        counts[topic] += 1
         readings.read(topic, data)
-    return Digest(
-        topic_hashes(collected),
-        readings.metrics(),
-        readings.red_checks(),
-        dict(sorted(counts.items())),
-        dict(sorted(readings.worst.items())),
-    )
+    return Digest(topic_hashes(collected), readings.metrics(), readings.red_checks())
 
 
 def digest_mcap(mcap_path: Path, tier: str) -> Digest:
@@ -481,87 +454,6 @@ def compare_realtime(clip: str, got: Digest, baselines: dict[str, Any], machine:
     return problems
 
 
-def lockstep_statuses(
-    got: Digest, own: dict[str, Any] | None, reference: dict[str, Any] | None
-) -> dict[str, str]:
-    if own is not None:
-        statuses = {"hashes": "passed" if own["hashes"] == got.hashes else "failed"}
-        for name in CLIP_METRICS:
-            if name in own["metrics"]:
-                statuses[name] = "passed" if own["metrics"][name] == got.metrics[name] else "failed"
-        return statuses
-    statuses = {}
-    if reference is not None:
-        for name, tolerance in CROSS_CLASS_TOLERANCE.items():
-            delta = abs(got.metrics[name] - reference["metrics"][name])
-            statuses[name] = "passed" if delta <= tolerance else "failed"
-    return statuses
-
-
-def realtime_statuses(got: Digest, own: dict[str, Any] | None) -> dict[str, str]:
-    if own is None:
-        return {}
-    statuses = {}
-    for name in REALTIME_METRICS:
-        low, high = own["metrics"][name]
-        margin = max(high - low, REALTIME_FLOOR[name])
-        inside = low - margin <= got.metrics[name] <= high + margin
-        statuses[name] = "passed" if inside else "failed"
-    return statuses
-
-
-def metric_statuses(
-    clip: str, tier: str, got: Digest, baselines: dict[str, Any], machine: str
-) -> dict[str, str]:
-    """Pass or fail per clip metric against this machine's baseline or a cross-class one."""
-    by_class = baselines.get(tier, {})
-    own = by_class.get(machine, {}).get(clip)
-    if tier == "realtime":
-        return realtime_statuses(got, own)
-    others = sorted((name, clips[clip]) for name, clips in by_class.items() if clip in clips)
-    return lockstep_statuses(got, own, others[0][1] if others else None)
-
-
-def topic_rate_statuses(got: Digest) -> dict[str, str]:
-    """Each registered topic the clip carried: per-frame topics need 95% of frames."""
-    from auto_battlebot.features import reach
-
-    frames = got.metrics.get("frames", 0.0)
-    statuses = {}
-    for row in reach.viz_topic_rows(REPO_ROOT):
-        count = got.topic_counts.get(row.topic, 0)
-        if count == 0:
-            continue
-        if row.rate == "PER_FRAME":
-            statuses[row.topic] = "passed" if count >= PER_FRAME_SHARE * frames else "failed"
-        else:
-            statuses[row.topic] = "passed"
-    for point in reach.remote_topics(REPO_ROOT):
-        topic = point.id.partition(":")[2]
-        if point.kind == "status" and got.topic_counts.get(topic, 0) > 0:
-            statuses[topic] = "passed"
-    return statuses
-
-
-def clip_proofs(
-    clip: str, tier: str, got: Digest, baselines: dict[str, Any], machine: str, seconds: float
-) -> list[run_store.ProofResult]:
-    """Proof results for one clip run: its metrics, the topic rates, and the monitor checks."""
-    results = [
-        run_store.ProofResult(f"playback:{clip}:{name}", status, seconds)
-        for name, status in metric_statuses(clip, tier, got, baselines, machine).items()
-    ]
-    results += [
-        run_store.ProofResult(f"mcap:topic_rate:{topic}", status, 0.0)
-        for topic, status in topic_rate_statuses(got).items()
-    ]
-    results += [
-        run_store.ProofResult(f"mcap:{name}", "failed" if level >= RED_LEVEL else "passed", 0.0)
-        for name, level in got.check_levels.items()
-    ]
-    return results
-
-
 def new_run_dir(tier: str, runs_dir: Path = RUNS_DIR) -> Path:
     stamp = time.strftime("%Y-%m-%dT%H-%M-%S")
     run_dir = runs_dir / f"{stamp}_{tier}"
@@ -602,7 +494,7 @@ def lockstep_with_retry(
     return retry, [], notes + [flake]
 
 
-def check(tier: str, names: list[str] | None = None, results_path: Path | None = None) -> int:
+def check(tier: str, names: list[str] | None = None) -> int:
     """Replay each clip and compare it with the baseline for this machine class."""
     machine = machine_class()
     baselines = load_baselines()
@@ -610,7 +502,6 @@ def check(tier: str, names: list[str] | None = None, results_path: Path | None =
     print(f"playback {tier} on {machine}; output in {run_dir}", flush=True)
     problems: list[str] = []
     results = {}
-    proofs: list[run_store.ProofResult] = []
     for clip in selected_clips(names):
         start = time.monotonic()
         if tier == "lockstep":
@@ -619,16 +510,12 @@ def check(tier: str, names: list[str] | None = None, results_path: Path | None =
             got = digest_mcap(run_clip(clip, tier, run_dir / clip.name), tier)
             clip_problems, notes = compare_realtime(clip.name, got, baselines, machine), []
         results[clip.name] = asdict(got)
-        seconds = time.monotonic() - start
-        proofs += clip_proofs(clip.name, tier, got, baselines, machine, seconds)
         mark = "FAIL" if clip_problems else "ok  "
-        print(f"{mark} {clip.name} ({seconds:.0f} s)", flush=True)
+        print(f"{mark} {clip.name} ({time.monotonic() - start:.0f} s)", flush=True)
         for line in notes + clip_problems:
             print(f"     {line}", flush=True)
         problems += clip_problems
     (run_dir / "results.json").write_text(json.dumps(results, indent=2, sort_keys=True) + "\n")
-    if results_path is not None:
-        run_store.write_proof_results(results_path, run_store.merge(proofs))
     print(f"playback {tier}: " + ("FAIL" if problems else "PASS"))
     return 1 if problems else 0
 
@@ -651,7 +538,7 @@ def record_baseline(tier: str, names: list[str] | None = None, runs: int = AA_RU
                 print(f"FAIL {clip.name}: two lockstep runs of the same code differ", flush=True)
                 failed = True
                 continue
-            entry[clip.name] = digests[0].baseline()
+            entry[clip.name] = asdict(digests[0])
         else:
             entry[clip.name] = realtime_bounds(digests)
         print(f"ok   {clip.name}: {json.dumps(entry[clip.name].get('metrics'))}", flush=True)
@@ -668,7 +555,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--runs", type=int, default=AA_RUNS, help="A/A runs for a realtime baseline"
     )
-    parser.add_argument("--results", type=Path, help="Write per-proof results to this JSON file")
     return parser.parse_args(argv)
 
 
@@ -682,7 +568,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.action == "baseline":
         return record_baseline(args.tier, args.clip, args.runs)
-    return check(args.tier, args.clip, args.results)
+    return check(args.tier, args.clip)
 
 
 if __name__ == "__main__":

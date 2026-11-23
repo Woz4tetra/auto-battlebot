@@ -15,6 +15,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte"],
-  "exclude": ["src/browser/**"]
+  "include": ["src/**/*.ts", "src/**/*.svelte"]
 }

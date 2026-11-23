@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from auto_battlebot.verify.selection import Selection, gtest_filter, node_tools
+from auto_battlebot.verify.selection import Selection, gtest_filter
 
 PYTEST_ARGS = ("-q", "--no-header", "-p", "no:cacheprovider")
 PYTEST_WORKERS = 8
@@ -35,14 +35,6 @@ MEMORY_CAP = "16G"
 FAILURE_TAIL_LINES = 40
 
 
-@dataclass(frozen=True)
-class Report:
-    """A machine-readable result file a step writes, and which parser reads it."""
-
-    kind: str
-    path: Path
-
-
 @dataclass
 class Step:
     """One command in a suite."""
@@ -51,7 +43,6 @@ class Step:
     command: list[str]
     cwd: Path
     env: dict[str, str] = field(default_factory=dict)
-    report: Report | None = None
 
 
 @dataclass
@@ -69,7 +60,6 @@ class StepResult:
     seconds: float
     log: Path
     command: list[str]
-    report: Report | None = None
 
 
 def build_jobs() -> int:
@@ -116,7 +106,7 @@ def pio_bin(root: Path) -> str:
     return "pio"
 
 
-def gtest_group(root: Path, selection: Selection, reports: Path | None = None) -> Group:
+def gtest_group(root: Path, selection: Selection) -> Group:
     build = root / GTEST_BUILD_DIR
     steps = []
     if not (build / "Makefile").exists():
@@ -147,10 +137,7 @@ def gtest_group(root: Path, selection: Selection, reports: Path | None = None) -
     scope = selection.scopes["gtest"]
     if not scope.everything:
         command.append(f"--gtest_filter={gtest_filter(scope.items)}")
-    report = Report("gtest", reports / "gtest.json") if reports else None
-    if report:
-        command.append(f"--gtest_output=json:{report.path}")
-    steps.append(Step("gtest run", command, build, report=report))
+    steps.append(Step("gtest run", command, build))
     return Group("gtest", steps)
 
 
@@ -161,9 +148,7 @@ def pytest_workers(targets: list[str]) -> list[str]:
     return ["-n", str(PYTEST_WORKERS), "--dist", "loadfile"]
 
 
-def pytest_group(
-    root: Path, selection: Selection, fast: bool = False, reports: Path | None = None
-) -> Group:
+def pytest_group(root: Path, selection: Selection, fast: bool = False) -> Group:
     scope = selection.scopes["pytest"]
     targets = [] if scope.everything else sorted(scope.items)
     command = [
@@ -175,79 +160,32 @@ def pytest_group(
         *(PYTEST_FAST_ARGS if fast else ()),
         *targets,
     ]
-    report = Report("junit", reports / "pytest.xml") if reports else None
-    if report:
-        command.append(f"--junitxml={report.path}")
     env = PYTEST_THREAD_ENV if pytest_workers(targets) else {}
-    return Group("pytest", [Step("pytest", command, root, env, report)])
+    return Group("pytest", [Step("pytest", command, root, env)])
 
 
-def synthetic_group(root: Path, reports: Path | None = None) -> Group:
+def synthetic_group(root: Path) -> Group:
     command = [python_bin(root), "-m", "pytest", *PYTEST_ARGS, "training/synthetic"]
-    report = Report("junit", reports / "synthetic.xml") if reports else None
-    if report:
-        command.append(f"--junitxml={report.path}")
-    return Group("synthetic", [Step("pytest synthetic", command, root, report=report)])
+    return Group("synthetic", [Step("pytest synthetic", command, root)])
 
 
-def firmware_group(
-    root: Path, selection: Selection | None = None, reports: Path | None = None
-) -> Group:
+def firmware_group(root: Path) -> Group:
     command = [pio_bin(root), "test", "-e", "native"]
-    scope = selection.scopes["firmware"] if selection else None
-    if scope is not None and not scope.everything:
-        for suite in sorted(scope.items):
-            command += ["-f", suite]
-    report = Report("pio", reports / "firmware.json") if reports else None
-    if report:
-        command += ["--json-output-path", str(report.path)]
-    return Group("firmware", [Step("firmware native", command, root / FIRMWARE_DIR, report=report)])
+    return Group("firmware", [Step("firmware native", command, root / FIRMWARE_DIR)])
 
 
-def web_group(root: Path, reports: Path | None = None) -> Group:
+def web_group(root: Path) -> Group:
     web = root / "web"
-    command = ["npm", "test"]
-    report = Report("vitest", reports / "vitest.json") if reports else None
-    if report:
-        command += [
-            "--",
-            "--reporter=default",
-            "--reporter=json",
-            f"--outputFile.json={report.path}",
-        ]
     return Group(
         "web",
         [
             Step("web check", ["npm", "run", "check"], web),
-            Step("web test", command, web, report=report),
+            Step("web test", ["npm", "test"], web),
         ],
     )
 
 
-def tools_group(root: Path, selection: Selection, reports: Path | None = None) -> Group:
-    """svelte-check and vitest for each TypeScript tool under tools/."""
-    scope = selection.scopes["tools"]
-    names = node_tools(root) if scope.everything else sorted(scope.items)
-    steps = []
-    for name in names:
-        tool = root / "tools" / name
-        command = ["npm", "test"]
-        report = Report("vitest", reports / f"vitest_{name}.json") if reports else None
-        if report:
-            command += [
-                "--",
-                "--reporter=default",
-                "--reporter=json",
-                f"--outputFile.json={report.path}",
-            ]
-        steps.append(Step(f"{name} check", ["npm", "run", "check"], tool))
-        steps.append(Step(f"{name} test", command, tool, report=report))
-    return Group("tools", steps)
-
-
-def playback_group(
-    root: Path, tier: str, reports: Path | None = None, clips: Sequence[str] = ()
-) -> Group:
+def playback_group(root: Path, tier: str) -> Group:
     """Build the app, then replay the clips for one playback tier."""
     build = Step(
         "app build",
@@ -263,31 +201,21 @@ def playback_group(
         root,
     )
     command = [python_bin(root), "-m", "auto_battlebot.verify.playback", "check", "--tier", tier]
-    for clip in clips:
-        command += ["--clip", clip]
-    report = Report("proofs", reports / f"playback_{tier}.json") if reports else None
-    if report:
-        command += ["--results", str(report.path)]
-    return Group(
-        f"playback {tier}", [build, Step(f"playback {tier}", command, root, report=report)]
-    )
+    return Group(f"playback {tier}", [build, Step(f"playback {tier}", command, root)])
 
 
 def lint_step(root: Path) -> Step:
     return Step("lint --quick", [str(root / "scripts" / "lint"), "--quick"], root)
 
 
-def plan(
-    root: Path, selection: Selection, fast: bool = False, reports: Path | None = None
-) -> list[Group]:
+def plan(root: Path, selection: Selection, fast: bool = False) -> list[Group]:
     """The suite groups a selection runs, in a fixed order."""
     builders: dict[str, Callable[[], Group]] = {
-        "gtest": lambda: gtest_group(root, selection, reports),
-        "pytest": lambda: pytest_group(root, selection, fast, reports),
-        "synthetic": lambda: synthetic_group(root, reports),
-        "firmware": lambda: firmware_group(root, selection, reports),
-        "web": lambda: web_group(root, reports),
-        "tools": lambda: tools_group(root, selection, reports),
+        "gtest": lambda: gtest_group(root, selection),
+        "pytest": lambda: pytest_group(root, selection, fast),
+        "synthetic": lambda: synthetic_group(root),
+        "firmware": lambda: firmware_group(root),
+        "web": lambda: web_group(root),
     }
     return [builders[name]() for name, scope in selection.scopes.items() if scope.run]
 
@@ -298,8 +226,6 @@ def log_name(step: Step) -> str:
 
 def run_step(step: Step, log_dir: Path) -> StepResult:
     log = log_dir / log_name(step)
-    if step.report:
-        step.report.path.unlink(missing_ok=True)
     start = time.monotonic()
     env = {**os.environ, **step.env}
     with log.open("w") as out:
@@ -312,9 +238,7 @@ def run_step(step: Step, log_dir: Path) -> StepResult:
         except FileNotFoundError as error:
             out.write(f"{error}\n")
             code = 127
-    return StepResult(
-        step.name, code == 0, time.monotonic() - start, log, step.command, step.report
-    )
+    return StepResult(step.name, code == 0, time.monotonic() - start, log, step.command)
 
 
 def run_group(group: Group, log_dir: Path) -> list[StepResult]:

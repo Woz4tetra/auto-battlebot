@@ -19,8 +19,6 @@ dependencies = [
   "mypy",
   "pytest",
   "pytest-xdist",
-  "coverage",
-  "pytest-cov",
   "livelossplot",
   "ipython",
   "torchmetrics",

@@ -11,7 +11,6 @@
 
 #include "config/config_parser.hpp"
 #include "directories.hpp"
-#include "publisher/viz_topics.hpp"
 
 namespace auto_battlebot {
 struct VideoPlaybackCamera::ReaderState {
@@ -21,10 +20,10 @@ struct VideoPlaybackCamera::ReaderState {
 };
 
 namespace {
-constexpr std::string_view kVideoTopic = viz_topic(VizTopicId::CAMERA_VIDEO).topic;
+constexpr const char *kVideoTopic = "/camera/video";
 constexpr auto kMaxPlaybackCatchUpBeforeReanchor = std::chrono::milliseconds(500);
-constexpr std::string_view kFrameMetaTopic = viz_topic(VizTopicId::CAMERA_FRAME_META).topic;
-constexpr std::string_view kImageTopic = viz_topic(VizTopicId::CAMERA_IMAGE).topic;
+constexpr const char *kFrameMetaTopic = "/camera/frame_meta";
+constexpr const char *kImageTopic = "/camera/image";
 
 bool compressed_video_payload(const std::byte *message, size_t len, const std::byte *&out,
                               size_t &out_len) {
@@ -179,7 +178,7 @@ bool VideoPlaybackCamera::scan_file() {
             "[VideoPlaybackCamera] {} has no {} channel{}. Playback needs the recorded video "
             "stream, not the JPEG debug topic.",
             video_file_path_, kVideoTopic,
-            has_image ? " (it carries " + std::string(kImageTopic) + " instead)" : "");
+            has_image ? std::string(" (it carries ") + kImageTopic + " instead)" : "");
         return false;
     }
 
