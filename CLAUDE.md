@@ -2,6 +2,9 @@
 
 Autonomous aim-assist and control system for NHRL combat robot competitions. Runs on a Jetson Orin NX (JetPack 7.2) with a ZED 2i camera. End-to-end latency target: under 60ms. Recordings, keypoint corpora, and eval ground truth are tied to ZED SVO replay.
 
+Area rules load when a session reads files there: `auto_battlebot/` (Python layout), `src/` and
+`include/` (C++), `training/` (GPU queue), `firmware/`, `tools/`, `docs/` (full writing rules).
+
 ## Build
 
 ```bash
@@ -13,143 +16,23 @@ Autonomous aim-assist and control system for NHRL combat robot competitions. Run
 
 ## Run
 
-```bash
-./scripts/build_and_run.sh -c config/playback.toml  # replay SVO recording, no hardware needed
-./scripts/run_simulation.sh                          # simulation mode
-./scripts/build_and_run.sh -c config/main.toml       # full hardware mode
-```
-
-Use playback mode for development and regression testing.
-
-## Formatting
-
-Run before committing:
+Configs `extends` `config/_common.toml`; replay profiles and `recordings.toml` are in `config/playback/`.
 
 ```bash
-./scripts/lint          # apply formatters, then run all lint/type checks
-./scripts/lint --quick  # skip the slow checks (clang-tidy, mypy)
+./scripts/build_and_run.sh -c config/playback/mr_stabs_mk2_playback.toml --recording <name>
+./scripts/build_and_run.sh --list-recordings          # catalog, and which files this machine has
+./scripts/run_simulation.sh                           # simulation mode
+./scripts/build_and_run.sh -c config/mr_stabs_mk2_fid_zed_box.toml  # full hardware mode
 ```
-
-- C++: Google style, 4-space indent, 100-char line limit (`.clang-format`)
-- The clang toolchain is pinned to the major version in `.llvm-version` — the
-  unversioned distro packages differ per release (14 on 22.04, 18 on 24.04,
-  which is what JetPack 7 ships) and reformat the tree inconsistently. Every platform install sets it
-  up; to repair it alone run `./install/install_llvm_toolchain.sh`, and
-  `scripts/lint` uses the versioned
-  binaries and skips the step if they are absent.
-- Python: `ruff`
-- TOML: `taplo`
-- Firmware: clang-format covers C/C++ under `firmware/` except PlatformIO's `.pio` and the vendored
-  `firmware/BlHeli-Passthrough`; prettier (with `web/.prettierrc`) covers the firmware web pages.
-  Generated files opt out (`// clang-format off` in `velocity_jig/include/splash_anim.h`)
 
 ## Python
 
-Python scripts run in the project virtual environment at `venv/`. Activate it before running any Python:
-
-```bash
-source scripts/activate_python.sh   # activates venv/ (create it first with scripts/setup_python.sh)
-```
-
-Do not use `uv run` or create a `uv.lock`. The venv is the intended environment for `scripts/`, `training/`, and `simulation/`.
-
-### Where Python code goes
-
-`auto_battlebot/` is an installed package (`pip install -e .`), so its modules import as
-`auto_battlebot.<subpackage>.<module>` from anywhere. `training/`, `scripts/`, `simulation/`,
-`tests/`, and `logo/` are not packages.
-
-- **Shared library code goes in `auto_battlebot/`.** It is the only directory that is both
-  importable and type-checked. Anything two callers need lives here. Its subpackages:
-
-  | Subpackage | Holds |
-  | --- | --- |
-  | `recording/` | Foxglove MCAP read and write, ZED SVO, diagnostics loaders |
-  | `perception/` | Python mirrors of the C++ detector path (`trt_yolo`, `camera_geometry`), camera and cage calibration loaders, field pose fits (`field_pose`), the sysid tag pose smoother, the batched opponent filter mirror (`opponent_filter`) |
-  | `segmentation/` | DeepLab field-mask builder, checkpoint metadata, label parsing, fixed-camera floor hull (`field_hull`) |
-  | `control/` | The grey-box drivetrain plant the C++ filter mirrors |
-  | `mujoco_sim/` | Mr Stabs Mk2 rigid-body model: Onshape lumping, MJCF, MuJoCo Warp rollouts, the CMA-ES plant fit |
-  | `eval/` | Detector scoring: GT loading, detectors, metrics, bootstrap, plots |
-  | `calibration/` | `jig/`, `apriltag/`, `match/`, `sysid/`: the plant-fit paths and their CLIs |
-  | `datasets/` | Cage-high video download and annotation, image cache cleanup |
-  | `nav/` | Navigation field tests and their lockstep reproductions |
-  | `rl/` | RL environments, policies, lockstep eval, checkpoint export, sensing-model fits |
-  | `tensorrt_build` | Engine builder scaffolding shared by both export CLIs |
-
-- No Python library sources under `scripts/`. A recurring analysis CLI is a module in the
-  `auto_battlebot/` subpackage it belongs to, with a `main()`, run as
-  `python -m auto_battlebot.<pkg>.<module>`, and with a test. `scripts/` holds only top-level
-  entry points (`scripts/verify`, `scripts/lint`, `scripts/mcap_auto_percentage.py`) and no
-  `scripts/<area>/` subdirectories of Python. `auto_battlebot/tests/test_script_imports.py` fails
-  on a `.py` under `scripts/*/`.
-- CLIs write to `data/<area>/` (gitignored) by default, anchored at
-  `auto_battlebot.paths.REPO_ROOT`. Data files a CLI reads (`waveforms.toml`,
-  `jig_calibration.toml`) sit next to the module.
-- Tests live in a `tests/` directory next to the source they test: `auto_battlebot/eval/tests/`,
-  `training/yolo/tests/`, `scripts/tests/`, `firmware/mr_stabs_mk2/scripts/tests/`. Test data
-  goes in `tests/data/` beside them. There is no top-level Python test directory; `tests/` at the
-  root holds the C++ gtest sources and `tests/fixtures/`. Test file names stay unique across the
-  tree, because pytest imports each `tests/` directory by basename. Reach the repo root with
-  `auto_battlebot.paths.REPO_ROOT`, never `Path(__file__).parents[N]`.
-- A web front end that a Python module serves goes in a `static/` directory beside that module
-  (`auto_battlebot/calibration/sysid/static/`). Firmware web pages stay with their firmware
-  (`firmware/mr_stabs_mk2/web/`).
-- Standalone non-Python tools go in `tools/<name>/`, one directory per tool with its own build
-  file and its tests inside: Rust (`Cargo.toml`), Go (`go.mod`), C++, or a TypeScript frontend that
-  needs a build step (`package.json`). A built frontend that a Python module serves writes its
-  output into that module's `static/`; the TypeScript source stays in `tools/`. `web/` stays the
-  dashboard. `scripts/verify` (`tools` suite) and `scripts/lint` (prettier) cover TypeScript tools
-  with a `package.json`; the first tool in another language adds its suite and lint step. Shell
-  entry points stay at the top level of `scripts/`.
-- Tests load a non-package script with `auto_battlebot.script_loader.load_script("training/x/y.py")`.
-- Golden fixture generators live in `tests/fixtures/generators/`. Synthgen scene pipelines live in
-  `training/synthetic/scenes/`. Promoted MuJoCo plant fits live in `training/rl/plant_fits/`.
-- A one-off analysis runs from the agent's scratchpad, and its result goes in a dated doc under
-  `docs/experiments/` with the script inline or a link to the commit that held it. Nothing lands
-  in the tree without a second use and a test.
-- `training/` is standalone scripts and is deliberately **not** a package, so a `training/`
-  module can never be a shared dependency. Code that `scripts/` or `simulation/` needs from
-  there moves to `auto_battlebot/` first.
-- No `sys.path` manipulation to reach first-party code, and therefore no `# noqa: E402`. The
-  only legitimate `sys.path` writes are for build artifacts under `build/` (import them lazily
-  inside the function that needs them) and for Blender's embedded Python, which ignores
-  `PYTHONPATH`.
-
-Adding a new package directory means adding it to `[tool.setuptools.packages.find]` in
-`pyproject.toml` and re-running `pip install -e .`.
-
-## GPU training queue
-
-Several agents share the three A6000s. Every training arm runs DDP across all three, so
-the box runs one job at a time. Do not launch training directly; submit it:
-
-```bash
-# --work is frames x epochs (25,914 x 100 here). The queue learns seconds per unit within
-# a profile, so an arm's size and model both reach the estimate.
-venv/bin/python training/gpu_queue.py submit --name B_s384x640 --by <agent> \
-  --work 2591400 --profile yolo26s@640 -- \
-  venv/bin/python training/yolo/train.py training/data/nhrl_robots_bbox_2class yolo26s \
-  -d 0 1 2 -b 96 -e 100
-venv/bin/python training/gpu_queue.py status          # --json for parsing
-venv/bin/python training/gpu_queue.py logs 3 --tail 40
-venv/bin/python training/gpu_queue.py logs -f         # follow the running job, rolling
-                                                      # onto the next when it finishes
-```
-
-Pass `--work` and `--profile` on every training submit: without them the queue falls back to
-what past jobs of the same shape took, which is how a `yolo26x-pose` arm inherited 2h18m from
-sixteen `yolo26s-pose` runs. A rate is never borrowed across models, so the first run of a
-model family has no history to learn from; give it `--eta 12h` and the queue uses that until
-the job's own progress takes over.
-
-`submit` starts the worker if none is running and sets `NCCL_P2P_DISABLE=1` for
-multi-GPU jobs. The worker waits for the GPUs to go idle before each job, so a run
-started outside the queue delays it rather than colliding with it. Check `status`
-before submitting, and never kill a job you did not submit -- use `cancel <id>`.
-
-State and logs live in `runs/queue/` (gitignored). Jobs run in submission order;
-`status` lists them in that order with an estimated finish time for each, taken from
-the running job's own progress and from what past jobs took.
+- Run Python in `venv/`: `source scripts/activate_python.sh` (create it with
+  `scripts/setup_python.sh`). Do not use `uv run` or create a `uv.lock`.
+- Shared library code goes in `auto_battlebot/`, an installed package and the only directory that
+  is both importable and type-checked. `training/`, `scripts/`, `simulation/`, `tests/`, and `logo/`
+  are not packages. Layout rules: `auto_battlebot/CLAUDE.md`.
+- Do not launch training directly. Submit it to the GPU queue (`training/CLAUDE.md`).
 
 ## Architecture
 
@@ -161,32 +44,9 @@ camera -> perception (field mask + robot blobs + keypoints) -> filter -> target 
 
 All code is in namespace `auto_battlebot`. Interfaces live in `include/<module>/`, implementations in `src/<module>/`, factories wire them together based on config.
 
-## Conventions
-
-- New component: add interface to `include/<module>/`, implementation to `src/<module>/`, register in the factory
+- No ROS. Live viz and recordings use Foxglove schemas over the Foxglove SDK
+  (`docs/reference/recording/foxglove_recording_format.md`). Do not add ROS dependencies
 - Prefer TOML config over compile-time switches for behavior changes
-- Tunable values (thresholds, timeouts, rates, limits) go in the component's config struct as a
-  defaulted field, not in a `static constexpr`, global, or file-scope constant. Keep constants for
-  values fixed by math, a spec, or a file format (e.g. observation tensor sizes). Pass the value in
-  through the constructor rather than reaching for a global
-- Leave a config key out of the TOML files when its value matches the struct default. Write it
-  only where a profile overrides it
-- Config constants are enums, never strings. Any field with a fixed set of valid values gets an
-  `enum class` in `include/enums/<name>.hpp`, an include in `include/enums.hpp`, and
-  `PARSE_ENUM`/`PARSE_ENUM_REQUIRED` in the config struct. A typo then fails at parse with the
-  valid values listed, instead of reaching a runtime string compare. Free-form strings are for
-  paths, ids, and names only: `svo_file_path`, `hazards_file`, `active_profile`, label keys.
-  The `type` field selecting a factory implementation is the one exception, since `REGISTER_CONFIG`
-  keys on it
-- No ROS. Live viz and recordings use Foxglove schemas over the Foxglove SDK (`docs/reference/recording/foxglove_recording_format.md`); the relay is `viz_relay`. Do not add ROS dependencies
-- Compiler flags are `-Wall -Wextra -Werror`. Fix warnings, do not suppress them
-- A member shared between threads under a mutex uses `Mutex`, `MutexLock` and `GUARDED_BY` from
-  `include/thread_safety/mutex.hpp`, not a bare `std::mutex`. Lint's clang-tidy pass enforces it
-  (`docs/reference/tools/thread_safety.md`)
-- Remote UI status topics and commands are added in `include/remote/protocol.hpp` (one row each,
-  structs in `include/remote/messages.hpp`); `./scripts/lint` regenerates the web page's types
-- Foxglove topics are rows of `kVizTopics` in `include/publisher/viz_topics.hpp`, never a string
-  literal at the call site
 - A new command, status topic, factory type, CLI, transmitter control, dashboard readout, profile,
   unit, or Foxglove topic is a reach point: claim it in `docs/features.toml` with a proof that
   exercises it from there, or lint reports it (`docs/reference/tools/feature_map.md`)
@@ -205,114 +65,47 @@ longer than one line. One-line docstrings are allowed and do not count.
 - A comment moved into a doc is still a comment. Docs hold measurements and how the code works
   now, never a defense of a specific line. No `Workarounds` sections
 
-Exempt forms count zero and carry no prose:
+Exempt forms (shebangs, `#pragma`, `// NOLINT(check)`, `# noqa: CODE`, format toggles, license
+headers) and the `DATASHEET:` exception are listed in `docs/reference/tools/comment_budget.md`.
+`scripts/comment_budget.py` enforces the rule against `.comment-baseline.json`; a file not listed
+has a budget of 0, and a PostToolUse hook checks every edited file.
 
-| Form | Constraint |
-| --- | --- |
-| `#!` shebang | First line only |
-| `#pragma`, include guards | Preprocessor, not comments |
-| `// NOLINT(check)`, `// NOLINTNEXTLINE(check)` | Check name required, no trailing prose |
-| `# noqa: CODE`, `# type: ignore[code]` | Code required, no trailing prose |
-| `// clang-format off` / `on`, `# fmt: off` / `on` / `skip` | Generated or table data only |
-| `# -*- coding`, SPDX and license headers | First 5 lines only |
-| `}  // namespace name` | clang-format writes these (`FixNamespaceComments`) |
-| `/// <reference types="..." />` | TypeScript directive |
-
-Files whose first 3 lines say `@generated`, `Generated by`, or `Do not edit` are skipped, as are
-vendored code and `.serena/`.
-
-`# noqa: E501 because the URL can't wrap` counts: the justification is prose.
-
-`DATASHEET:` is the one prose exception. One line per fact, with the document, its revision, and a
-locator (`table N`, `N.N.N`, `p. N`, `fig. N`). The checker fails a malformed one regardless of
-budget. Bench measurements and anything learned by trial are not datasheet facts; they go in `docs/`.
-
-```cpp
-// DATASHEET: BNO055 rev 1.4, table 4-2: OPR_MODE NDOF = 0x0C
-```
-
-`scripts/comment_budget.py` enforces this against `.comment-baseline.json` (`{path: count}`; a
-file not listed has a budget of 0). The baseline lists only accepted rules: invariants no test can
-prove, kept as comments with the user's approval. Every other file's budget is 0. A workaround
-that used to carry a comment is listed in `docs/plans/workaround_ledger.md` with its root-cause fix,
-and its reason is in that subsystem's doc. Checker details: `docs/reference/tools/comment_budget.md`.
-
-```bash
-python3 scripts/comment_budget.py check            # fail on any file over budget
-python3 scripts/comment_budget.py check --files f  # one file (the PostToolUse hook runs this)
-python3 scripts/comment_budget.py report           # totals by dir and language, top 30 files
-python3 scripts/comment_budget.py blocks --json    # every counted block
-```
-
-- `./scripts/lint` runs `check`, then `ratchet` (lowers budgets to current counts, never raises)
-  unless `--dry-run`. It also sets `core.hooksPath` to `scripts/git-hooks`, whose `pre-commit` runs
-  `check --staged`
-- Move files with `git mv` so the rename carries the budget
-- There is no opt-out marker and no `--allow` flag. Raising a budget means editing the baseline by
-  hand, where it shows in the diff
 - Never add, raise, or edit a `.comment-baseline.json` entry without the user's explicit approval
   in this conversation. Propose the comment and wait. A test, a type, or a fix comes first
-- The checker, its test, and the pre-commit hook have a budget of 0 and cannot be baselined
+- There is no opt-out marker and no `--allow` flag. Move files with `git mv` to keep the budget
 
 ## Testing
 
-Tests use GoogleTest in `tests/`. Build with `build-test/` (debug + `BUILD_TESTING=ON`). Playback mode with SVO recordings is the primary way to regression-test without hardware.
+C++ tests are GoogleTest in `tests/`, built in `build-test/`. Playback is the primary regression test without hardware.
 
 `scripts/verify` runs every suite: gtest, pytest (every `tests/test_*.py` under the `testpaths` in
-`pyproject.toml`), synthetic (`training/synthetic/`),
-firmware native (`pio test -e native`), and the web check and vitest. Details and the file-to-suite
-map: `docs/reference/tools/verify.md`.
+`pyproject.toml`), synthetic (`training/synthetic/`), firmware native (`pio test -e native`), and
+the web check and vitest. Details and the file-to-suite map: `docs/reference/tools/verify.md`.
 
 ```bash
 scripts/verify                        # every suite, slow tests included (about 2 min)
-scripts/verify --changed a.cpp b.py   # only what these paths affect
-scripts/verify --changed --list       # print what the working changes select
+scripts/verify --changed a.cpp b.py   # only what these paths affect (--list to print them)
 scripts/verify --playback             # lockstep clips, hashed against the baseline (about 2 min)
 scripts/verify --realtime             # real-time clips against A/A bounds (about 3 min)
 ```
 
 ## Validation
 
-Before reporting a feature complete, run:
-
-```bash
-# Formatting, C++/Python lint, and Python type checking, all in one pass.
-# Needs build/ to exist first (scripts/build.sh) for the clang-tidy step.
-./scripts/lint
-```
-
-This applies formatters, then runs `clang-tidy` (C++ lint over `src/`), `ruff check`
-(Python lint), and `mypy` (types; scope set by `mypy.ini`). Use `--dry-run` to check
-without modifying files and `--quick` to skip the slow checks.
+Before committing or reporting a feature complete, run `./scripts/lint` (formatters, then
+clang-tidy, `ruff check`, `mypy`; `--quick` skips the slow two, `--dry-run` changes nothing). It
+needs `build/` for clang-tidy. Formatters: `.clang-format` (C++), `ruff`, `taplo`.
 
 The Stop hook runs `scripts/verify --fast --changed` (lint, then affected suites) over every file
 that differs from the commit the session started on (git diff plus untracked files), and a
-failure blocks the stop. A change under `src/`,
-`include/`, `firmware/`, `auto_battlebot/`, or `tests/` also needs a PASS from the `verifier`
-agent (`.claude/agents/verifier.md`); the blocked stop says which session id and change hash to
-give it, along with the user's request verbatim.
+failure blocks the stop. A change under `src/`, `include/`, `firmware/`, `auto_battlebot/`, or
+`tests/` also needs a PASS from the `verifier` agent (`.claude/agents/verifier.md`); the blocked
+stop says which session id and change hash to give it, along with the user's request verbatim.
 
 While a verifier runs, do not edit files. Any edit changes the change hash, so the verifier
 re-reads a moving diff and its verdict lands on a hash the Stop hook no longer asks about.
 Wait for the verdict, then edit, then spawn a new verifier for the new hash. The verifier runs
 every command in the foreground; a PreToolUse hook (`hooks bash-guard`) blocks background and
 detached commands for it.
-
-The clang-tidy step is cached by [ctcache](https://github.com/matus-chochlik/ctcache),
-pinned and installed by `install/install_clang_tidy_cache.sh` to
-`~/.local/share/ctcache`. It hashes the preprocessed translation unit and replays
-stored diagnostics on a hit, so a full run drops from ~50s to ~7s; comment- and
-whitespace-only edits stay cache hits. Entries live in `~/.cache/ctcache`.
-`scripts/lint` sets `CTCACHE_SAVE_OUTPUT=1`, so translation units that emit warnings are cached too
-(without it only clean ones are, and anything warning re-runs every time). It sets `CTCACHE_DIR` to
-`~/.cache/ctcache` because the default `/tmp/ctcache-$USER` is wiped by a reboot.
-
-```bash
-rm -rf ~/.cache/ctcache        # drop the cache
-CTCACHE_DISABLE=1 ./scripts/lint  # one uncached run, to check the cache is honest
-```
-
-Lint still works without it installed, just uncached.
 
 ## Docs layout
 
@@ -328,119 +121,17 @@ Nothing new goes at the top of `docs/`. Move docs with `git mv` and update every
 
 ## Writing
 
-Applies to everything generated in this repo: reports, analysis write-ups,
-commit messages, PR bodies, and docs. Adapted from the
-`no-ai-slop` skill; `scripts/no_ai_slop_check.sh` enforces the wordlist
-automatically on write, and the rest is on you.
+Applies to everything generated in this repo: reports, commit messages, PR bodies, and docs. The
+full rules and word list are in `docs/CLAUDE.md`; `scripts/no_ai_slop_check.sh` enforces the word
+list on write.
 
-Preserve the author's point and voice while making the writing clearer. Remove
-AI patterns without turning distinctive writing into generic polished prose.
-
-### Principles
-
-- **Make the minimum effective edit.** Fix AI patterns, errors, repetition, and
-  unclear passages. Leave strong sentences alone.
-- **Lead with the point when the setup adds nothing.** Cut generic
-  throat-clearing. Keep an aside or admission when it creates real context.
-- **Keep the meaning.** Don't invent claims, examples, stats, or opinions. If
-  something is unclear, ask.
-- **Open it up, don't dumb it down.** Keep the substance, nuance, and precision.
-  Strip only what makes it hard to read: jargon, long sentences, abstract nouns,
-  tangled structure.
-- **Use active voice.** "The team shipped it Tuesday" beats "the decision
-  emerged." Never let inanimate things do human verbs.
-- **Be concrete and specific.** "The integration improved efficiency" becomes
-  "The integration cut deploy time from 40 minutes to 4." Names, numbers, dates,
-  mechanisms, and examples beat abstractions.
-- **Protect the specific fact.** Don't smooth a useful detail into generic
-  importance. This matters most in eval and replay write-ups: report the metric
-  and the delta, not that a change was significant.
-- **Make verbs do the work.** "Made a decision" becomes "decided." "Has the
-  ability to" becomes "can."
-- **Make every sentence earn its place.** Cut empty qualifiers. Keep "I think"
-  or "maybe" when they express real uncertainty.
-- **Untangle sentences without flattening the cadence.** Split genuinely hard
-  sentences. Keep fragments and changes in pace that are clear and characteristic.
-- **Preserve useful edge.** Keep strong opinions, blunt language, humor, and
-  honest admissions. Don't replace them with safer wording.
-
-### Words to cut
-
-Banned outright: delve, foster, leverage, utilize, facilitate, empower,
-streamline, cutting-edge, paradigm shift, game changer, this is huge, this
-changes everything, tapestry, realm, beacon, multifaceted, meticulous, intricate,
-paramount, transformative, elevate, embark, supercharge, ever-evolving.
-
-The upstream skill also bans "robust" and "harness"; both are legitimate
-technical terms here (robust estimator, wiring harness, test harness) and are
-exempt in this repo.
-
-Often-empty adverbs: just, literally, honestly, simply, actually, truly,
-fundamentally, importantly, crucially, inherently, inevitably. Cut them when they
-add nothing. Keep them when they carry emphasis, uncertainty, or contrast.
-
-Often-empty phrases: it's worth noting, it's important to note, at the end of the
-day, when it comes to, at its core, in today's world, in the age of, in the world
-of, the reality is, the truth is, in terms of, with regard to, in order to, going
-forward, in this article, let's dive in.
-
-### Patterns to cut
-
-**Binary contrasts.** "This is not X. It's Y." / "The question isn't X, it's Y."
-State Y directly. "The question isn't the model. It's the eval." becomes "The
-eval matters more than the model."
-
-**Throat-clearing openers.** "Here's the thing," "Let me be clear," "I'll be
-honest," "The uncomfortable truth is." Cut them and state the point.
-
-**Faux-insight setups.** "What most people get wrong," "Here's what nobody tells
-you," "The part everyone misses." Cut the setup and let the claim stand alone.
-
-**Colon reveals.** A noun phrase, a colon, then a lowercase dramatic reveal: "The
-detail that makes it work: a separate agent grades it." Rewrite as a plain
-sentence. Use colons for lists, labels, and quotes, not fake drama.
-
-**Superficial analysis.** Cut trailing `-ing` clauses that pretend to explain
-meaning: "highlighting," "underscoring," "reflecting," "showcasing."
-
-**Importance puffery.** "Stands as a testament," "marks a pivotal moment," "plays
-a vital role," "underscores its significance." State the fact and let the reader
-judge whether it matters.
-
-**Weasel attribution.** "Experts agree," "studies show," "widely regarded as."
-Name the source or cut the claim. Never invent one. In this repo the source is
-usually a specific run, recording, or commit -- cite it.
-
-**Fake-strong verbs.** Prefer "is" and "has" when they are clearer. "The app
-serves as a centralized hub for X" becomes "The app tracks X."
-
-**Synonym cycling.** If the clear word is right, repeat it. Don't rotate terms
-for style, and never rotate a term that names a component in this codebase.
-
-**Negative listing.** "Not a X. Not a Y. A Z." Just say Z.
-
-**Dramatic fragmentation.** "X. And Y. And Z." or "That's it. That's the whole
-thing." Use complete sentences.
-
-**Robotic rhythm.** Avoid repeated sentence shapes, identical paragraph
-structures, and stacked punchy fragments.
-
-**Rhetorical setups.** "What if I told you...", "Think about it:", "Plot twist:",
-and self-answered "Question? Answer." pairs. Drop them and make the point.
-
-**Fake-profound kickers.** Cut the final "deep" line that turns the point into a
-metaphor or mic-drop. Don't rewrite it into a better metaphor -- delete it and
-end on the clearest concrete sentence already present.
-
-**Summary-recap endings.** "In conclusion," "Ultimately," "Overall," or a final
-paragraph restating the piece. End on the last concrete point or next action.
-
-**Formatting slop.** Emoji in headings, bold sprinkled mid-sentence, bullet lists
-where two sentences of prose would read better, headers over two-sentence
-sections. Format should follow the content, not decorate it.
-
-**Em dashes.** Not a default rhythm crutch. None in short copy; 1-2 in longer
-drafts if they clearly beat commas, periods, or parentheses.
+- Lead with the point. Use active voice. Make every sentence earn its place.
+- Be concrete: names, numbers, dates, mechanisms. Report the metric and the delta, and cite the
+  run, recording, or commit.
+- Keep the author's meaning, voice, and edge. Don't invent claims, examples, or stats.
+- Cut binary contrasts ("not X, it's Y"), colon reveals, throat-clearing openers, `-ing` analysis
+  tails, importance puffery, rhetorical setups, kicker endings, and summary recaps.
+- No em dashes in short copy, and none of the banned words listed in `docs/CLAUDE.md`.
 
 ## Platforms
 

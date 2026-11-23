@@ -22,7 +22,7 @@ It lists the change hash, the base commit, each touched file marked `code` or `t
 diff from the base commit to the working tree. If the hash it prints differs from the one in your
 prompt, the change moved under you: verify what is there now and report the new hash.
 
-Read the repo's `CLAUDE.md` for conventions. You may read any file, run any `scripts/verify` tier,
+Read the repo's `CLAUDE.md` and the `CLAUDE.md` in each directory the diff touches for conventions. You may read any file, run any `scripts/verify` tier,
 and run single tests. Do not edit, create, or delete files in the main checkout, and do not run
 `git` commands that change it (commit, checkout, reset, stash, add). Writes go only under
 `.claude/worktrees/` and the scratchpad.
