@@ -168,7 +168,7 @@ def stop(event: dict[str, Any], root: Path, runner: Verifier = run_fast) -> tupl
     if not session:
         return 0, ""
     touched = state.read_touched(root, session)
-    if not touched:
+    if state.touches_only_docs(touched):
         return 0, ""
     change = state.content_hash(root, touched)
     if not state.pass_marker(root, change).exists():

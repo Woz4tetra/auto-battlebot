@@ -288,8 +288,18 @@ def test_full_pytest_keeps_slow_tests_and_one_file_runs_in_process() -> None:
     assert command.env == {}
 
 
+def test_stop_skips_a_docs_only_change(repo: Path) -> None:
+    touch_files(repo, "docs/a.md", "docs/assets/plot.PNG", "README.md")
+    assert hooks.stop({"session_id": SESSION}, repo, lambda r, f: outcome(False)) == (0, "")
+
+
+def test_stop_runs_when_a_doc_change_carries_any_non_doc_file(repo: Path) -> None:
+    touch_files(repo, "docs/a.md", "CMakeLists.txt")
+    assert hooks.stop({"session_id": SESSION}, repo, lambda r, f: outcome(False))[0] == 2
+
+
 def test_stop_caches_a_pass_by_change_hash(repo: Path) -> None:
-    touch_files(repo, "docs/a.md")
+    touch_files(repo, "config/a.toml")
     calls = []
 
     def passing(root: Path, files: list[str]) -> Outcome:
@@ -298,7 +308,7 @@ def test_stop_caches_a_pass_by_change_hash(repo: Path) -> None:
 
     assert hooks.stop({"session_id": SESSION}, repo, passing) == (0, "")
     assert hooks.stop({"session_id": SESSION}, repo, passing) == (0, "")
-    assert calls == [["docs/a.md"]]
+    assert calls == [["config/a.toml"]]
 
 
 def verifier_event(message: str) -> dict[str, str]:
