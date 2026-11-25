@@ -27,6 +27,9 @@ Step logs go to `.claude/state/verify-logs/<step>.log` (gitignored), or `--log-d
 and `hooks suites` log to `.claude/state/verify-logs/<change hash>/`, so two runs never share a log. A failing step
 prints its last 40 lines.
 
+The Stop hook exits 0 without running anything when every changed file ends in `.md`, `.png`,
+`.jpg`, `.jpeg`, `.gif`, or `.svg` (`state.DOC_SUFFIXES`).
+
 ## Suites
 
 | Suite | Steps | Full run on the dev box (2026-11-20) |

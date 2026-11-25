@@ -14,6 +14,7 @@ STATE_DIR = Path(".claude/state")
 UNTRACKED_PREFIXES = (".claude/state/", ".claude/worktrees/", ".git/")
 VERDICT_RESULTS = ("PASS", "FAIL")
 CODE_PREFIXES = ("src/", "include/", "firmware/", "auto_battlebot/", "tests/")
+DOC_SUFFIXES = (".md", ".png", ".jpg", ".jpeg", ".gif", ".svg")
 
 
 def safe_id(value: str) -> str:
@@ -104,6 +105,10 @@ def content_hash(root: Path, paths: list[str]) -> str:
 
 def touches_code(paths: list[str]) -> bool:
     return any(path.startswith(CODE_PREFIXES) for path in paths)
+
+
+def touches_only_docs(paths: list[str]) -> bool:
+    return all(path.lower().endswith(DOC_SUFFIXES) for path in paths)
 
 
 def change_diff(root: Path, base: str, paths: list[str]) -> str:

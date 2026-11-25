@@ -96,7 +96,7 @@ needs `build/` for clang-tidy. Formatters: `.clang-format` (C++), `ruff`, `taplo
 
 The Stop hook runs `scripts/verify --fast --changed` (lint, then affected suites) over every file
 that differs from the commit the session started on (git diff plus untracked files), and a
-failure blocks the stop. A change under `src/`, `include/`, `firmware/`, `auto_battlebot/`, or
+failure blocks the stop. It skips when every changed file is a `.md` or an image. A change under `src/`, `include/`, `firmware/`, `auto_battlebot/`, or
 `tests/` also needs a PASS from the `verifier` agent (`.claude/agents/verifier.md`); the blocked
 stop says which session id and change hash to give it, along with the user's request verbatim.
 
