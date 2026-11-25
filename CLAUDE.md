@@ -47,9 +47,6 @@ All code is in namespace `auto_battlebot`. Interfaces live in `include/<module>/
 - No ROS. Live viz and recordings use Foxglove schemas over the Foxglove SDK
   (`docs/reference/recording/foxglove_recording_format.md`). Do not add ROS dependencies
 - Prefer TOML config over compile-time switches for behavior changes
-- A new command, status topic, factory type, CLI, transmitter control, dashboard readout, profile,
-  unit, or Foxglove topic is a reach point: claim it in `docs/features.toml` with a proof that
-  exercises it from there, or lint reports it (`docs/reference/tools/feature_map.md`)
 
 ## Comments
 
@@ -84,7 +81,9 @@ the web check and vitest. Details and the file-to-suite map: `docs/reference/too
 
 ```bash
 scripts/verify                        # every suite, slow tests included (about 2 min)
+scripts/verify --fast                 # lint --quick first, then every suite without slow tests
 scripts/verify --changed a.cpp b.py   # only what these paths affect (--list to print them)
+scripts/verify --suite gtest          # only the named suites (gtest, pytest, synthetic, firmware, web)
 scripts/verify --playback             # lockstep clips, hashed against the baseline (about 2 min)
 scripts/verify --realtime             # real-time clips against A/A bounds (about 3 min)
 ```

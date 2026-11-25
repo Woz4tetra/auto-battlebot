@@ -21,7 +21,6 @@
   | `datasets/` | Cage-high video download and annotation, image cache cleanup |
   | `nav/` | Navigation field tests and their lockstep reproductions |
   | `rl/` | RL environments, policies, lockstep eval, checkpoint export, sensing-model fits |
-  | `features/` | The feature registry, checks, and the feature map server |
   | `verify/` | `scripts/verify` suites, selection, playback tiers, Stop hook |
   | `tensorrt_build` | Engine builder scaffolding shared by both export CLIs |
 
