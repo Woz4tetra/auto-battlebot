@@ -17,3 +17,5 @@ i2c-tools
 # and a profile with video_recording on refuses to start.
 libgstreamer1.0-dev
 libgstreamer-plugins-base1.0-dev
+
+ccache
