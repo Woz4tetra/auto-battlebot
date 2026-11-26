@@ -187,6 +187,16 @@ def test_session_start_keeps_the_first_base(repo: Path) -> None:
     assert state.read_base(repo, SESSION) == first
 
 
+def test_clear_moves_the_base_to_head(repo: Path) -> None:
+    hooks.session_start({"session_id": SESSION}, repo)
+    write(repo, "src/a.cpp", "x\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-q", "-m", "before the clear")
+    hooks.session_start({"session_id": SESSION, "source": "clear"}, repo)
+    assert state.read_base(repo, SESSION) == state.git(repo, "rev-parse", "HEAD").strip()
+    assert state.read_touched(repo, SESSION) == []
+
+
 def test_a_session_without_a_base_has_no_change(repo: Path) -> None:
     write(repo, "src/a.cpp", "x\n")
     assert state.read_touched(repo, SESSION) == []

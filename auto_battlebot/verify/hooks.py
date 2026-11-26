@@ -52,6 +52,8 @@ def session_start(event: dict[str, Any], root: Path) -> int:
     """SessionStart: record HEAD as the base the session's change is diffed against."""
     session = event.get("session_id")
     if session and event.get("agent_type") != VERIFIER_AGENT:
+        if event.get("source") == "clear":
+            state.base_file(root, session).unlink(missing_ok=True)
         state.record_base(root, session)
     return 0
 
