@@ -52,12 +52,11 @@
       <div class="split">
         <aside class="controls"><ProfilePicker wide /></aside>
         <main class="main system">
+          <SystemMenu wide />
           <HostInfo wide />
           <PhoneAccess />
           <Appearance wide />
           <ResolvedConfig />
-          <div class="grow"></div>
-          <SystemMenu wide />
         </main>
       </div>
     {/if}
@@ -80,11 +79,11 @@
       <div class="system-narrow"><CameraSettings wide={false} /></div>
     {:else}
       <div class="system-narrow">
+        <SystemMenu wide={false} />
         <HostInfo wide={false} />
         <ProfilePicker wide={false} />
         <Appearance wide={false} />
         <ResolvedConfig />
-        <SystemMenu wide={false} />
       </div>
     {/if}
   </div>
