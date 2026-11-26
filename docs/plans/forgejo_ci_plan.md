@@ -1,0 +1,386 @@
+# Forgejo CI plan
+
+This plan builds phase 5 of `docs/plans/verification_plan.md`: a tailnet-only Forgejo on
+genericservername, a runner on the spare Orin NX, and status checks that the deploy script and the
+agent read. It covers WP-V12, WP-V13 and WP-V14. The decisions behind it are Q8, Q15, Q22, Q23,
+Q28 to Q31 and Q38 to Q43 in the verification plan's decision log. This plan does not revisit them.
+
+GitHub stays the public source of truth and gets no runner. Each `git push` also goes to Forgejo.
+Forgejo runs `.forgejo/workflows/*.yml` on the Jetson and stores a pass or fail status on the
+commit.
+
+## Status (2026-11-26)
+
+Nothing is built yet. Facts this plan depends on, checked on 2026-11-26:
+
+- home-apps runs as compose project `home-apps` from `~/home-app` on genericservername. Caddy
+  (`home-apps-caddy`, host port 23100) is the only `tailscale serve` target. Apps mount at
+  sub-paths with `handle_path`.
+- The only host port besides Caddy's is `minecraft-server` on 25565. Forgejo SSH on 2222 becomes
+  the second.
+- genericservername: 8 cores, 23 GB RAM, 366 GB free on `/`.
+- `scripts/install_jetson_ci.sh` already installs the toolchain on a Jetson: ZED SDK, LLVM,
+  OpenCV with CUDA, the venv, PyTorch, Foxglove SDK, mcap CLI, taplo, PlatformIO and Node.
+- Playback clips come from three recordings: 2.44 GB in total (`2026-05-02T10-06-06` 801 MB,
+  `T11-45-08` 1,005 MB, `T14-12-27` 632 MB). `data/models/` holds 1.1 GB on the dev box.
+- Latest releases: Forgejo 17.0.2 (15.0.12 was patched the same week) and forgejo-runner 13.2.2.
+
+## How it fits together
+
+![Machines and links](../diagrams/forgejo_ci_topology.svg)
+
+There are three machines and one rule for each link:
+
+- **Dev box to Forgejo.** `git push` writes to two push URLs on `origin`: GitHub first, then
+  Forgejo over SSH on genericservername's tailnet IP, port 2222. API calls (agent report-back and
+  the deploy check) go over HTTPS through `tailscale serve` and Caddy.
+- **Runner to Forgejo.** The runner long-polls Forgejo over HTTPS and only makes outbound
+  connections. Nothing on the Jetson listens for Forgejo, so the Jetson needs only Tailscale and
+  no open ports.
+- **Runner to the robot network.** There is no route. The `ci` user cannot reach
+  `10.42.42.0/24`.
+
+## How one push runs
+
+![One push, start to finish](../diagrams/forgejo_ci_push_run.svg)
+
+1. `git push` updates GitHub, then Forgejo. If the Forgejo push fails because the dev box is off
+   the tailnet, git prints the error and exits non-zero after GitHub already took the push. Run
+   `git push` again once back on the tailnet.
+2. Forgejo reads `.forgejo/workflows/` at the pushed sha. `push.yml` matches `on: push`. A new push
+   to the same branch cancels the older run, which is Forgejo's default for `on: push`.
+3. Forgejo queues one job with `runs-on: jetson` and sets the commit status to pending.
+4. The runner is idle at capacity 1, gets the job on its next poll, and runs the steps as `ci` in
+   a fresh directory:
+   1. Check out the sha.
+   2. `ci/link_data.sh`: symlink `~ci/ci-data/svo` and `~ci/ci-data/models` into `data/` and
+      `~ci/venv` to `venv/`.
+   3. `python -m auto_battlebot.verify.ci_clips check`: sha256 of every clip against the
+      committed manifest. A missing or changed clip fails the job with "run clip sync".
+   4. `ci/build_engines.sh`: look up each engine in `~ci/ci-data/engines/` under the key
+      `<onnx sha256>_trt<version>`. On a miss, build it with this box's TensorRT 10.3 and store it.
+   5. `scripts/verify --fast`
+   6. `scripts/verify --playback`, which is skipped if step 5 failed.
+5. The runner streams each step's log to Forgejo while it prints, then reports the result.
+   Forgejo sets the commit status to success or failure with a link to the run page.
+6. The UI, `scripts/deploy_to_jetson.sh` and the agent read that status.
+
+Nightly runs `nightly.yml` from `main` with the same setup steps, then `scripts/verify --realtime`
+and, once nav plan WP-14 lands, `--sim`. Forgejo only runs `schedule` workflows from the default
+branch, so a nightly change needs to be merged to `main` before it runs.
+
+## What the UI looks like
+
+These are mockups drawn for this plan, not screenshots of a running instance. The layout follows
+Forgejo's Actions pages. The commit messages are real; the statuses, timings and test failure are
+invented. Real timings come from WP-V13.
+
+**Commit list.** Each commit gets a status icon. Clicking it opens the check list, and Details
+links to the run.
+
+![Commit list with status icons](assets/forgejo_ci/mock_commits.png)
+
+**Actions tab.** Every run of every workflow, newest first, filterable by workflow, event, status
+and actor. "Run workflow" starts a `workflow_dispatch` workflow by hand.
+
+![Actions run list](assets/forgejo_ci/mock_actions.png)
+
+**A failed run.** Jobs are on the left and steps on the right. The failed step opens with its log.
+Later steps show as skipped. Re-run all jobs runs the same sha again. The agent's report-back
+links to this page.
+
+![Failed run with step log](assets/forgejo_ci/mock_run.png)
+
+**Runner admin.** Site administration > Actions > Runners shows whether the Jetson is idle,
+active or offline, plus its version and labels.
+
+![Runner management](assets/forgejo_ci/mock_runners.png)
+
+## WP-V12: Forgejo on genericservername
+
+Done when a push over tailnet SSH lands, `/forgejo/` serves the UI, and the landing page has the
+tile.
+
+### Compose service
+
+Add to `~/home-app/docker-compose.yml` and add `forgejo` to Caddy's `depends_on`:
+
+```yaml
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:17
+    container_name: home-apps-forgejo
+    restart: unless-stopped
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - FORGEJO__database__DB_TYPE=sqlite3
+      - FORGEJO__server__ROOT_URL=https://genericservername.<tailnet>.ts.net/forgejo/
+      - FORGEJO__server__HTTP_PORT=3000
+      - FORGEJO__server__SSH_DOMAIN=<genericservername-tailnet-ip>
+      - FORGEJO__server__SSH_PORT=2222
+      - FORGEJO__service__DISABLE_REGISTRATION=true
+      - FORGEJO__service__REQUIRE_SIGNIN_VIEW=true
+      - FORGEJO__actions__ENABLED=true
+      - FORGEJO__repository__DEFAULT_PRIVATE=private
+    volumes:
+      - ./forgejo/data:/data
+    ports:
+      - "<genericservername-tailnet-ip>:2222:22"
+    expose:
+      - "3000"
+```
+
+- The volume follows the home-apps `./<app>/data` convention instead of the `data/forgejo` path
+  in the verification plan.
+- Forgejo keeps its own login. The home-apps `SESSION_SECRET` passcode does not cover it, so the
+  service does not get `env_file: .env`.
+- Binding to the tailnet IP needs Tailscale up before Docker starts the container. If the bind
+  fails at boot, add `After=tailscaled.service` to `deploy/home-apps.service`.
+- Pin the major version. Check https://forgejo.org/releases/ for the current LTS line when
+  installing, and use that instead of 17 if it is older but still supported.
+
+### Caddy
+
+Add next to the other apps in `caddy/Caddyfile`:
+
+```
+redir /forgejo /forgejo/ 301
+
+handle_path /forgejo/* {
+	request_body {
+		max_size 200MB
+	}
+	reverse_proxy forgejo:3000 {
+		flush_interval -1
+	}
+}
+```
+
+`handle_path` strips `/forgejo`, so Forgejo sees `/`. Its links stay correct because `ROOT_URL`
+contains the prefix. `flush_interval -1` keeps live run logs from arriving in chunks. The body
+limit covers pushes over HTTP if one is ever needed. Normal pushes use SSH.
+
+### Landing tile and README
+
+- Add a Forgejo card to `caddy/site/index.html` with its own accent. The settings page picks it
+  up.
+- Add a `/forgejo/` row to the home-apps README table, plus a short "Forgejo SSH 2222" note next
+  to the Minecraft port exception.
+
+### First-time setup
+
+```bash
+cd ~/home-app && docker compose up -d forgejo caddy
+docker exec -u git home-apps-forgejo forgejo admin user create \
+  --admin --username <user> --email <email> --random-password
+```
+
+1. Log in at `/forgejo/`, change the password, add the dev box's SSH public key.
+2. Create an empty private repo `auto-battlebot`.
+3. On the dev box:
+   ```bash
+   git remote set-url --add --push origin git@github.com:Woz4tetra/auto-battlebot.git
+   git remote set-url --add --push origin ssh://git@<genericservername-tailnet-ip>:2222/<user>/auto-battlebot.git
+   git push origin --all
+   ```
+   The first `--add --push` keeps GitHub as a push URL. Once any push URL is set, git stops using
+   the fetch URL for pushes.
+4. Check `git remote -v` shows one fetch URL and two push URLs.
+
+GitHub stays the source of truth. If `forgejo/data` is lost, recreate the repo and push again.
+Only the run history is lost, so Forgejo gets no backup job.
+
+## WP-V13: CI Jetson and runner
+
+Done when a push runs `--fast` and `--playback` on the Jetson and the commit turns green.
+
+### Box setup
+
+1. Reflash the spare Orin NX to JetPack 6.2.3 / L4T R36.5 to match the ZED Box Mini. A JP6.2.3
+   flash from pathfinder failed once when the board dropped out of recovery mode, so check `lsusb`
+   for the NVIDIA recovery device right before starting.
+2. Install Tailscale and join the tailnet.
+3. Sync the repo with `scripts/deploy_to_jetson.sh <host> --sync-only`, then run
+   `scripts/install_jetson_ci.sh` on the box. Add `ccache` to `install/jetson_packages.txt` if it
+   is missing.
+4. Create the `ci` user: no sudo, no SSH keys, no tokens in its home.
+5. Block the robot network for `ci`:
+   ```bash
+   nft add rule inet filter output meta skuid ci ip daddr 10.42.42.0/24 reject
+   ```
+   Persist it in `/etc/nftables.conf`.
+
+### Runner
+
+```bash
+sudo -u ci -i
+curl -fLO https://code.forgejo.org/forgejo/runner/releases/download/v13.2.2/forgejo-runner-13.2.2-linux-arm64
+sha256sum forgejo-runner-13.2.2-linux-arm64   # compare with the release page
+install -m 755 forgejo-runner-13.2.2-linux-arm64 ~/bin/forgejo-runner
+forgejo-runner generate-config > ~/runner/config.yml
+forgejo-runner register --no-interactive \
+  --instance https://genericservername.<tailnet>.ts.net/forgejo/ \
+  --token <token from Site administration > Actions > Runners> \
+  --name ci-orin-nx --labels jetson:host
+```
+
+In `config.yml` set:
+
+```yaml
+runner:
+  capacity: 1
+  timeout: 90m
+  labels:
+    - jetson:host
+  envs:
+    CCACHE_DIR: /home/ci/ci-data/ccache
+    CMAKE_CXX_COMPILER_LAUNCHER: ccache
+    CMAKE_C_COMPILER_LAUNCHER: ccache
+```
+
+- `capacity: 1` lets one job use the whole 16 GB box. Other runs wait in Forgejo's queue.
+- `jetson:host` runs steps on the box itself with no container, which keeps CUDA, TensorRT and
+  the ZED SDK visible.
+- A fresh checkout per job means a full C++ build each time. ccache in `ci-data` keeps that build
+  under control. Measure a cold and a warm build and record both in the outcome.
+
+Run the runner as a systemd system unit with `User=ci`, `Restart=always`,
+`After=network-online.target tailscaled.service`, `ExecStart=/home/ci/bin/forgejo-runner daemon
+--config /home/ci/runner/config.yml`.
+
+### CI data
+
+```
+~ci/ci-data/
+  svo/NHRL_2026-05-02/*.svo2       the three clip recordings, 2.44 GB
+  models/                          ONNX files only, no x86 engines
+  engines/<onnx sha256>_trt<ver>/  engines built on this box
+  ccache/
+```
+
+- **Clip manifest.** New module `auto_battlebot/verify/ci_clips.py` and committed
+  `auto_battlebot/verify/ci_clips.json`. `write` hashes every recording that
+  `playback_clips.toml` uses. `check` compares the files in `data/` with the manifest. `sync
+  <host>` rsyncs missing or changed recordings and ONNX files to `ci@<host>:ci-data/`. Tests go in
+  `auto_battlebot/verify/tests/test_ci_clips.py`.
+- **Engines.** `ci/build_engines.sh` hashes each ONNX file that a CI config references. On a cache
+  miss it calls the YOLO and DeepLab export CLIs built on `auto_battlebot/tensorrt_build.py`,
+  writing into the cache directory, then symlinks the cached engine under the name the config
+  expects. Engines are never copied between boxes.
+- **Baselines.** `playback_baselines.json` holds x86 hashes. Record lockstep and real-time
+  baselines on the CI Jetson with `python -m auto_battlebot.verify.playback baseline` and commit
+  them under the Jetson's machine class (`playback machine` prints it). This is step 2 of the
+  verification plan's next steps.
+
+### Workflows
+
+`.forgejo/workflows/push.yml`:
+
+```yaml
+name: push
+on: push
+jobs:
+  verify:
+    runs-on: jetson
+    steps:
+      - uses: actions/checkout@v4
+      - run: ci/link_data.sh
+      - run: venv/bin/python -m auto_battlebot.verify.ci_clips check
+      - run: ci/build_engines.sh
+      - run: scripts/verify --fast
+      - run: scripts/verify --playback
+```
+
+`.forgejo/workflows/nightly.yml`:
+
+```yaml
+name: nightly
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+jobs:
+  realtime:
+    runs-on: jetson
+    steps:
+      - uses: actions/checkout@v4
+      - run: ci/link_data.sh
+      - run: venv/bin/python -m auto_battlebot.verify.ci_clips check
+      - run: ci/build_engines.sh
+      - run: scripts/verify --realtime
+```
+
+- `actions/checkout@v4` resolves from `data.forgejo.org` and runs on the Node that
+  `install_jetson_ci.sh` installs.
+- A fresh checkout has no `venv/`, and building one per job costs minutes, so `ci` keeps one
+  venv at `~ci/venv` that `ci/link_data.sh` links in. Rebuild it with
+  `scripts/setup_python.sh` when `pyproject.toml` changes; a stale venv fails the job at import.
+- 03:00 is server time (UTC unless set). No DST transition falls at 03:00 UTC.
+
+## WP-V14: deploy warning and report-back
+
+Done when a nightly has run, `deploy_to_jetson.sh` warns on a red commit, and the agent reports a
+red run with the failing step.
+
+![Consumers of CI status](../diagrams/forgejo_ci_report_back.svg)
+
+### Status client
+
+New module `auto_battlebot/ci/status.py`, stdlib `urllib` only:
+
+```bash
+python -m auto_battlebot.ci.status HEAD            # prints state + run URL, exit 0/1/2/3
+python -m auto_battlebot.ci.status --wait HEAD     # polls every 30 s, stops at 45 min
+```
+
+- It reads `GET /api/v1/repos/<user>/auto-battlebot/commits/<sha>/status`, which returns the
+  combined state plus each status's `target_url`.
+- Exit codes: 0 success, 1 failure, 2 pending or no status, 3 unreachable or dirty tree.
+- Token: `~/.config/auto-battlebot/forgejo_token`, a Forgejo access token with only
+  `read:repository`. It lives outside the repo, like other runtime state.
+- On failure it prints the run URL. Printing the failed step name and its last 40 log lines needs
+  a job-log API. Check whether Forgejo 17 has one during WP-V14. If it does not, the report gives
+  the run URL only.
+- Tests in `auto_battlebot/ci/tests/test_status.py` against a stub HTTP server: each state, an
+  unknown sha, a timeout.
+
+### Deploy warning
+
+`scripts/deploy_to_jetson.sh` runs `ci.status HEAD` once with a 5 s timeout before rsync. On
+anything other than success it prints one `WARNING:` line saying why (red, pending, dirty tree,
+HEAD not pushed, Forgejo unreachable) and continues. It never refuses (Q42).
+
+### Agent report-back
+
+Add to the root `CLAUDE.md` under Validation: after a push the user asked for, run
+`python -m auto_battlebot.ci.status --wait HEAD` and report the result with the run URL. A red run
+reopens the task. The agent still pushes only when asked.
+
+## Risks
+
+| Risk | What happens | Mitigation |
+| --- | --- | --- |
+| Dev box off the tailnet | Forgejo push fails after GitHub took it | Push again on the tailnet. CI for that sha runs late |
+| Jetson offline | Runs stay queued, statuses stay pending | Runner admin page shows offline. Deploy warns "pending" |
+| Cold C++ build on the Orin NX | Push runs are slow | ccache in `ci-data`. Measure both builds in WP-V13 |
+| Clip drift | `--playback` compares against the wrong frames | Manifest check fails the job before any test runs |
+| Engine built on the wrong TensorRT | Engine load fails | Cache key includes the TensorRT version |
+| 16 GB on one box | Parallel suites run out of memory | `capacity: 1`. `VERIFY_JOBS` lowers the build jobs if needed |
+
+## Open questions
+
+1. Does Forgejo 17 have an API for a job's step logs? If not, report-back links the run only.
+2. `--hil` is listed as on demand in the verification plan's schedule, but the CI Jetson has no
+   route to the robot network, and HIL needs the user driving the robot. Proposal: HIL stays a
+   dev-box command from phase 6 and is not a CI workflow.
+3. Forgejo major: 17 or the current LTS line.
+
+## Next steps
+
+1. WP-V12: add the compose service, the Caddy block and the tile on genericservername, create the
+   account and repo, add the second push URL, push.
+2. WP-V13: reflash the spare Orin NX (needs the board in recovery mode), run
+   `install_jetson_ci.sh`, register the runner, write `ci_clips.py`, `ci/link_data.sh`,
+   `ci/build_engines.sh` and the two workflows, record Jetson baselines.
+3. WP-V14: write `auto_battlebot/ci/status.py`, the deploy warning and the CLAUDE.md
+   report-back line.

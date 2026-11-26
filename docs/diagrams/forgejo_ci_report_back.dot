@@ -1,0 +1,47 @@
+digraph ForgejoCiReportBack {
+  graph [
+    rankdir=TB
+    label="Consumers of a commit's CI status"
+    labelloc=t fontsize=22 fontname="Helvetica"
+    pad=0.3 nodesep=0.5 ranksep=0.5 splines=spline bgcolor="white"
+  ];
+  node [
+    shape=box style="rounded,filled" fillcolor="#F8FAFC" color="#CBD5E1"
+    fontname="Helvetica" fontsize=12 penwidth=1.4 margin="0.18,0.10"
+  ];
+  edge [color="#475569" penwidth=1.4 arrowsize=0.8 fontname="Helvetica" fontsize=11];
+
+  subgraph cluster_agent {
+    label="Agent, after a push the user asked for" fontname="Helvetica" fontsize=14 style="rounded" color="#94A3B8"
+    ask [label="user: \"push it\"" fillcolor="#E0F2FE" color="#7DD3FC"];
+    apush [label="git push"];
+    wait [label="python -m auto_battlebot.ci.status --wait HEAD\npolls every 30 s, gives up at 45 min"];
+    green [label="report: green, run URL" fillcolor="#DCFCE7" color="#4ADE80"];
+    red [label="report: failed job + step,\nlast 40 log lines, run URL\ntask reopens" fillcolor="#FEE2E2" color="#F87171"];
+    unreach [label="report: Forgejo unreachable\n(off tailnet?), no verdict" fillcolor="#FEF9C3" color="#FACC15"];
+  }
+
+  subgraph cluster_deploy {
+    label="scripts/deploy_to_jetson.sh" fontname="Helvetica" fontsize=14 style="rounded" color="#94A3B8"
+    dstart [label="deploy starts"];
+    dcheck [label="ci.status HEAD (one query, 5 s timeout)"];
+    dok [label="success: continue silently"];
+    dwarn [label="pending, failure, dirty tree,\nunpushed or unreachable:\nprint WARNING, continue"];
+    drsync [label="rsync, build, restart service"];
+  }
+
+  api [label="Forgejo API\nGET /api/v1/repos/<owner>/auto-battlebot/commits/<sha>/status\n+ run page for the failed step" shape=component fillcolor="#FFEDD5" color="#FB923C"];
+
+  ask -> apush -> wait;
+  wait -> api [dir=both style=dashed];
+  wait -> green [label="success"];
+  wait -> red [label="failure"];
+  wait -> unreach [label="HTTP error / timeout"];
+
+  dstart -> dcheck;
+  dcheck -> api [dir=both style=dashed];
+  dcheck -> dok [label="success"];
+  dcheck -> dwarn [label="anything else"];
+  dok -> drsync;
+  dwarn -> drsync;
+}

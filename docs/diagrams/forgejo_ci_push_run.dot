@@ -1,0 +1,55 @@
+digraph ForgejoCiPushRun {
+  graph [
+    rankdir=TB
+    label="One push, start to finish"
+    labelloc=t fontsize=22 fontname="Helvetica"
+    pad=0.3 nodesep=0.45 ranksep=0.45 splines=spline bgcolor="white"
+  ];
+  node [
+    shape=box style="rounded,filled" fillcolor="#F8FAFC" color="#CBD5E1"
+    fontname="Helvetica" fontsize=12 penwidth=1.4 margin="0.18,0.10"
+  ];
+  edge [color="#475569" penwidth=1.4 arrowsize=0.8 fontname="Helvetica" fontsize=11];
+
+  push [label="git push (dev box)\nGitHub first, then Forgejo" fillcolor="#E0F2FE" color="#7DD3FC"];
+
+  subgraph cluster_forgejo {
+    label="Forgejo (genericservername)" fontname="Helvetica" fontsize=14 style="rounded" color="#FB923C"
+    receive [label="post-receive: read\n.forgejo/workflows/*.yml at the new sha"];
+    match [label="push.yml matches on: push\ncancel older run on same branch"];
+    queue [label="job queued\nruns-on: jetson\nstatus = pending"];
+    status [label="commit status\nsuccess | failure\ntarget_url = run page" fillcolor="#FFEDD5" color="#FB923C"];
+  }
+
+  subgraph cluster_runner {
+    label="forgejo-runner on CI Jetson (user ci)" fontname="Helvetica" fontsize=14 style="rounded" color="#4ADE80"
+    poll [label="FetchTask long-poll\nreturns the job"];
+    checkout [label="1. checkout sha\n(actions/checkout from data.forgejo.org)"];
+    link [label="2. ci/link_data.sh\nsymlink ~ci/ci-data into data/"];
+    manifest [label="3. check ci_clips manifest\nsha256 of every clip"];
+    manifest_bad [label="clip missing or hash differs\nfail: re-run clip sync" fillcolor="#FEE2E2" color="#F87171"];
+    engines [label="4. engine cache lookup\nkey = ONNX sha256 + TensorRT version"];
+    build_engine [label="miss: trtexec build\non this box's TensorRT 10.3"];
+    fast [label="5. scripts/verify --fast\nlint --quick, gtest, pytest, synthetic,\nfirmware, web"];
+    playback [label="6. scripts/verify --playback\nlockstep clips vs baseline hashes"];
+    logs [label="step logs streamed\nto Forgejo as they print" shape=note fillcolor="#FEF9C3" color="#FACC15"];
+  }
+
+  consumers [label="UI commit list + Actions tab\nagent report-back\ndeploy warning" fillcolor="#E0F2FE" color="#7DD3FC"];
+
+  push -> receive -> match -> queue;
+  queue -> poll [label="runner idle"];
+  poll -> checkout -> link -> manifest;
+  manifest -> manifest_bad [label="mismatch" color="#DC2626" fontcolor="#DC2626"];
+  manifest -> engines [label="ok"];
+  engines -> build_engine [label="miss"];
+  build_engine -> fast;
+  engines -> fast [label="hit"];
+  fast -> playback [label="pass"];
+  fast -> status [label="fail" color="#DC2626" fontcolor="#DC2626"];
+  playback -> status [label="pass or fail"];
+  manifest_bad -> status [color="#DC2626"];
+  fast -> logs [style=dotted arrowhead=none];
+  playback -> logs [style=dotted arrowhead=none];
+  status -> consumers;
+}

@@ -424,6 +424,7 @@ exact `scripts/verify --only <ids>` command.
 ### Phase 5: CI
 
 The repo is public, so no runner is attached to GitHub. A tailnet-only forge mirrors it.
+Build plan, diagrams and UI mockups: `docs/plans/forgejo_ci_plan.md`.
 
 **Forge.** Forgejo as a home-apps service on genericservername:
 

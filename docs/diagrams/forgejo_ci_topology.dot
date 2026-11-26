@@ -1,0 +1,53 @@
+digraph ForgejoCiTopology {
+  graph [
+    rankdir=TB
+    label="Forgejo CI: machines and links"
+    labelloc=t fontsize=22 fontname="Helvetica"
+    pad=0.3 nodesep=0.5 ranksep=0.9 splines=spline bgcolor="white" compound=true
+  ];
+  node [
+    shape=box style="rounded,filled" fillcolor="#F8FAFC" color="#CBD5E1"
+    fontname="Helvetica" fontsize=12 penwidth=1.4 margin="0.18,0.12"
+  ];
+  edge [color="#475569" penwidth=1.4 arrowsize=0.8 fontname="Helvetica" fontsize=11];
+
+  subgraph cluster_dev {
+    label="Dev box: pathfinder" fontname="Helvetica" fontsize=14 style="rounded" color="#94A3B8"
+    git_push [label="git push\n(origin: 2 push URLs)"];
+    agent [label="Agent report-back\nauto_battlebot.ci.status"];
+    deploy [label="scripts/deploy_to_jetson.sh\nstatus check"];
+    token [label="read-only token\n~/.config/auto-battlebot/forgejo_token" shape=note fillcolor="#FEF9C3" color="#FACC15"];
+  }
+
+  github [label="GitHub\n(public, no runner)" shape=ellipse fillcolor="#E2E8F0"];
+
+  subgraph cluster_server {
+    label="genericservername: home-apps compose stack" fontname="Helvetica" fontsize=14 style="rounded" color="#94A3B8"
+    ts_serve [label="tailscale serve :443\nTLS"];
+    caddy [label="home-apps-caddy :8080\nhandle_path /forgejo/*"];
+    forgejo [label="home-apps-forgejo\nHTTP :3000, SSH :22\nSQLite in data/forgejo" fillcolor="#FFEDD5" color="#FB923C"];
+    ssh_port [label="100.97.x.x:2222\n(tailnet IP only)"];
+  }
+
+  subgraph cluster_jetson {
+    label="CI Jetson (spare Orin NX, JetPack 6.2.3)" fontname="Helvetica" fontsize=14 style="rounded" color="#94A3B8"
+    runner [label="forgejo-runner\nuser ci, label jetson:host\ncapacity 1" fillcolor="#DCFCE7" color="#4ADE80"];
+    workspace [label="fresh checkout per job\n~ci/.cache/act/<run>"];
+    ci_data [label="~ci/ci-data\nsvo/ (clips + ci_clips manifest)\nengines/<onnx sha>_<trt ver>/\nccache/" shape=cylinder fillcolor="#E0F2FE" color="#7DD3FC"];
+  }
+
+  dash_net [label="dashboard cable network\n10.42.42.0/24" shape=ellipse fillcolor="#FEE2E2" color="#F87171"];
+
+  git_push -> github [label="SSH"];
+  git_push -> ssh_port [label="SSH over tailnet"];
+  ssh_port -> forgejo;
+  agent -> ts_serve [label="HTTPS API"];
+  deploy -> ts_serve [label="HTTPS API"];
+  token -> agent [style=dotted arrowhead=none];
+  ts_serve -> caddy -> forgejo;
+  runner -> ts_serve [label="long-poll HTTPS\n(outbound only)" color="#16A34A" fontcolor="#15803D"];
+  runner -> workspace;
+  workspace -> ci_data [label="read clips,\ncache engines" style=dashed];
+  git_push -> ci_data [label="rsync once\n(clip sync)" style=dashed color="#6366F1" fontcolor="#4F46E5"];
+  runner -> dash_net [label="no route" style=dashed color="#DC2626" fontcolor="#DC2626" arrowhead=tee];
+}
