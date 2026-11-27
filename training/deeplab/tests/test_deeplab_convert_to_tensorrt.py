@@ -10,6 +10,8 @@ import pytest
 import tensorrt as trt
 from onnx import TensorProto, helper, numpy_helper
 
+pytestmark = pytest.mark.jetson
+
 
 @pytest.fixture(scope="module")
 def converter(load_training):

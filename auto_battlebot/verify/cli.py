@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,11 +54,17 @@ def working_changes(root: Path) -> list[str]:
     return paths
 
 
-def restrict(selection: Selection, only: list[str]) -> Selection:
+def restrict(selection: Selection, only: Iterable[str]) -> Selection:
+    keep = set(only)
     for name, scope in selection.scopes.items():
-        if name not in only:
+        if name not in keep:
             scope.run = False
     return selection
+
+
+def nightly_tiers(target: str | None, nightly: bool) -> tuple[str, ...]:
+    """Playback tiers a nightly adds: real time on the Jetson only."""
+    return ("realtime",) if nightly and target == "jetson" else ()
 
 
 def describe(selection: Selection) -> list[str]:
@@ -99,28 +106,40 @@ def verify(
     echo: bool = False,
     playback: tuple[str, ...] = (),
     suites_too: bool = True,
+    target: str | None = None,
+    nightly: bool = False,
 ) -> Outcome:
     """Run lint (with --fast), the suites a file list selects or every suite, and playback tiers."""
     selection = everything() if files is None else select(files, root)
     if only:
         selection = restrict(selection, only)
+    if target is not None:
+        selection = restrict(selection, suites.TARGET_SUITES[target])
     if not suites_too:
         selection = restrict(selection, [])
-    before = [suites.lint_step(root)] if fast else []
+    lint = suites.lint_step(root, target, nightly) if fast or nightly else None
+    before = [lint] if lint else []
+    gpu_ok = True
+    if nightly and target == "x86":
+        gpu_ok = suites.gpu_idle()
+        if not gpu_ok:
+            print("gpu tests deferred: the GPU is busy", flush=True)
 
     def report(result: suites.StepResult) -> None:
         if echo:
             mark = "ok  " if result.ok else "FAIL"
             print(f"{mark} {result.name} ({result.seconds:.0f} s)", flush=True)
 
-    groups = suites.plan(root, selection, fast) + [
-        suites.playback_group(root, tier) for tier in playback
+    tiers = playback + tuple(t for t in nightly_tiers(target, nightly) if t not in playback)
+    groups = suites.plan(root, selection, fast, target, nightly, gpu_ok) + [
+        suites.playback_group(root, tier) for tier in tiers
     ]
     results = suites.run(
         groups,
         log_dir or root / STATE_DIR / "verify-logs",
         before,
         report,
+        parallel=target != "jetson",
     )
     return Outcome(all(r.ok for r in results), results, selection)
 
@@ -147,6 +166,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--realtime", action="store_true", help="Replay the clips in real time against A/A bounds"
     )
+    parser.add_argument(
+        "--target",
+        choices=suites.TARGETS,
+        help="CI box: run only its suites, lint check-only (default: every suite)",
+    )
+    parser.add_argument(
+        "--nightly",
+        action="store_true",
+        help="With --target, add slow and gpu tests, real time, release and ASan builds",
+    )
     for tier in LATER_TIERS:
         parser.add_argument(f"--{tier}", action="store_true", help=f"Lands in {LATER_TIERS[tier]}")
     return parser.parse_args(argv)
@@ -167,6 +196,27 @@ def file_list(args: argparse.Namespace, root: Path) -> list[str] | None:
     return [f.strip() for f in files if f.strip()]
 
 
+def print_selection(
+    args: argparse.Namespace,
+    root: Path,
+    files: list[str] | None,
+    playback: tuple[str, ...],
+    suites_too: bool,
+) -> None:
+    selection = everything() if files is None else select(files, root)
+    if args.suite:
+        selection = restrict(selection, args.suite)
+    if args.target:
+        selection = restrict(selection, suites.TARGET_SUITES[args.target])
+    if not suites_too:
+        selection = restrict(selection, [])
+    tiers = playback + nightly_tiers(args.target, args.nightly)
+    lines = describe(selection) + [f"playback {tier}: every clip" for tier in tiers]
+    print("\n".join(lines) or "nothing to run")
+    for path in selection.uncovered:
+        print(f"no test covers {path}")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     for tier, phase in LATER_TIERS.items():
@@ -179,18 +229,15 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as error:
         print(error, file=sys.stderr)
         return 2
+    if args.nightly and args.target is None:
+        print("--nightly needs --target", file=sys.stderr)
+        return 2
     playback = tuple(tier for flag, tier in PLAYBACK_TIERS.items() if getattr(args, flag))
-    suites_too = not playback or bool(args.fast or args.changed or args.suite)
+    suites_too = not playback or bool(
+        args.fast or args.changed or args.suite or args.target or args.nightly
+    )
     if args.list:
-        selection = everything() if files is None else select(files, root)
-        if args.suite:
-            selection = restrict(selection, args.suite)
-        if not suites_too:
-            selection = restrict(selection, [])
-        lines = describe(selection) + [f"playback {tier}: every clip" for tier in playback]
-        print("\n".join(lines) or "nothing to run")
-        for path in selection.uncovered:
-            print(f"no test covers {path}")
+        print_selection(args, root, files, playback, suites_too)
         return 0
     outcome = verify(
         root,
@@ -201,6 +248,8 @@ def main(argv: list[str] | None = None) -> int:
         echo=True,
         playback=playback,
         suites_too=suites_too,
+        target=args.target,
+        nightly=args.nightly,
     )
     for failure in outcome.failures():
         print(f"\n==> {failure.name} failed; last lines of {failure.log}:")

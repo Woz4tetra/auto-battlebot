@@ -25,7 +25,14 @@ FAKES = [
 PASS_ALL = ["ruff", "mypy"]
 
 
-def run_lint(tmp_path: Path, *, rust_log: str | None = None, with_cmake_failure: bool = False):
+def run_lint(
+    tmp_path: Path,
+    *args: str,
+    rust_log: str | None = None,
+    with_cmake_failure: bool = False,
+    fakes: list[str] | None = None,
+    system_path: str | None = None,
+):
     project = tmp_path / "project"
     (project / "scripts").mkdir(parents=True)
     (project / "build").mkdir()
@@ -39,7 +46,7 @@ def run_lint(tmp_path: Path, *, rust_log: str | None = None, with_cmake_failure:
     (project / "scripts" / "comment_budget.py").write_text("")
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    for name in [*FAKES, *PASS_ALL]:
+    for name in fakes if fakes is not None else [*FAKES, *PASS_ALL]:
         body = LOGGER.format(name=name)
         if name == "cmake" and with_cmake_failure:
             body += "exit 1\n"
@@ -52,11 +59,12 @@ def run_lint(tmp_path: Path, *, rust_log: str | None = None, with_cmake_failure:
     (ctcache / "clang-tidy").chmod(0o755)
     log = tmp_path / "lint.log"
     env = {k: v for k, v in os.environ.items() if k not in {"RUST_LOG", "CTCACHE_CLANG_TIDY"}}
-    env.update(PATH=f"{bin_dir}:{env['PATH']}", HOME=str(home), LINT_LOG=str(log))
+    path = system_path if system_path is not None else env["PATH"]
+    env.update(PATH=f"{bin_dir}:{path}", HOME=str(home), LINT_LOG=str(log))
     if rust_log is not None:
         env["RUST_LOG"] = rust_log
     result = subprocess.run(
-        ["bash", str(project / "scripts" / "lint"), "--dry-run"],
+        ["bash", str(project / "scripts" / "lint"), "--dry-run", *args],
         env=env,
         capture_output=True,
         text=True,
@@ -99,3 +107,23 @@ def test_taplo_runs_with_rust_log_warn_by_default(tmp_path):
 def test_caller_rust_log_wins(tmp_path):
     _, lines, _ = run_lint(tmp_path, rust_log="debug")
     assert all("RUST_LOG=debug" in line for line in calls(lines, "taplo"))
+
+
+def test_only_runs_the_named_step(tmp_path):
+    result, lines, _ = run_lint(tmp_path, "--only=taplo")
+    assert calls(lines, "taplo")
+    assert not calls(lines, "clang-format-18") and not calls(lines, "run-clang-tidy-18")
+    assert "==> ruff" not in result.stdout
+
+
+def test_skip_leaves_out_the_named_step(tmp_path):
+    _, lines, _ = run_lint(tmp_path, "--skip=clang-tidy")
+    assert calls(lines, "taplo") and not calls(lines, "run-clang-tidy-18")
+
+
+def test_a_missing_tool_skips_by_default_and_fails_when_strict(tmp_path):
+    bare = {"fakes": [], "system_path": "/usr/bin:/bin"}
+    loose, _, _ = run_lint(tmp_path / "loose", "--only=taplo", **bare)
+    strict, _, _ = run_lint(tmp_path / "strict", "--only=taplo", "--strict", **bare)
+    assert loose.returncode == 0
+    assert strict.returncode != 0 and "Failed: taplo" in strict.stdout

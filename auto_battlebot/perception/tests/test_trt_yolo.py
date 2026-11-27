@@ -15,6 +15,8 @@ from auto_battlebot.perception.trt_yolo import (
     scale_detections_to_frame,
 )
 
+pytestmark = pytest.mark.jetson
+
 PAD_VALUE = 114
 FRAME_H = 100
 FRAME_W = 200

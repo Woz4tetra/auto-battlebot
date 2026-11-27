@@ -8,6 +8,8 @@ import yaml
 
 from auto_battlebot.paths import REPO_ROOT
 
+pytestmark = pytest.mark.jetson
+
 ROOT = REPO_ROOT
 BASH = "/bin/bash"
 

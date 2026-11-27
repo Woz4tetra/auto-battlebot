@@ -29,6 +29,7 @@ PYTEST_ROOTS = (
     "hardware",
     "install",
     "service",
+    "ci",
 )
 PYTEST_EVERYTHING = ("conftest.py", "pyproject.toml")
 FIRST_PARTY = ("auto_battlebot",)

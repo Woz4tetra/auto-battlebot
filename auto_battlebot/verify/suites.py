@@ -12,7 +12,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from auto_battlebot.verify.selection import Selection, gtest_filter
+from auto_battlebot.gpu_queue import gpu_busy_processes
+from auto_battlebot.verify.selection import PythonIndex, Selection, gtest_filter
 
 PYTEST_ARGS = ("-q", "--no-header", "-p", "no:cacheprovider")
 PYTEST_WORKERS = 8
@@ -29,6 +30,15 @@ PYTEST_THREAD_ENV = {
 PYTEST_FAST_ARGS = ("-m", "not slow")
 GTEST_BUILD_DIR = "build-test"
 GTEST_TARGET = "auto_battlebot_test"
+PROTOCOL_DUMP_TARGET = "remote_protocol_dump"
+RELEASE_BUILD_DIR = "build"
+ASAN_BUILD_DIR = "build-asan"
+TARGETS = ("jetson", "x86")
+JETSON_MARK = "pytest.mark.jetson"
+TARGET_SUITES = {
+    "jetson": ("gtest", "pytest"),
+    "x86": ("pytest", "synthetic", "firmware", "web"),
+}
 FIRMWARE_DIR = "firmware/mr_stabs_mk2"
 DEFAULT_JOBS = 6
 MEMORY_CAP = "16G"
@@ -106,13 +116,26 @@ def pio_bin(root: Path) -> str:
     return "pio"
 
 
-def gtest_group(root: Path, selection: Selection) -> Group:
-    build = root / GTEST_BUILD_DIR
+def make_step(name: str, build: Path, target: str, root: Path) -> Step:
+    command = [*memory_cap_prefix(), "make", "-C", str(build), f"-j{build_jobs()}", target]
+    return Step(name, command, root)
+
+
+def gtest_group(
+    root: Path,
+    selection: Selection,
+    protocol_check: bool = False,
+    build_dir: str = GTEST_BUILD_DIR,
+    label: str = "gtest",
+    extra_cmake: tuple[str, ...] = (),
+) -> Group:
+    """Configure if needed, build and run gtest; optionally check protocol.ts against the build."""
+    build = root / build_dir
     steps = []
     if not (build / "Makefile").exists():
         steps.append(
             Step(
-                "gtest configure",
+                f"{label} configure",
                 [
                     "cmake",
                     "-S",
@@ -122,23 +145,43 @@ def gtest_group(root: Path, selection: Selection) -> Group:
                     "-DCMAKE_BUILD_TYPE=Debug",
                     "-DBUILD_TESTING=ON",
                     "-DBUILD_DEBUG=ON",
+                    *extra_cmake,
                 ],
                 root,
             )
         )
-    steps.append(
-        Step(
-            "gtest build",
-            [*memory_cap_prefix(), "make", "-C", str(build), f"-j{build_jobs()}", GTEST_TARGET],
-            root,
-        )
-    )
+    steps.append(make_step(f"{label} build", build, GTEST_TARGET, root))
     command = [str(build / GTEST_TARGET), "--gtest_brief=1"]
     scope = selection.scopes["gtest"]
     if not scope.everything:
         command.append(f"--gtest_filter={gtest_filter(scope.items)}")
-    steps.append(Step("gtest run", command, build))
-    return Group("gtest", steps)
+    steps.append(Step(f"{label} run", command, build))
+    if protocol_check:
+        steps.append(make_step("protocol dump build", build, PROTOCOL_DUMP_TARGET, root))
+        steps.append(
+            Step(
+                "lint protocol.ts",
+                [
+                    str(root / "scripts" / "lint"),
+                    "--dry-run",
+                    "--strict",
+                    "--only=protocol",
+                    f"--protocol-dump={build / PROTOCOL_DUMP_TARGET}",
+                ],
+                root,
+            )
+        )
+    return Group(label, steps)
+
+
+def asan_group(root: Path, selection: Selection) -> Group:
+    return gtest_group(
+        root,
+        selection,
+        build_dir=ASAN_BUILD_DIR,
+        label="gtest asan",
+        extra_cmake=("-DAUTO_BATTLEBOT_SANITIZER=address",),
+    )
 
 
 def pytest_workers(targets: list[str]) -> list[str]:
@@ -148,16 +191,55 @@ def pytest_workers(targets: list[str]) -> list[str]:
     return ["-n", str(PYTEST_WORKERS), "--dist", "loadfile"]
 
 
-def pytest_group(root: Path, selection: Selection, fast: bool = False) -> Group:
+def pytest_markers(
+    fast: bool, target: str | None = None, nightly: bool = False, gpu_ok: bool = True
+) -> list[str]:
+    """The `-m` expression for a run: the Jetson takes `jetson` tests, CI skips `gpu` on push."""
+    terms = []
+    if target == "jetson":
+        terms.append("jetson")
+    if fast and not nightly:
+        terms.append("not slow")
+    if target is not None and not (nightly and gpu_ok):
+        terms.append("not gpu")
+    return ["-m", " and ".join(terms)] if terms else []
+
+
+def jetson_test_files(root: Path) -> list[str]:
+    """Test modules that carry the jetson marker, found by text so nothing x86-only is imported."""
+    return [
+        test
+        for test in PythonIndex(root).test_files()
+        if JETSON_MARK in (root / test).read_text(errors="replace")
+    ]
+
+
+def pytest_targets(root: Path, selection: Selection, target: str | None) -> list[str] | None:
+    """Explicit test files to run, or None for the whole testpaths tree."""
     scope = selection.scopes["pytest"]
-    targets = [] if scope.everything else sorted(scope.items)
+    chosen = None if scope.everything else set(scope.items)
+    if target == "jetson":
+        marked = set(jetson_test_files(root))
+        chosen = marked if chosen is None else chosen & marked
+    return None if chosen is None else sorted(chosen)
+
+
+def pytest_group(
+    root: Path,
+    selection: Selection,
+    fast: bool = False,
+    target: str | None = None,
+    nightly: bool = False,
+    gpu_ok: bool = True,
+) -> Group:
+    targets = pytest_targets(root, selection, target) or []
     command = [
         python_bin(root),
         "-m",
         "pytest",
         *PYTEST_ARGS,
         *pytest_workers(targets),
-        *(PYTEST_FAST_ARGS if fast else ()),
+        *pytest_markers(fast, target, nightly, gpu_ok),
         *targets,
     ]
     env = PYTEST_THREAD_ENV if pytest_workers(targets) else {}
@@ -185,15 +267,31 @@ def web_group(root: Path) -> Group:
     )
 
 
+def release_configure_step(root: Path) -> Step | None:
+    build = root / RELEASE_BUILD_DIR
+    if (build / "Makefile").exists():
+        return None
+    command = ["cmake", "-S", str(root), "-B", str(build), "-DCMAKE_BUILD_TYPE=Release"]
+    return Step("release configure", command, root)
+
+
+def release_group(root: Path) -> Group:
+    """Configure build/ if needed and build every release target."""
+    configure = release_configure_step(root)
+    build = make_step("release build", root / RELEASE_BUILD_DIR, "all", root)
+    return Group("release", [*([configure] if configure else []), build])
+
+
 def playback_group(root: Path, tier: str) -> Group:
     """Build the app, then replay the clips for one playback tier."""
+    configure = release_configure_step(root)
     build = Step(
         "app build",
         [
             *memory_cap_prefix(),
             "cmake",
             "--build",
-            str(root / "build"),
+            str(root / RELEASE_BUILD_DIR),
             "--target",
             "auto_battlebot",
             f"-j{build_jobs()}",
@@ -201,23 +299,49 @@ def playback_group(root: Path, tier: str) -> Group:
         root,
     )
     command = [python_bin(root), "-m", "auto_battlebot.verify.playback", "check", "--tier", tier]
-    return Group(f"playback {tier}", [build, Step(f"playback {tier}", command, root)])
+    steps = [*([configure] if configure else []), build, Step(f"playback {tier}", command, root)]
+    return Group(f"playback {tier}", steps)
 
 
-def lint_step(root: Path) -> Step:
-    return Step("lint --quick", [str(root / "scripts" / "lint"), "--quick"], root)
+def lint_step(root: Path, target: str | None = None, nightly: bool = False) -> Step | None:
+    """Lint before the suites: apply locally, check-only in CI, none on the Jetson."""
+    lint = str(root / "scripts" / "lint")
+    if target is None:
+        return Step("lint --quick", [lint, "--quick"], root)
+    if target == "jetson":
+        return None
+    depth = ["--skip=clang-tidy"] if nightly else ["--quick"]
+    return Step("lint", [lint, "--dry-run", "--strict", "--skip=protocol", *depth], root)
 
 
-def plan(root: Path, selection: Selection, fast: bool = False) -> list[Group]:
+def gpu_idle() -> bool:
+    """No other process holds real GPU memory, per the GPU queue's own check."""
+    return not gpu_busy_processes(ignore_pids=set())
+
+
+def plan(
+    root: Path,
+    selection: Selection,
+    fast: bool = False,
+    target: str | None = None,
+    nightly: bool = False,
+    gpu_ok: bool = True,
+) -> list[Group]:
     """The suite groups a selection runs, in a fixed order."""
+    jetson = target == "jetson"
     builders: dict[str, Callable[[], Group]] = {
-        "gtest": lambda: gtest_group(root, selection),
-        "pytest": lambda: pytest_group(root, selection, fast),
+        "gtest": lambda: gtest_group(root, selection, protocol_check=jetson),
+        "pytest": lambda: pytest_group(root, selection, fast, target, nightly, gpu_ok),
         "synthetic": lambda: synthetic_group(root),
         "firmware": lambda: firmware_group(root),
         "web": lambda: web_group(root),
     }
-    return [builders[name]() for name, scope in selection.scopes.items() if scope.run]
+    if target == "jetson" and pytest_targets(root, selection, target) == []:
+        selection.scopes["pytest"].run = False
+    groups = [builders[name]() for name, scope in selection.scopes.items() if scope.run]
+    if jetson and nightly:
+        groups += [release_group(root), asan_group(root, selection)]
+    return groups
 
 
 def log_name(step: Step) -> str:
@@ -256,15 +380,17 @@ def run(
     log_dir: Path,
     before: Sequence[Step] = (),
     report: Callable[[StepResult], None] = lambda _: None,
+    parallel: bool = True,
 ) -> list[StepResult]:
-    """Run the `before` steps in order, then every group in parallel."""
+    """Run the `before` steps in order, then every group, side by side unless `parallel` is off."""
     log_dir.mkdir(parents=True, exist_ok=True)
     results = []
     for step in before:
         result = run_step(step, log_dir)
         report(result)
         results.append(result)
-    with ThreadPoolExecutor(max_workers=max(1, len(groups))) as pool:
+    workers = max(1, len(groups)) if parallel else 1
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         for group_results in pool.map(lambda g: run_group(g, log_dir), groups):
             for result in group_results:
                 report(result)

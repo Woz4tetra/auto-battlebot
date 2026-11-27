@@ -137,7 +137,12 @@ testpaths = [
   "hardware",
   "install",
   "service",
+  "ci",
 ]
 python_files = ["tests/test_*.py"]
-markers = ["slow: over 5 s; scripts/verify --fast leaves it out"]
+markers = [
+  "slow: over 5 s; scripts/verify --fast leaves it out",
+  "jetson: also runs on the CI Jetson (scripts/verify --target jetson)",
+  "gpu: needs a CUDA device beyond a smoke check; CI runs it nightly only",
+]
 norecursedirs = [".*", "__pycache__", "node_modules", "build*", "venv", "data", "runs", "*/training/synthetic"]

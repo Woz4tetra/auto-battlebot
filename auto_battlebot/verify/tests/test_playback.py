@@ -14,6 +14,8 @@ from auto_battlebot.verify import playback
 from auto_battlebot.verify.cli import parse_args
 from auto_battlebot.verify.suites import playback_group
 
+pytestmark = pytest.mark.jetson
+
 FRAME_NS = 33_333_333
 FRAMES = 60
 
@@ -335,7 +337,11 @@ def test_verify_cli_adds_playback_groups(tmp_path: Path) -> None:
     args = parse_args(["--playback", "--realtime"])
     assert args.playback and args.realtime
     group = playback_group(tmp_path, "lockstep")
-    assert [step.name for step in group.steps] == ["app build", "playback lockstep"]
+    assert [step.name for step in group.steps] == [
+        "release configure",
+        "app build",
+        "playback lockstep",
+    ]
     assert group.steps[-1].command[1:] == [
         "-m",
         "auto_battlebot.verify.playback",

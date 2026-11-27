@@ -6,6 +6,8 @@ import pytest
 
 from auto_battlebot import tensorrt_build
 
+pytestmark = pytest.mark.jetson
+
 
 @pytest.fixture(autouse=True)
 def fixed_platform(monkeypatch: pytest.MonkeyPatch) -> None:

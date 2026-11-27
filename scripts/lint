@@ -22,6 +22,12 @@ Options:
   --dry-run   Do not modify files: check formatting instead of applying it,
               so the run is a pure pass/fail gate (use in CI / hooks).
   --quick     Skip the slow checks (clang-tidy and mypy) for fast iteration.
+  --strict    Fail a step whose tool is missing instead of skipping it (CI).
+  --only=STEP Run one step. --skip=STEP leaves one out (repeatable). Steps:
+              clang-format taplo ruff-format ruff-check install-scripts
+              comment-budget protocol prettier clang-tidy mypy svelte-check
+  --protocol-dump=PATH
+              remote_protocol_dump to read (default: build/remote_protocol_dump).
   -h, --help  Show this help.
 
 Every step runs even if an earlier one fails; the script exits non-zero if any
@@ -37,10 +43,18 @@ BUILD_DIR="$PROJECT_ROOT/build"
 
 DRY_RUN=false
 QUICK=false
+STRICT=false
+ONLY=""
+SKIP=()
+PROTOCOL_DUMP="$BUILD_DIR/remote_protocol_dump"
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=true ;;
         --quick) QUICK=true ;;
+        --strict) STRICT=true ;;
+        --only=*) ONLY="${arg#--only=}" ;;
+        --skip=*) SKIP+=("${arg#--skip=}") ;;
+        --protocol-dump=*) PROTOCOL_DUMP="${arg#--protocol-dump=}" ;;
         -h | --help)
             usage
             exit 0
@@ -129,7 +143,23 @@ record() {
     fi
 }
 
-missing() { echo -e "${DIM}    - $1 (skipped: $2 not found)${NC}"; }
+missing() {
+    if [ "$STRICT" = true ]; then
+        echo -e "${RED}    ✗ $1 ($2 not found)${NC}"
+        FAILED+=("$1")
+    else
+        echo -e "${DIM}    - $1 (skipped: $2 not found)${NC}"
+    fi
+}
+
+runs() {
+    [ -n "$ONLY" ] && [ "$ONLY" != "$1" ] && return 1
+    local skipped
+    for skipped in "${SKIP[@]}"; do
+        [ "$skipped" = "$1" ] && return 1
+    done
+    return 0
+}
 
 skipped_quick() { echo -e "${DIM}    - $1 (skipped: --quick)${NC}"; }
 
@@ -172,7 +202,7 @@ run_clang_format() {
         missing "clang-format" "clang-format-$LLVM_VERSION ($LLVM_HINT)"
     fi
 }
-run_clang_format
+runs clang-format && run_clang_format
 
 run_taplo() {
     header "taplo ($FORMATTER_MODE)"
@@ -187,7 +217,7 @@ run_taplo() {
         missing "taplo" "taplo"
     fi
 }
-run_taplo
+runs taplo && run_taplo
 
 run_ruff_format() {
     header "ruff format ($FORMATTER_MODE)"
@@ -202,7 +232,7 @@ run_ruff_format() {
         missing "ruff format" "ruff"
     fi
 }
-run_ruff_format
+runs ruff-format && run_ruff_format
 
 run_ruff_check() {
     header "ruff check"
@@ -213,36 +243,41 @@ run_ruff_check() {
         missing "ruff check" "ruff"
     fi
 }
-run_ruff_check
+runs ruff-check && run_ruff_check
 
-header "install scripts"
-if "$SCRIPT_DIR/check_install_option_leaks.sh" "$PROJECT_ROOT"; then
-    record "install scripts" 0
-else
-    record "install scripts" 1
-fi
+run_install_scripts() {
+    header "install scripts"
+    if "$SCRIPT_DIR/check_install_option_leaks.sh" "$PROJECT_ROOT"; then
+        record "install scripts" 0
+    else
+        record "install scripts" 1
+    fi
+}
+runs install-scripts && run_install_scripts
 
-header "comment budget"
-COMMENT_BUDGET=(python3 "$SCRIPT_DIR/comment_budget.py" --root "$PROJECT_ROOT")
-"${COMMENT_BUDGET[@]}" check
-comment_rc=$?
-if [ $comment_rc -eq 0 ] && [ "$DRY_RUN" = false ]; then
-    "${COMMENT_BUDGET[@]}" ratchet
-    [ -n "$(git -C "$PROJECT_ROOT" config core.hooksPath)" ] ||
-        git -C "$PROJECT_ROOT" config core.hooksPath scripts/git-hooks
-fi
-record "comment budget" $comment_rc
+run_comment_budget() {
+    header "comment budget"
+    local comment_budget=(python3 "$SCRIPT_DIR/comment_budget.py" --root "$PROJECT_ROOT")
+    "${comment_budget[@]}" check
+    local comment_rc=$?
+    if [ $comment_rc -eq 0 ] && [ "$DRY_RUN" = false ]; then
+        "${comment_budget[@]}" ratchet
+        [ -n "$(git -C "$PROJECT_ROOT" config core.hooksPath)" ] ||
+            git -C "$PROJECT_ROOT" config core.hooksPath scripts/git-hooks
+    fi
+    record "comment budget" $comment_rc
+}
+runs comment-budget && run_comment_budget
 
 WEB_DIR="$PROJECT_ROOT/web"
 PROTOCOL_TS="$WEB_DIR/src/generated/protocol.ts"
-PROTOCOL_DUMP="$BUILD_DIR/remote_protocol_dump"
 have_web() { have node && [ -d "$WEB_DIR/node_modules" ]; }
 run_protocol_codegen_check() {
     header "protocol.ts ($FORMATTER_MODE)"
     if ! have_web; then
         missing "protocol.ts" "web/node_modules (run scripts/build_web.sh)"
     elif [ ! -x "$PROTOCOL_DUMP" ]; then
-        echo -e "${RED}    ✗ protocol.ts (no build/remote_protocol_dump; run scripts/build.sh)${NC}"
+        echo -e "${RED}    ✗ protocol.ts (no $PROTOCOL_DUMP; run scripts/build.sh)${NC}"
         FAILED+=("protocol.ts")
     else
         DUMP_JSON=$(mktemp)
@@ -264,7 +299,7 @@ run_protocol_codegen_check() {
         rm -f "$DUMP_JSON"
     fi
 }
-run_protocol_codegen_check
+runs protocol && run_protocol_codegen_check
 
 run_prettier() {
     header "prettier ($FORMATTER_MODE)"
@@ -281,7 +316,7 @@ run_prettier() {
         missing "prettier" "web/node_modules (run scripts/build_web.sh)"
     fi
 }
-run_prettier
+runs prettier && run_prettier
 
 refresh_compile_commands_after_renames() {
     if ! cmake -S "$PROJECT_ROOT" -B "$BUILD_DIR" >/dev/null; then
@@ -305,7 +340,7 @@ run_clang_tidy() {
         record "clang-tidy" $?
     fi
 }
-run_clang_tidy
+runs clang-tidy && run_clang_tidy
 
 run_mypy() {
     header "mypy"
@@ -318,7 +353,7 @@ run_mypy() {
         missing "mypy" "mypy"
     fi
 }
-run_mypy
+runs mypy && run_mypy
 
 run_svelte_check() {
     header "svelte-check"
@@ -331,7 +366,7 @@ run_svelte_check() {
         missing "svelte-check" "web/node_modules (run scripts/build_web.sh)"
     fi
 }
-run_svelte_check
+runs svelte-check && run_svelte_check
 
 echo "========================================"
 if [ ${#FAILED[@]} -eq 0 ]; then

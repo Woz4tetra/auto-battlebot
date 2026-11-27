@@ -9,7 +9,11 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from auto_battlebot.paths import REPO_ROOT
+
+pytestmark = pytest.mark.jetson
 
 REPO = REPO_ROOT
 SERVICE_DIR = REPO / "service"

@@ -56,6 +56,46 @@ Tests over 5 s carry `@pytest.mark.slow`, and `--fast` (the Stop hook) leaves th
 `test_rl_core.py`, and `test_sensing_model.py::test_measured_fraction_matches_tables`. The Stop
 hook's pytest set for a filter-and-RL change dropped from about 250 s to 17 s.
 
+## CI targets
+
+CI runs `verify` with `--target`; the dev box and the Stop hook never pass it and run every suite.
+
+```bash
+scripts/verify --fast --playback --target jetson   # Forgejo push job on the CI Jetson
+scripts/verify --fast --target x86                 # Forgejo push job on megamind
+scripts/verify --nightly --target jetson           # adds slow tests, real time, release and ASan builds
+scripts/verify --nightly --target x86              # adds slow tests, and gpu tests when the GPU is idle
+```
+
+| | `jetson` | `x86` |
+| --- | --- | --- |
+| Suites (`suites.TARGET_SUITES`) | `gtest`, `pytest` | `pytest`, `synthetic`, `firmware`, `web` |
+| pytest `-m` on push | `jetson and not slow and not gpu` | `not slow and not gpu` |
+| pytest `-m` nightly | `jetson` | none, or `not gpu` while another process holds the GPU |
+| Lint | `scripts/lint --dry-run --strict --only=protocol` after the gtest build, against `build-test/remote_protocol_dump` | `scripts/lint --dry-run --strict --skip=protocol`, plus `--quick` on push or `--skip=clang-tidy` nightly |
+| Nightly extras | `--realtime`, a release build of every target in `build/`, gtest under ASan in `build-asan/` | none |
+| Groups | one after another, so two builds never share the 16 GB box | in parallel |
+
+`--nightly` without `--target` exits 2. `--strict` makes a missing lint tool fail the step instead of
+skipping it. The `jetson` marker means "also run on the Jetson"; megamind runs those tests too. The
+`gpu` marker is for tests that need a CUDA device beyond a smoke check. The GPU check is
+`gpu_queue.gpu_busy_processes`, so a training run defers the gpu tests rather than sharing the card.
+
+`--playback` configures `build/` as a release build when `build/Makefile` is missing, so a fresh CI
+checkout can replay.
+
+### CI data on the Jetson
+
+- `python -m auto_battlebot.verify.ci_clips write` hashes every clip recording and every source the
+  Jetson's engines are built from into `auto_battlebot/verify/ci_clips.json`. `check` compares the
+  files under `data/` against it, reusing hashes from `~/.cache/auto_battlebot/ci_clips_hashes.json`
+  while size and mtime match. `sync <host>` rsyncs each file into `/home/ci/ci-data/` as `ci`.
+- `ci/build_engines.sh` (`auto_battlebot.verify.ci_engines build`) lists the `aarch64_sm87` engine
+  candidates the clips' profiles name, finds the DeepLab checkpoint or YOLO ONNX each comes from,
+  and builds it into `~/ci-data/engines/<source sha256 prefix>_trt<version>/` on a miss. The name
+  the config expects becomes a symlink to the cached engine. `ci_engines list --tag aarch64_sm87`
+  prints the mapping.
+
 ### One suite run per change
 
 `venv/bin/python -m auto_battlebot.verify.hooks suites --session <id>` runs the fast suites on the

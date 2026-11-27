@@ -9,6 +9,8 @@ import pytest
 
 from auto_battlebot.paths import REPO_ROOT
 
+pytestmark = pytest.mark.jetson
+
 
 @pytest.fixture(scope="module")
 def converter(load_training):
