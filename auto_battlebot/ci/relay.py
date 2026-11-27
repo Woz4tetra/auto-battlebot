@@ -50,7 +50,7 @@ class Settings:
 
 
 def github_context(forgejo_context: str) -> str:
-    """`push / jetson (push)` becomes `forgejo/push/jetson`."""
+    """`push / verify jetson (push)` becomes `forgejo/push/verify-jetson`."""
     parts = [part.strip() for part in EVENT_SUFFIX.sub("", forgejo_context).split("/")]
     return "forgejo/" + "/".join(part.replace(" ", "-") for part in parts if part)
 

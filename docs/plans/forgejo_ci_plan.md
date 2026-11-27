@@ -511,8 +511,12 @@ with label `x86:host`, with these differences:
 - Its own `~ci/venv` from `scripts/setup_python.sh`, x86 torch and TensorRT included, and its own
   ccache.
 
-**Merge gate.** The relay posts one GitHub status per job, `forgejo/push/jetson` and
-`forgejo/push/x86`, and the `main` ruleset requires both.
+**Merge gate.** The relay posts one GitHub status per job, `forgejo/push/verify-jetson` and
+`forgejo/push/verify-x86`, and the `main` ruleset requires both. Forgejo expands each reusable
+workflow call into its own job keyed `verify`, and names a repeat `verify-1` in whichever order it
+expands them, so `verify.yml` names the job `verify ${{ inputs.runs-on }}` to keep the status
+name tied to the box. The caller jobs `jetson` and `x86` are placeholders that wait on the
+expanded job and run nothing.
 
 **Failures this split resolves**, from push run 3 on compute-1 (2026-11-27):
 

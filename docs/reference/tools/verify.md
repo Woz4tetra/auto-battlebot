@@ -94,7 +94,8 @@ checkout can replay.
   candidates the clips' profiles name, finds the DeepLab checkpoint or YOLO ONNX each comes from,
   and builds it into `~/ci-data/engines/<source sha256 prefix>_trt<version>/` on a miss. The name
   the config expects becomes a symlink to the cached engine. `ci_engines list --tag aarch64_sm87`
-  prints the mapping.
+  prints the mapping. Builds share TensorRT tactic timings through
+  `~/ci-data/engines/timing_<trt version>.cache`, which outlives the job checkout.
 
 ### One suite run per change
 

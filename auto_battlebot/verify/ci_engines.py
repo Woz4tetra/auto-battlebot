@@ -96,13 +96,20 @@ def cache_dir(target: EngineTarget, cache: Path, trt: str) -> Path:
     return cache / f"{sha256_of(target.sources)[:16]}_{trt}"
 
 
-def build_command(target: EngineTarget, out_dir: Path, root: Path) -> list[str]:
+def timing_cache(cache: Path, trt: str) -> Path:
+    """Tactic timings shared by every build on this box, one file per TensorRT version."""
+    return cache / f"timing_{trt}.cache"
+
+
+def build_command(target: EngineTarget, out_dir: Path, root: Path, timing: Path) -> list[str]:
     return [
         sys.executable,
         str(root / target.cli),
         str(target.sources[0]),
         "-o",
         str(out_dir / f"{target.stem}.engine"),
+        "--timing-cache",
+        str(timing),
     ]
 
 
@@ -128,7 +135,8 @@ def build(cache: Path, root: Path = REPO_ROOT) -> int:
         else:
             print(f"miss {target.engine.name}: building with {trt}", flush=True)
             out_dir.mkdir(parents=True, exist_ok=True)
-            code = subprocess.run(build_command(target, out_dir, root), cwd=root).returncode
+            command = build_command(target, out_dir, root, timing_cache(cache, trt))
+            code = subprocess.run(command, cwd=root).returncode
             if code != 0 or not cached.exists():
                 print(f"build failed for {target.engine.name}", flush=True)
                 return 1

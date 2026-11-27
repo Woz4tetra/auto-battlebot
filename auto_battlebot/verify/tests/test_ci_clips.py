@@ -154,6 +154,8 @@ def test_cache_miss_builds_into_the_cache_then_links(
     monkeypatch.setattr(ci_engines.subprocess, "run", fake_build)
     assert ci_engines.build(tmp_path / "cache", tmp_path) == 0
     assert len(commands) == 1 and commands[0][1].endswith(ci_engines.YOLO_CLI)
+    timing = commands[0][commands[0].index("--timing-cache") + 1]
+    assert timing == str(tmp_path / "cache" / "timing_trt10.3.cache")
     assert engine.engine.is_symlink()
     assert engine.engine.resolve().parent.name.endswith("_trt10.3")
 
