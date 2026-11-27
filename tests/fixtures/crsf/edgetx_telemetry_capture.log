@@ -1,0 +1,155 @@
+addr=0xEA attitude ea 08 1e 01 f5 f7 24 02 62 87  Ptch=+0.0501 rad (+2.9 deg)  Roll=-0.2268 rad (-13.0 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a5 00 01 00 00 00 00 06  RxBt=16.5 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ea f7 2e 02 62 62  Ptch=+0.0490 rad (+2.8 deg)  Roll=-0.2258 rad (-12.9 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA attitude ea 08 1e 01 ea f7 19 02 62 6a  Ptch=+0.0490 rad (+2.8 deg)  Roll=-0.2279 rad (-13.1 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a5 00 01 00 00 00 00 06  RxBt=16.5 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ea f7 0e 02 62 50  Ptch=+0.0490 rad (+2.8 deg)  Roll=-0.2290 rad (-13.1 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a5 00 01 00 00 00 00 06  RxBt=16.5 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ea f7 24 02 62 57  Ptch=+0.0490 rad (+2.8 deg)  Roll=-0.2268 rad (-13.0 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a5 00 01 00 00 00 00 06  RxBt=16.5 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ea f7 0e 02 62 50  Ptch=+0.0490 rad (+2.8 deg)  Roll=-0.2290 rad (-13.1 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a5 00 01 00 00 00 00 06  RxBt=16.5 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ea f6 f8 02 62 32  Ptch=+0.0490 rad (+2.8 deg)  Roll=-0.2312 rad (-13.2 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a5 00 01 00 00 00 00 06  RxBt=16.5 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ea f7 19 02 62 6a  Ptch=+0.0490 rad (+2.8 deg)  Roll=-0.2279 rad (-13.1 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a5 00 01 00 00 00 00 06  RxBt=16.5 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ea f6 e2 02 6d 63  Ptch=+0.0490 rad (+2.8 deg)  Roll=-0.2334 rad (-13.4 deg)  Yaw=+0.0621 rad (+3.6 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 02 00 00 00 00 9d  RxBt=16.4 V  Curr=0.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ea f7 03 02 62 46  Ptch=+0.0490 rad (+2.8 deg)  Roll=-0.2301 rad (-13.2 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 05 00 00 00 00 35  RxBt=16.4 V  Curr=0.5 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ea f6 d7 02 6d b8  Ptch=+0.0490 rad (+2.8 deg)  Roll=-0.2345 rad (-13.4 deg)  Yaw=+0.0621 rad (+3.6 deg)
+addr=0xEA battery  ea 0a 08 00 a3 00 0a 00 00 00 00 40  RxBt=16.3 V  Curr=1.0 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ea f6 f8 02 62 32  Ptch=+0.0490 rad (+2.8 deg)  Roll=-0.2312 rad (-13.2 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a0 00 16 00 00 00 00 f6  RxBt=16.0 V  Curr=2.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 df f7 03 02 62 a7  Ptch=+0.0479 rad (+2.7 deg)  Roll=-0.2301 rad (-13.2 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a1 00 0f 00 00 00 00 ac  RxBt=16.1 V  Curr=1.5 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 df f6 f8 02 62 d3  Ptch=+0.0479 rad (+2.7 deg)  Roll=-0.2312 rad (-13.2 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 df f6 f8 02 62 d3  Ptch=+0.0479 rad (+2.7 deg)  Roll=-0.2312 rad (-13.2 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 00 00 00 00 00 24  RxBt=16.4 V  Curr=0.0 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 df f6 ed 02 62 3a  Ptch=+0.0479 rad (+2.7 deg)  Roll=-0.2323 rad (-13.3 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 d5 f6 f8 02 62 f1  Ptch=+0.0469 rad (+2.7 deg)  Roll=-0.2312 rad (-13.2 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 02 00 00 00 00 9d  RxBt=16.4 V  Curr=0.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 d5 f6 e2 02 62 dd  Ptch=+0.0469 rad (+2.7 deg)  Roll=-0.2334 rad (-13.4 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a3 00 05 00 00 00 00 73  RxBt=16.3 V  Curr=0.5 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 d5 f6 ed 02 62 18  Ptch=+0.0469 rad (+2.7 deg)  Roll=-0.2323 rad (-13.3 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a2 00 0b 00 00 00 00 62  RxBt=16.2 V  Curr=1.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ca f6 e2 02 62 0d  Ptch=+0.0458 rad (+2.6 deg)  Roll=-0.2334 rad (-13.4 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a1 00 13 00 00 00 00 73  RxBt=16.1 V  Curr=1.9 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ca f6 ed 02 62 c8  Ptch=+0.0458 rad (+2.6 deg)  Roll=-0.2323 rad (-13.3 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 00 00 00 00 00 24  RxBt=16.4 V  Curr=0.0 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ca f7 19 02 62 79  Ptch=+0.0458 rad (+2.6 deg)  Roll=-0.2279 rad (-13.1 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ca f7 2e 02 62 71  Ptch=+0.0458 rad (+2.6 deg)  Roll=-0.2258 rad (-12.9 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 02 00 00 00 00 9d  RxBt=16.4 V  Curr=0.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ca f7 24 02 62 44  Ptch=+0.0458 rad (+2.6 deg)  Roll=-0.2268 rad (-13.0 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a2 00 0f 00 00 00 00 c5  RxBt=16.2 V  Curr=1.5 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ca f7 19 02 62 79  Ptch=+0.0458 rad (+2.6 deg)  Roll=-0.2279 rad (-13.1 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a1 00 0e 00 00 00 00 1a  RxBt=16.1 V  Curr=1.4 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 bf f7 03 02 62 92  Ptch=+0.0447 rad (+2.6 deg)  Roll=-0.2301 rad (-13.2 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 02 00 00 00 00 9d  RxBt=16.4 V  Curr=0.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 bf f7 19 02 62 be  Ptch=+0.0447 rad (+2.6 deg)  Roll=-0.2279 rad (-13.1 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 bf f7 19 02 62 be  Ptch=+0.0447 rad (+2.6 deg)  Roll=-0.2279 rad (-13.1 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 02 00 00 00 00 9d  RxBt=16.4 V  Curr=0.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ca f7 2e 02 62 71  Ptch=+0.0458 rad (+2.6 deg)  Roll=-0.2258 rad (-12.9 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a3 00 07 00 00 00 00 ca  RxBt=16.3 V  Curr=0.7 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ca f7 2e 02 62 71  Ptch=+0.0458 rad (+2.6 deg)  Roll=-0.2258 rad (-12.9 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a2 00 0b 00 00 00 00 62  RxBt=16.2 V  Curr=1.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ca f7 2e 02 62 71  Ptch=+0.0458 rad (+2.6 deg)  Roll=-0.2258 rad (-12.9 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ca f7 2e 02 62 71  Ptch=+0.0458 rad (+2.6 deg)  Roll=-0.2258 rad (-12.9 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a3 00 06 00 00 00 00 7c  RxBt=16.3 V  Curr=0.6 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ca f7 24 02 62 44  Ptch=+0.0458 rad (+2.6 deg)  Roll=-0.2268 rad (-13.0 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 02 00 00 00 00 9d  RxBt=16.4 V  Curr=0.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 bf f7 2e 02 62 b6  Ptch=+0.0447 rad (+2.6 deg)  Roll=-0.2258 rad (-12.9 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 02 00 00 00 00 9d  RxBt=16.4 V  Curr=0.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 bf f7 19 02 62 be  Ptch=+0.0447 rad (+2.6 deg)  Roll=-0.2279 rad (-13.1 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a3 00 04 00 00 00 00 c5  RxBt=16.3 V  Curr=0.4 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 bf f7 24 02 62 83  Ptch=+0.0447 rad (+2.6 deg)  Roll=-0.2268 rad (-13.0 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 02 00 00 00 00 9d  RxBt=16.4 V  Curr=0.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 bf f7 2e 02 62 b6  Ptch=+0.0447 rad (+2.6 deg)  Roll=-0.2258 rad (-12.9 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 bf f7 39 02 62 8c  Ptch=+0.0447 rad (+2.6 deg)  Roll=-0.2247 rad (-12.9 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 02 00 00 00 00 9d  RxBt=16.4 V  Curr=0.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 b4 f7 2e 02 62 22  Ptch=+0.0436 rad (+2.5 deg)  Roll=-0.2258 rad (-12.9 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 03 00 00 00 00 2b  RxBt=16.4 V  Curr=0.3 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 b4 f7 2e 02 62 22  Ptch=+0.0436 rad (+2.5 deg)  Roll=-0.2258 rad (-12.9 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 03 00 00 00 00 2b  RxBt=16.4 V  Curr=0.3 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 b4 f7 2e 02 62 22  Ptch=+0.0436 rad (+2.5 deg)  Roll=-0.2258 rad (-12.9 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 bf f7 2e 02 62 b6  Ptch=+0.0447 rad (+2.6 deg)  Roll=-0.2258 rad (-12.9 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 b4 f6 8b 02 62 6d  Ptch=+0.0436 rad (+2.5 deg)  Roll=-0.2421 rad (-13.9 deg)  Yaw=+0.0610 rad (+3.5 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 a9 f5 4f 01 93 58  Ptch=+0.0425 rad (+2.4 deg)  Roll=-0.2737 rad (-15.7 deg)  Yaw=+0.0403 rad (+2.3 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 88 f4 8a fc 98 09  Ptch=+0.0392 rad (+2.2 deg)  Roll=-0.2934 rad (-16.8 deg)  Yaw=-0.0872 rad (-5.0 deg)
+addr=0xEA battery  ea 0a 08 00 a2 00 2a 00 00 00 00 c7  RxBt=16.2 V  Curr=4.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 67 f4 28 f8 14 7e  Ptch=+0.0359 rad (+2.1 deg)  Roll=-0.3032 rad (-17.4 deg)  Yaw=-0.2028 rad (-11.6 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 15 00 00 00 00 d6  RxBt=16.4 V  Curr=2.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 88 f3 79 fc fa 96  Ptch=+0.0392 rad (+2.2 deg)  Roll=-0.3207 rad (-18.4 deg)  Yaw=-0.0774 rad (-4.4 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 bf f2 e1 05 b5 1e  Ptch=+0.0447 rad (+2.6 deg)  Roll=-0.3359 rad (-19.2 deg)  Yaw=+0.1461 rad (+8.4 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ca f2 53 0a 2f 6b  Ptch=+0.0458 rad (+2.6 deg)  Roll=-0.3501 rad (-20.1 deg)  Yaw=+0.2607 rad (+14.9 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 bf f2 9f 0b 1f 68  Ptch=+0.0447 rad (+2.6 deg)  Roll=-0.3425 rad (-19.6 deg)  Yaw=+0.2847 rad (+16.3 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 bf f2 e1 08 bc 9d  Ptch=+0.0447 rad (+2.6 deg)  Roll=-0.3359 rad (-19.2 deg)  Yaw=+0.2236 rad (+12.8 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 29 00 00 00 00 1a  RxBt=16.4 V  Curr=4.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 88 f2 aa 00 b9 64  Ptch=+0.0392 rad (+2.2 deg)  Roll=-0.3414 rad (-19.6 deg)  Yaw=+0.0185 rad (+1.1 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 52 f3 0c f9 04 89  Ptch=+0.0338 rad (+1.9 deg)  Roll=-0.3316 rad (-19.0 deg)  Yaw=-0.1788 rad (-10.2 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 47 f3 d1 f5 9b 6c  Ptch=+0.0327 rad (+1.9 deg)  Roll=-0.3119 rad (-17.9 deg)  Yaw=-0.2661 rad (-15.2 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 02 00 00 00 00 9d  RxBt=16.4 V  Curr=0.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 67 f2 d6 fa 76 a4  Ptch=+0.0359 rad (+2.1 deg)  Roll=-0.3370 rad (-19.3 deg)  Yaw=-0.1418 rad (-8.1 deg)
+addr=0xEA battery  ea 0a 08 00 a3 00 05 00 00 00 00 73  RxBt=16.3 V  Curr=0.5 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 93 f2 69 01 72 15  Ptch=+0.0403 rad (+2.3 deg)  Roll=-0.3479 rad (-19.9 deg)  Yaw=+0.0370 rad (+2.1 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 b4 f2 ec 08 18 aa  Ptch=+0.0436 rad (+2.5 deg)  Roll=-0.3348 rad (-19.2 deg)  Yaw=+0.2072 rad (+11.9 deg)
+addr=0xEA battery  ea 0a 08 00 a3 00 06 00 00 00 00 7c  RxBt=16.3 V  Curr=0.6 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 d5 f3 43 0e 9d ad  Ptch=+0.0469 rad (+2.7 deg)  Roll=-0.3261 rad (-18.7 deg)  Yaw=+0.3741 rad (+21.4 deg)
+addr=0xEA attitude ea 08 1e 01 f5 f3 d1 1a cd ef  Ptch=+0.0501 rad (+2.9 deg)  Roll=-0.3119 rad (-17.9 deg)  Yaw=+0.6861 rad (+39.3 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 02 00 00 00 00 9d  RxBt=16.4 V  Curr=0.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 ea f4 49 22 37 89  Ptch=+0.0490 rad (+2.8 deg)  Roll=-0.2999 rad (-17.2 deg)  Yaw=+0.8759 rad (+50.2 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 02 00 00 00 00 9d  RxBt=16.4 V  Curr=0.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 bf f2 94 29 6a 3d  Ptch=+0.0447 rad (+2.6 deg)  Roll=-0.3436 rad (-19.7 deg)  Yaw=+1.0602 rad (+60.7 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 02 00 00 00 00 9d  RxBt=16.4 V  Curr=0.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 88 f1 a4 30 b4 ea  Ptch=+0.0392 rad (+2.2 deg)  Roll=-0.3676 rad (-21.1 deg)  Yaw=+1.2468 rad (+71.4 deg)
+addr=0xEA battery  ea 0a 08 00 a3 00 02 00 00 00 00 db  RxBt=16.3 V  Curr=0.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 52 f1 17 35 9a d9  Ptch=+0.0338 rad (+1.9 deg)  Roll=-0.3817 rad (-21.9 deg)  Yaw=+1.3722 rad (+78.6 deg)
+addr=0xEA battery  ea 0a 08 00 a2 00 06 00 00 00 00 e8  RxBt=16.2 V  Curr=0.6 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 72 f1 17 32 52 a0  Ptch=+0.0370 rad (+2.1 deg)  Roll=-0.3817 rad (-21.9 deg)  Yaw=+1.2882 rad (+73.8 deg)
+addr=0xEA battery  ea 0a 08 00 a3 00 10 00 00 00 00 81  RxBt=16.3 V  Curr=1.6 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 b4 ee ea 28 39 f6  Ptch=+0.0436 rad (+2.5 deg)  Roll=-0.4374 rad (-25.1 deg)  Yaw=+1.0297 rad (+59.0 deg)
+addr=0xEA battery  ea 0a 08 00 a1 00 02 00 00 00 00 26  RxBt=16.1 V  Curr=0.2 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 df ec 25 1c e3 eb  Ptch=+0.0479 rad (+2.7 deg)  Roll=-0.5083 rad (-29.1 deg)  Yaw=+0.7395 rad (+42.4 deg)
+addr=0xEA battery  ea 0a 08 00 a3 00 9e 00 00 00 00 48  RxBt=16.3 V  Curr=15.8 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 df ed 15 11 2c f5  Ptch=+0.0479 rad (+2.7 deg)  Roll=-0.4843 rad (-27.7 deg)  Yaw=+0.4396 rad (+25.2 deg)
+addr=0xEA battery  ea 0a 08 00 a3 00 01 00 00 00 00 d4  RxBt=16.3 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 b4 ee 7d 06 d1 2c  Ptch=+0.0436 rad (+2.5 deg)  Roll=-0.4483 rad (-25.7 deg)  Yaw=+0.1745 rad (+10.0 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 7d ed 0a 00 36 70  Ptch=+0.0381 rad (+2.2 deg)  Roll=-0.4854 rad (-27.8 deg)  Yaw=+0.0054 rad (+0.3 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 a9 ee 9e 01 f5 e0  Ptch=+0.0425 rad (+2.4 deg)  Roll=-0.4450 rad (-25.5 deg)  Yaw=+0.0501 rad (+2.9 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 93 ef 8e ff 47 7b  Ptch=+0.0403 rad (+2.3 deg)  Roll=-0.4210 rad (-24.1 deg)  Yaw=-0.0185 rad (-1.1 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 93 ef fb ff 3c 2c  Ptch=+0.0403 rad (+2.3 deg)  Roll=-0.4101 rad (-23.5 deg)  Yaw=-0.0196 rad (-1.1 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 a9 f0 52 00 82 5f  Ptch=+0.0425 rad (+2.4 deg)  Roll=-0.4014 rad (-23.0 deg)  Yaw=+0.0130 rad (+0.7 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 a9 f0 32 00 98 0d  Ptch=+0.0425 rad (+2.4 deg)  Roll=-0.4046 rad (-23.2 deg)  Yaw=+0.0152 rad (+0.9 deg)
+addr=0xEA battery  ea 0a 08 00 a4 00 01 00 00 00 00 92  RxBt=16.4 V  Curr=0.1 A  Capa=0 mAh  Bat%=0
+addr=0xEA attitude ea 08 1e 01 a9 ef da 00 98 82  Ptch=+0.0425 rad (+2.4 deg)  Roll=-0.4134 rad (-23.7 deg)  Yaw=+0.0152 rad (+0.9 deg)
+
+frame counts:
+  0x08 battery          73
+  0x14 link_statistics  75
+  0x1E attitude         75
+  0x32 ?                9
+  0x3A ?                31

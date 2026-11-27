@@ -13,6 +13,8 @@
 
 namespace {
 
+constexpr size_t kHeaderBytes = 64 * 1024;
+
 struct Encoder {
     NvJPEGEncoder *jpeg = nullptr;
     std::unique_ptr<NvBuffer> buffer;
@@ -35,7 +37,7 @@ struct Encoder {
         }
         width = w;
         height = h;
-        out.resize(static_cast<size_t>(w) * static_cast<size_t>(h) * 3 / 2);
+        out.resize(static_cast<size_t>(w) * static_cast<size_t>(h) * 3 / 2 + kHeaderBytes);
         return true;
     }
 };

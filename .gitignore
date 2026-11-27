@@ -48,6 +48,7 @@ lib/
 
 # Logs and temporary files
 *.log
+!tests/fixtures/crsf/*.log
 *.tmp
 *.temp
 MUJOCO_LOG.TXT

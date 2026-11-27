@@ -50,6 +50,19 @@ TEST(JpegEncoderTest, OpenCvJpegStillWorksAlongsideTheChosenEncoder) {
 #endif
 }
 
+TEST(JpegEncoderTest, FramesSmallerThanAJpegHeaderRoundTrip) {
+    auto encoder = make_jpeg_encoder();
+    for (const int side : {8, 16, 32}) {
+        const cv::Mat input = gradient(side, side);
+        std::vector<std::byte> jpeg;
+        ASSERT_TRUE(encoder->encode(input, 95, jpeg)) << encoder->name() << " " << side;
+        std::vector<uint8_t> bytes(reinterpret_cast<const uint8_t *>(jpeg.data()),
+                                   reinterpret_cast<const uint8_t *>(jpeg.data() + jpeg.size()));
+        EXPECT_EQ(cv::imdecode(bytes, cv::IMREAD_COLOR).size(), input.size())
+            << encoder->name() << " " << side;
+    }
+}
+
 TEST(JpegEncoderTest, EmptyImageFails) {
     auto encoder = make_jpeg_encoder();
     std::vector<std::byte> jpeg;
