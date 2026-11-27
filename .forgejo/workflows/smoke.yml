@@ -4,7 +4,18 @@ jobs:
   smoke:
     runs-on: jetson
     steps:
-      - uses: actions/checkout@v4
+      - name: checkout
+        env:
+          TOKEN: ${{ github.token }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          echo "server_url=$SERVER"
+          git -c init.defaultBranch=main init -q .
+          git -c http.extraHeader="Authorization: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)" \
+            fetch -q --depth=1 "$SERVER/$REPO.git" "$SHA"
+          git checkout -q --detach FETCH_HEAD
       - run: whoami && uname -m && head -1 /etc/nv_tegra_release
       - run: git log -1 --oneline
       - run: command -v nvcc ccache cmake node npm taplo || true
