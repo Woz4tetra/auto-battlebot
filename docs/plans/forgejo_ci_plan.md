@@ -233,19 +233,22 @@ Done when a push runs `--fast` and `--playback` on the Jetson and the commit tur
    failing at once; `curl -m 5` exits 28.
    DNS still works: `ci` asks systemd-resolved on 127.0.0.53, and resolved forwards to MagicDNS as
    its own user.
-6. Tag the box `tag:ci` in Tailscale so a job with root on the box still reaches only Forgejo. In
-   the tailnet policy, replace a `"src": ["*"]` allow-all rule with `autogroup:member`, which
-   excludes tagged devices, then add:
+6. Tag the box `tag:ci` in Tailscale so a job with root on the box still reaches only Forgejo.
+   Done 2026-11-27 in the admin console's visual policy editor, which writes grants:
    ```json
    "tagOwners": { "tag:ci": ["autogroup:admin"] },
    "hosts": { "genericservername": "100.97.149.90" },
-   "acls": [
-     { "action": "accept", "src": ["autogroup:member"], "dst": ["*:*"] },
-     { "action": "accept", "src": ["tag:ci"], "dst": ["genericservername:443"] }
+   "grants": [
+     { "src": ["autogroup:member"], "dst": ["*"], "ip": ["*"] },
+     { "src": ["tag:ci"], "dst": ["genericservername"], "ip": ["tcp:443"] }
    ]
    ```
-   Then add `tag:ci` to the box under Machines, Edit ACL tags, in the admin console. Members can
-   still SSH in.
+   - Definitions, Tags: `ci`. Definitions, Hosts: `genericservername`.
+   - The allow-all rule's source went from `*` to `autogroup:member`, which excludes tagged
+     devices. Members can still SSH in.
+   - Machines, Edit ACL tags: `tag:ci` on compute-1.
+   - Checked from compute-1 as `ben`: Forgejo returns 200; megamind:22 and
+     genericservername:22 time out.
 
 ### Runner
 
