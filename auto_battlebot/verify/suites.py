@@ -400,6 +400,20 @@ def run(
     return results
 
 
+GTEST_FAILED = "[  FAILED  ] "
+
+
+def failed_gtest_names(text: list[str]) -> list[str]:
+    """Each failing gtest case once, in the order gtest reported it."""
+    names: dict[str, None] = {}
+    for line in text:
+        if line.startswith(GTEST_FAILED) and not line[len(GTEST_FAILED) :][:1].isdigit():
+            names[line[len(GTEST_FAILED) :].split(" ", 1)[0]] = None
+    return list(names)
+
+
 def tail(path: Path, lines: int = FAILURE_TAIL_LINES) -> str:
+    """A failing step's last lines, led by the gtest cases that failed, which the tail can miss."""
     text = path.read_text(errors="replace").splitlines()
-    return "\n".join(text[-lines:])
+    failed = [f"failed: {name}" for name in failed_gtest_names(text)]
+    return "\n".join([*failed, *text[-lines:]])

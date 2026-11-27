@@ -140,3 +140,26 @@ def test_gtest_runs_with_a_private_tmpdir_inside_its_build(tmp_path: Path) -> No
     )
     assert run.env["TMPDIR"] == str(tmp_path / "build-test" / "tmp")
     assert (tmp_path / "build-test" / "tmp").is_dir()
+
+
+def test_tail_names_every_failed_gtest_case_even_far_above_the_tail(tmp_path: Path) -> None:
+    log = tmp_path / "gtest_run.log"
+    lines = [
+        "[ RUN      ] A.one",
+        "[  FAILED  ] A.one (3 ms)",
+        *[f"noise {i}" for i in range(200)],
+        "[  FAILED  ] B.two (1 ms)",
+        "[  FAILED  ] 2 tests, listed below:",
+        "[  FAILED  ] A.one",
+        "[  FAILED  ] B.two",
+    ]
+    log.write_text("\n".join(lines))
+    out = suites.tail(log, lines=3).splitlines()
+    assert out[:2] == ["failed: A.one", "failed: B.two"]
+    assert out[2:] == lines[-3:]
+
+
+def test_tail_of_a_passing_style_log_has_no_failed_lines(tmp_path: Path) -> None:
+    log = tmp_path / "x.log"
+    log.write_text("a\nb\nc")
+    assert suites.tail(log, lines=2) == "b\nc"
