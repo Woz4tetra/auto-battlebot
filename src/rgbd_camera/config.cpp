@@ -57,8 +57,9 @@ void reserve_camera_input_paths(const RgbdCameraConfiguration &config) {
     McapRecorder::reserve_input_path(path);
 }
 
-std::shared_ptr<RgbdCameraInterface> make_rgbd_camera(const RgbdCameraConfiguration &config,
-                                                      std::shared_ptr<McapRecorder> mcap_recorder) {
+std::shared_ptr<RgbdCameraInterface> make_rgbd_camera(
+    const RgbdCameraConfiguration &config,
+    [[maybe_unused]] std::shared_ptr<McapRecorder> mcap_recorder) {
     spdlog::info("Selected {} for RgbdCamera", config.type);
     if (config.type == "NoopRgbdCamera") {
         return std::make_shared<NoopRgbdCamera>();
