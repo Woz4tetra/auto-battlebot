@@ -1,0 +1,7 @@
+name: push
+on: push
+jobs:
+  verify:
+    uses: ./.forgejo/workflows/verify.yml
+    with:
+      args: --fast
