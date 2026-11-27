@@ -1,0 +1,15 @@
+# Camera profiles, written by the dashboard. DEFAULT is built in and not listed.
+# Values are ZED SDK units: exposure in microseconds, analog gain in milli-dB.
+
+[[profile]]
+name = "sysid_home"
+auto_exposure = false
+exposure_us = 2928
+analog_gain_mdb = 15500
+digital_gain = 5
+auto_white_balance = true
+white_balance_k = 2800
+saturation = 4
+gamma = 9
+sharpness = 8
+anti_banding = "OFF"

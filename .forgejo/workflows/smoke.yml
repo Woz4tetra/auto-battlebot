@@ -1,0 +1,10 @@
+name: smoke
+on: push
+jobs:
+  smoke:
+    runs-on: jetson
+    steps:
+      - uses: actions/checkout@v4
+      - run: whoami && uname -m && head -1 /etc/nv_tegra_release
+      - run: git log -1 --oneline
+      - run: command -v nvcc ccache cmake node npm taplo || true
