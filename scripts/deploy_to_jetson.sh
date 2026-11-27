@@ -112,6 +112,17 @@ stamp_build_version() {
     echo "Stamping build version: ${GIT_VERSION}"
     echo "$GIT_VERSION" > "$PROJECT_ROOT/.build_version"
 }
+warn_on_ci_status() {
+    local python="$PROJECT_ROOT/venv/bin/python"
+    [ -x "$python" ] || python=python3
+    local out
+    if ! out=$(cd "$PROJECT_ROOT" &&
+        timeout 15 "$python" -m auto_battlebot.ci.status --timeout 5 --root "$PROJECT_ROOT" HEAD 2>&1); then
+        echo "WARNING: deploying a commit without green CI: ${out//$'\n'/; }"
+    fi
+}
+
+warn_on_ci_status
 stamp_build_version
 
 DEPLOY_IGNORE="$PROJECT_ROOT/.deployignore"

@@ -106,6 +106,9 @@ Wait for the verdict, then edit, then spawn a new verifier for the new hash. The
 every command in the foreground; a PreToolUse hook (`hooks bash-guard`) blocks background and
 detached commands for it.
 
+After a push the user asked for, run `python -m auto_battlebot.ci.status --wait HEAD` and report
+the result with the run URL. A red run reopens the task. Push only when asked.
+
 ## Docs layout
 
 `docs/README.md` indexes every folder. A new doc goes in the first folder that fits:
