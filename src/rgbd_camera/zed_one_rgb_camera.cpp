@@ -32,9 +32,6 @@ constexpr auto kGetWaitTimeout = std::chrono::milliseconds(100);
 constexpr const char *kVideoTopic = "/camera/video";
 }  // namespace
 
-#define AB_ZED_HAS_ANTIBANDING \
-    (ZED_SDK_MAJOR_VERSION > 5 || (ZED_SDK_MAJOR_VERSION == 5 && ZED_SDK_MINOR_VERSION >= 5))
-
 ZedOneRgbCamera::ZedOneRgbCamera(const ZedOneRgbCameraConfiguration &config,
                                  std::shared_ptr<McapRecorder> mcap_recorder,
                                  std::unique_ptr<ZedOneDevice> device,

@@ -266,6 +266,10 @@ TEST(ZedOneFakeDeviceTest, EachRealWriteIsPrecededByAnAdjacentValueExceptTheOnOf
 }
 
 TEST(ZedOneFakeDeviceTest, AntiBandingIsWrittenWhenTheSdkHasTheControl) {
+#if !AB_ZED_HAS_ANTIBANDING
+    GTEST_SKIP() << "ZED SDK " << ZED_SDK_MAJOR_VERSION << "." << ZED_SDK_MINOR_VERSION
+                 << " has no AE_ANTIBANDING control";
+#else
     auto state = std::make_shared<OneState>();
     auto camera = make_camera(state);
     ASSERT_TRUE(camera->initialize());
@@ -274,6 +278,7 @@ TEST(ZedOneFakeDeviceTest, AntiBandingIsWrittenWhenTheSdkHasTheControl) {
     camera->request_camera_settings(settings);
     EXPECT_TRUE(wait_until(
         [&] { return state->effective_value(sl::VIDEO_SETTINGS::AE_ANTIBANDING) == 2; }));
+#endif
 }
 
 TEST(ZedOneFakeDeviceTest, FramesAreBgrCopiesWithZeroDistortionAndMatchingHeaders) {

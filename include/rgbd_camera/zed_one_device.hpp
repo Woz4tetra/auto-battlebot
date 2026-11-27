@@ -5,6 +5,9 @@
 #include <optional>
 #include <sl/CameraOne.hpp>
 
+#define AB_ZED_HAS_ANTIBANDING \
+    (ZED_SDK_MAJOR_VERSION > 5 || (ZED_SDK_MAJOR_VERSION == 5 && ZED_SDK_MINOR_VERSION >= 5))
+
 namespace auto_battlebot {
 
 class ZedOneDevice {
