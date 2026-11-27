@@ -252,16 +252,18 @@ Done when a push runs `--fast` and `--playback` on the Jetson and the commit tur
 
 ### Runner
 
+Runner v13 with Forgejo 17 drops `forgejo-runner register`. Site administration, Actions,
+Runners, Create new runner shows a UUID and a 40-character token once, and both go into
+`config.yml`. Passing that token to `register` fails with "runner registration token not found".
+
 ```bash
 sudo -u ci -i
+cd ~/runner
 curl -fLO https://code.forgejo.org/forgejo/runner/releases/download/v13.2.2/forgejo-runner-13.2.2-linux-arm64
 sha256sum forgejo-runner-13.2.2-linux-arm64   # compare with the release page
 install -m 755 forgejo-runner-13.2.2-linux-arm64 ~/bin/forgejo-runner
-forgejo-runner generate-config > ~/runner/config.yml
-forgejo-runner register --no-interactive \
-  --instance https://genericservername.<tailnet>.ts.net/forgejo/ \
-  --token <token from Site administration > Actions > Runners> \
-  --name ci-orin-nx --labels jetson:host
+~/bin/forgejo-runner generate-config > ~/runner/config.yml
+chmod 600 ~/runner/config.yml
 ```
 
 In `config.yml` set:
@@ -276,7 +278,17 @@ runner:
     CCACHE_DIR: /home/ci/ci-data/ccache
     CMAKE_CXX_COMPILER_LAUNCHER: ccache
     CMAKE_C_COMPILER_LAUNCHER: ccache
+
+server:
+  connections:
+    forgejo:
+      url: https://genericservername.tail291fd.ts.net/forgejo/
+      uuid: <UUID from Create new runner>
+      token: <token from Create new runner>
 ```
+
+The runner on compute-1 is named `auto-battlebot-compute-1`. `forgejo-runner daemon --config
+~/runner/config.yml` logged "declared successfully" with labels `[jetson]` on 2026-11-27.
 
 - `capacity: 1` lets one job use the whole 16 GB box. Other runs wait in Forgejo's queue.
 - `jetson:host` runs steps on the box itself with no container, which keeps CUDA, TensorRT and
@@ -462,7 +474,7 @@ reopens the task. The agent still pushes only when asked.
 ## Next steps
 
 1. WP-V12: add the Forgejo tile to `caddy/site/index.html` and the row to the home-apps README.
-2. WP-V13: finish box setup steps 3 to 6 on compute-1, register the runner, write `ci_clips.py`,
+2. WP-V13: run the runner under systemd, write `ci_clips.py`,
    `ci/link_data.sh`, `ci/build_engines.sh` and the two workflows, record Jetson baselines.
 3. WP-V14: write `auto_battlebot/ci/status.py`, the deploy warning, `ci-status-relay`, the GitHub
    ruleset and the CLAUDE.md report-back line.
