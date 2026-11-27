@@ -55,7 +55,7 @@ get_jetson_torch_install_url() {
     local WHEEL_NAME JP_PREFIX
     case "$JP_VERSION" in
         6[1-9]) JP_PREFIX="v61"; WHEEL_NAME="torch-2.5.0a0+872d972e41.nv24.08.17622132-cp310-cp310-linux_aarch64.whl" ;;
-        *) echo "Error: no PyTorch wheel for JP_VERSION ${JP_VERSION}; JetPack 6.2.3 (R36.5) is the oldest supported" >&2; return 1 ;;
+        *) echo "Error: no PyTorch wheel for JP_VERSION ${JP_VERSION}; JetPack 6.2.1 (R36.4) is the oldest supported" >&2; return 1 ;;
     esac
     TORCH_INSTALL="https://developer.download.nvidia.com/compute/redist/jp/${JP_PREFIX}/pytorch/${WHEEL_NAME}"
 }

@@ -30,7 +30,7 @@ check_jetson_orin() {
     if [[ "$l4t_line" =~ R([0-9]+) ]]; then
         l4t_major="${BASH_REMATCH[1]}"
         if [ "$l4t_major" -lt 36 ]; then
-            echo "Error: L4T R${l4t_major} is older than JetPack 6.2.3 (R36.5) and is not supported"
+            echo "Error: L4T R${l4t_major} is older than JetPack 6.2.1 (R36.4) and is not supported"
             exit 1
         fi
         if [ "$l4t_major" -eq 36 ]; then
@@ -38,8 +38,8 @@ check_jetson_orin() {
             if [[ "$l4t_line" =~ REVISION:\ ([0-9]+) ]]; then
                 l4t_revision="${BASH_REMATCH[1]}"
             fi
-            if [ -z "$l4t_revision" ] || [ "$l4t_revision" -lt 5 ]; then
-                echo "Error: L4T R36.${l4t_revision:-unknown} is not supported. Reflash to JetPack 6.2.3 (R36.5) or JetPack 7.2 (R39.2)."
+            if [ "$l4t_revision" != "4" ]; then
+                echo "Error: L4T R36.${l4t_revision:-unknown} is not supported. Flash JetPack 6.2.1 (R36.4) or JetPack 7.2 (R39.2)."
                 exit 1
             fi
         fi

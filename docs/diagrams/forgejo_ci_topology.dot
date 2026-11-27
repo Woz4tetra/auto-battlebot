@@ -30,7 +30,7 @@ digraph ForgejoCiTopology {
   }
 
   subgraph cluster_jetson {
-    label="CI Jetson (spare Orin NX, JetPack 6.2.3)" fontname="Helvetica" fontsize=14 style="rounded" color="#94A3B8"
+    label="CI Jetson (spare Orin NX, JetPack 6.2.1)" fontname="Helvetica" fontsize=14 style="rounded" color="#94A3B8"
     runner [label="forgejo-runner\nuser ci, label jetson:host\ncapacity 1" fillcolor="#DCFCE7" color="#4ADE80"];
     workspace [label="fresh checkout per job\n~ci/.cache/act/<run>"];
     ci_data [label="~ci/ci-data\nsvo/ (clips + ci_clips manifest)\nengines/<onnx sha>_<trt ver>/\nccache/" shape=cylinder fillcolor="#E0F2FE" color="#7DD3FC"];

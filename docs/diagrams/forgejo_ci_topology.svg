@@ -23,7 +23,7 @@
 <g id="clust3" class="cluster">
 <title>cluster_jetson</title>
 <path fill="white" stroke="#94a3b8" d="M931,-371C931,-371 1197,-371 1197,-371 1203,-371 1209,-377 1209,-383 1209,-383 1209,-781.48 1209,-781.48 1209,-787.48 1203,-793.48 1197,-793.48 1197,-793.48 931,-793.48 931,-793.48 925,-793.48 919,-787.48 919,-781.48 919,-781.48 919,-383 919,-383 919,-377 925,-371 931,-371"/>
-<text text-anchor="middle" x="1064" y="-778.28" font-family="Helvetica,sans-Serif" font-size="14.00">CI Jetson (spare Orin NX, JetPack 6.2.3)</text>
+<text text-anchor="middle" x="1064" y="-778.28" font-family="Helvetica,sans-Serif" font-size="14.00">CI Jetson (spare Orin NX, JetPack 6.2.1)</text>
 </g>
 <!-- git_push -->
 <g id="node1" class="node">

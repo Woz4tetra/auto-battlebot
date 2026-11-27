@@ -134,7 +134,7 @@ list on write.
 
 ## Platforms
 
-- Deployment: Jetson Orin NX on JetPack 7.2 / L4T R39.2 (aarch64, Ubuntu 24.04, Python 3.12, CUDA 13.2, TensorRT 10.16) or JetPack 6.2 / L4T R36.4 (Ubuntu 22.04, Python 3.10, CUDA 12.6, TensorRT 10.3). The ZED Box Mini ships on 6.2.1 (`docs/setup/zed_box_mini.md`). The install scripts branch on the L4T major and take the venv's Python version from `/usr/bin/python3`, because apt builds `python3-libnvinfer` for the system python only
+- Deployment: Jetson Orin NX on JetPack 7.2 / L4T R39.2 (aarch64, Ubuntu 24.04, Python 3.12, CUDA 13.2, TensorRT 10.16) or JetPack 6.2.1 / L4T R36.4 (Ubuntu 22.04, Python 3.10, CUDA 12.6, TensorRT 10.3), the only JetPack 6 release `install/check_jetson_orin.sh` accepts. The ZED Box Mini and the CI Jetson run it (`docs/setup/zed_box_mini.md`). The install scripts branch on the L4T major and take the venv's Python version from `/usr/bin/python3`, because apt builds `python3-libnvinfer` for the system python only
 - Python floor is 3.10 for JetPack 6. Import it as `from auto_battlebot.compat import tomllib`, and use no 3.11+ stdlib API outside `training/synthetic/` (Blender's 3.11). ruff and mypy target 3.10 and catch most of it
 - `BUILD_WITH_ZED` defaults to whether the ZED SDK is installed: ON on the ZED Box Mini and dev machines (SVO playback)
 - TensorRT engines are not portable across TensorRT versions. The `aarch64_sm87` engines must be built on each box's own TensorRT (10.16 on JetPack 7, 10.3 on JetPack 6); the filename is unchanged by a rebuild, so old and new look identical on disk

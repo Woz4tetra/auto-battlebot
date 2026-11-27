@@ -21,5 +21,5 @@
   YOLO annotation format (not COCO). In-repo label editors, not Label Studio.
 
 ## Platforms
-- Deploy: Jetson Orin NX on JetPack 7.2 (aarch64, Ubuntu 24.04, Python 3.12, CUDA 13.2, TensorRT 10.16). JetPack 6.2.3 (L4T R36.5) and Orin Nano are also supported by the install scripts.
+- Deploy: Jetson Orin NX on JetPack 7.2 (aarch64, Ubuntu 24.04, Python 3.12, CUDA 13.2, TensorRT 10.16). JetPack 6.2.1 (L4T R36.4) and Orin Nano are also supported by the install scripts.
 - Dev: Ubuntu 22/24 x86_64 with NVIDIA GPU.

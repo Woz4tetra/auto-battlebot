@@ -2,8 +2,7 @@
 
 State of the ZED Box Mini and how the repo runs on it. First inspected read-only on 2026-09-24,
 re-inspected the same night after the repo install, the switch to MAXN, and the first live runs.
-The box ships on JetPack 6.2.1 and must be reflashed to JetPack 6.2.3 (L4T R36.5) before the repo
-supports it. The inspection below was taken on the factory 6.2.1 image.
+The box stays on its factory JetPack 6.2.1 (L4T R36.4.4).
 
 Access: `ssh -i ~/.ssh/auto-battlebot-compute-2 user@192.168.50.183`. The factory password
 `admin` still works; `sudo` needs it.
@@ -31,30 +30,20 @@ Access: `ssh -i ~/.ssh/auto-battlebot-compute-2 user@192.168.50.183`. The factor
 - **Other:** HDMI 1.4, 12V fan header.
 - **Hostname:** `auto-battlebot-compute-2` (factory: `GTW-ONX1-D27QLL7T`).
 
-## Reflash to JetPack 6.2.3
+## Supported JetPack
 
-The repo supports JetPack 6.2.3 (R36.5) and JetPack 7.2 (R39.2) only. `install/check_jetson_orin.sh`
-rejects the factory R36.4.4 with an error naming JetPack 6.2.3. Steps:
-
-1. Put the box in recovery mode over the micro-USB port, connected to the Ubuntu 24.04 host.
-2. Flash JetPack 6.2.3 with NVIDIA SDK Manager on that host. The Stereolabs
-   [flash docs](https://docs.stereolabs.com/docs/products/embedded/zed-box-mini/reset-update) list
-   the Box Mini carrier and driver steps.
-3. Boot, then run `./scripts/install_zed_box.sh` and `./scripts/build.sh` as under "Setup on the box".
-4. Rebuild every `aarch64_sm87` engine on the box.
-
-Known risk: an earlier JetPack 6.2.3 flash attempt from this host failed because the board dropped
-out of recovery mode. JetPack 6.1 and JetPack 7.2.1 flashed fine from the same host. If recovery
-mode drops, retry with a different USB port and cable and re-enter recovery before each attempt.
-
-The tables below record the box as shipped on 6.2.1. After the reflash the L4T row reads R36.5 and
-the other 6.2 rows (CUDA 12.6, TensorRT 10.3, Python 3.10) are expected to match; recheck each.
+The repo supports JetPack 6.2.1 (R36.4) and JetPack 7.2 (R39.2) only, so the box runs its factory
+image. `install/check_jetson_orin.sh` rejects every other R36 release, R36.5 (JetPack 6.2.3)
+included, with an error naming JetPack 6.2.1. A reflash must go back to 6.2.1: the Stereolabs
+[flash docs](https://docs.stereolabs.com/docs/products/embedded/zed-box-mini/reset-update) list the
+carrier and driver steps, then run `./scripts/install_zed_box.sh` and rebuild every `aarch64_sm87`
+engine on the box.
 
 ## Software as shipped
 
 The JetPack 7.2 Jetsons and the Box Mini run the same tree.
 
-| Component | On the box (JetPack 6.2.1, as shipped) | JetPack 7.2 Jetson |
+| Component | On the box (JetPack 6.2.1) | JetPack 7.2 Jetson |
 |---|---|---|
 | OS | Ubuntu 22.04.5, kernel 5.15.148-tegra | Ubuntu 24.04 |
 | L4T | R36.4.4 | R39.2 |
@@ -73,7 +62,7 @@ The Stereolabs driver modules (`sl_zedx`, `sl_max9296`, ...) load and `zed_x_dae
 default boot entry is `Stereolabs`, which applies
 `/boot/tegra234-p3768-camera-zedbox-mini-sl-overlay.dtbo`.
 
-## How the repo handles JetPack 6.2.3
+## How the repo handles JetPack 6.2.1
 
 The install scripts branch on the L4T major (`/etc/nv_tegra_release`):
 
@@ -141,7 +130,7 @@ GDM is installed, so `graphical.target` brings up an autologin X session, and th
 
 ## Open issues
 
-1. **PyTorch on JetPack 6.2.3 is the JetPack 6.1 wheel.** `get_jetson_torch_install_url` in
+1. **PyTorch on JetPack 6.2.1 is the JetPack 6.1 wheel.** `get_jetson_torch_install_url` in
    `install/install_pytorch_jetson.sh` maps every R36.x release to the `v61` wheel (torch 2.5.0a0
    nv24.08). NVIDIA's redist server has no `v62` path (404), so no separate
    6.2 wheel exists there. Set `TORCH_INSTALL` to override.
@@ -190,7 +179,7 @@ mean / p95 in ms.
 
 Stereolabs does ship a 7.2 path (`zedbox_mini_usb_flash_7.2_gpio.sh`, driver 1.4.3 for
 L4T 39.2.1, ZED SDK 5.5), but it needs a reflash over micro-USB from an Ubuntu 20.04/22.04 host,
-has no RT-kernel driver build, and gains nothing the repo needs now that 6.2.3 is supported. The
+has no RT-kernel driver build, and gains nothing the repo needs now that 6.2.1 is supported. The
 flash steps are on the
 [flash docs](https://docs.stereolabs.com/docs/products/embedded/zed-box-mini/reset-update) page
 if that changes.

@@ -24,7 +24,7 @@ On the Jetson Orin Nano, camera capture to motor motion is **< 60 ms**.*
 
 Supported platforms:
 - Jetson Orin NX or Orin Nano
-  - JetPack 7.2 (Ubuntu 24.04, CUDA 13.2, Python 3.12) or JetPack 6.2.3 (L4T R36.5, Ubuntu 22.04, CUDA 12.6, Python 3.10)
+  - JetPack 7.2 (Ubuntu 24.04, CUDA 13.2, Python 3.12) or JetPack 6.2.1 (L4T R36.4, Ubuntu 22.04, CUDA 12.6, Python 3.10)
 - Intel x86 + NVIDIA GPU
   - Ubuntu 22
   - Ubuntu 24
@@ -111,7 +111,7 @@ The project focuses on end-to-end autonomy under real-time and real-world constr
 # Setup and Install
 
 These scripts assume you are on one of the supported hardware configurations:
-- Jetson Orin NX or Orin Nano (JetPack 7.2 or JetPack 6.2.3)
+- Jetson Orin NX or Orin Nano (JetPack 7.2 or JetPack 6.2.1)
 - Ubuntu 22 or 24 (x86 + NVIDIA GPU with compute capability 8.7 or higher)
 
 These are the platforms I've tested on. This repository may work on other system configurations.

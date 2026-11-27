@@ -2,7 +2,6 @@
 
 ZED_SDK_VERSION="5.2.3"
 ZED_SDK_L4T="36.4"
-ZED_SDK_HOST_L4T="36.5"
 ZED_SDK_SHA256="d8fc4c74d4d33b764892517387f7b704fd43eed19d2d3e8006b8058fb6b8bbe1"
 
 installed_zed_sdk_version() {
@@ -33,8 +32,8 @@ install_zed_sdk() {
 
     local l4t
     l4t=$(jetson_l4t_major_minor)
-    if [ "$l4t" != "$ZED_SDK_HOST_L4T" ]; then
-        echo "Error: ZED SDK ${ZED_SDK_VERSION} installs on L4T ${ZED_SDK_HOST_L4T} (JetPack 6.2.3); this box is L4T ${l4t:-unknown}."
+    if [ "$l4t" != "$ZED_SDK_L4T" ]; then
+        echo "Error: ZED SDK ${ZED_SDK_VERSION} installs on L4T ${ZED_SDK_L4T} (JetPack 6.2.1); this box is L4T ${l4t:-unknown}."
         return 1
     fi
 

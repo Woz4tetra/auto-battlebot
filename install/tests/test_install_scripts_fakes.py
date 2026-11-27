@@ -382,9 +382,9 @@ def tegra_release(sandbox: Sandbox, major: int, revision: str) -> str:
 
 @pytest.mark.parametrize(
     ("major", "revision", "accepted"),
-    [(36, "4.4", False), (36, "5.2", True), (39, "2.0", True)],
+    [(35, "6.0", False), (36, "4.4", True), (36, "5.2", False), (39, "2.0", True)],
 )
-def test_check_jetson_orin_gates_on_jetpack_6_2_3(
+def test_check_jetson_orin_accepts_only_jetpack_6_2_1_and_7(
     sandbox: Sandbox, major: int, revision: str, accepted: bool
 ) -> None:
     model = sandbox.root / "model"
@@ -396,7 +396,7 @@ def test_check_jetson_orin_gates_on_jetpack_6_2_3(
     )
     assert (result.returncode == 0) is accepted
     if not accepted:
-        assert "JetPack 6.2.3" in result.stdout
+        assert "JetPack 6.2.1" in result.stdout
 
 
 def torch_url(sandbox: Sandbox, major: int, revision: str) -> subprocess.CompletedProcess[str]:
@@ -407,8 +407,8 @@ def torch_url(sandbox: Sandbox, major: int, revision: str) -> subprocess.Complet
     )
 
 
-def test_pytorch_wheel_for_r36_5_is_the_jetpack_6_wheel(sandbox: Sandbox) -> None:
-    result = torch_url(sandbox, 36, "5.2")
+def test_pytorch_wheel_for_r36_4_is_the_jetpack_6_wheel(sandbox: Sandbox) -> None:
+    result = torch_url(sandbox, 36, "4.4")
     assert result.returncode == 0
     assert "/jp/v61/pytorch/torch-2.5.0a0" in result.stdout
 
@@ -423,3 +423,22 @@ def test_r39_skips_the_nvidia_wheel_and_uses_the_pytorch_index(sandbox: Sandbox)
     )
     assert result.returncode == 0
     assert any("download.pytorch.org/whl/cu132" in call for call in sandbox.calls())
+
+
+@pytest.mark.parametrize(("revision", "downloads"), [("4.4", True), ("5.2", False)])
+def test_zed_sdk_installs_only_on_l4t_36_4(
+    sandbox: Sandbox, revision: str, downloads: bool
+) -> None:
+    for name in ("apt-get", "curl", "sha256sum", "bash"):
+        sandbox.fake(name)
+    result = sandbox.run(
+        source("install/install_zed_sdk.sh")
+        + "installed_zed_sdk_version() { :; }\ninstall_zed_sdk\n",
+        NV_TEGRA_RELEASE_FILE=tegra_release(sandbox, 36, revision),
+    )
+    curls = [call for call in sandbox.calls() if call.startswith("curl ")]
+    assert bool(curls) is downloads
+    if downloads:
+        assert "ZED_SDK_Tegra_L4T36.4_v5.2.3" in curls[0]
+    else:
+        assert "JetPack 6.2.1" in result.stdout

@@ -445,7 +445,7 @@ unrelated and left alone.
 
 **Runner.** The spare Orin NX:
 
-- Reflashed to JetPack 6.2.3 / L4T R36.5 with the ZED SDK, matching the ZED Box Mini
+- JetPack 6.2.1 / L4T R36.4 with the ZED SDK, matching the ZED Box Mini
 - No cameras attached; the ZED SDK decodes SVOs without one
 - `forgejo-runner` in host mode as a dedicated unprivileged `ci` user: fresh checkout per job, no
   sudo, no secrets, no route to the dashboard cable network (10.42.42.0/24)
@@ -504,7 +504,7 @@ The script never sends autonomous drive commands; the user drives. HIL runs on d
 | WP-V11d | `tools/feature_map` UI, `serve`, `tools` verify suite | 4 | V11b | page updates without reload when a run lands; diff overlay tracks an edit |
 | WP-V11e | Proof backfill, lint enforcement on | 4 | V11a, V11b | every feature has an entry-point proof; lint enforces it |
 | WP-V12 | Forgejo on genericservername | 5 | none | push over tailnet SSH; UI at `/forgejo/` |
-| WP-V13 | CI Jetson reflash and runner | 5 | V12 | push runs `--fast` and `--playback` on the Jetson |
+| WP-V13 | CI Jetson setup and runner | 5 | V12 | push runs `--fast` and `--playback` on the Jetson |
 | WP-V14 | Nightly jobs, deploy warning, report-back | 5 | V10, V13 | nightly runs; deploy warns on red |
 | WP-V15 | Guided HIL session | 6 | V08 | one full session graded on a Mk2 |
 
@@ -528,7 +528,7 @@ The script never sends autonomous drive commands; the user drives. HIL runs on d
 | Q16 | Stop hook runs a ~90 s fast tier |
 | Q18 | `verify_mcap` grades any recording |
 | Q19 | HIL is a guided session the user drives |
-| Q23, Q30 | CI runner on the spare Orin NX Jetson, reflashed to JetPack 6.2.3 |
+| Q23, Q30 | CI runner on the spare Orin NX Jetson, on JetPack 6.2.1 |
 | Q24 | Verifier verdict enforced by a Stop hook |
 | Q26 | `crsf` and `health` tests first |
 | Q27 | This plan plus a nav plan 1.4 amendment |

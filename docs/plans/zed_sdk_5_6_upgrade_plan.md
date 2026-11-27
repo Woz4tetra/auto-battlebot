@@ -1,8 +1,7 @@
 # ZED SDK 5.6.1 upgrade on the ZED Box Mini
 
 Upgrade the ZED Box Mini from ZED SDK 5.2.3 and GMSL driver 1.4.1 to SDK 5.6.1 and the matching
-driver, staying on JetPack 6.2.3 (L4T R36.5). The box is reflashed from its factory 6.2.1 first
-(`docs/setup/zed_box_mini.md`); this plan starts after that. Then retest each SDK 5.2 workaround in
+driver, staying on JetPack 6.2.1 (L4T R36.4.4). Then retest each SDK 5.2 workaround in
 `src/rgbd_camera/zed_one_rgb_camera.cpp` on the ZED X One GS and delete the ones the upgrade fixes.
 
 ## Trigger
@@ -11,20 +10,19 @@ Start when Stereolabs publishes 5.6.1 on https://www.stereolabs.com/developers/r
 came out 2026-11-16; waiting for the first patch release avoids its launch bugs. Before starting,
 read the 5.6.1 notes and confirm all three:
 
-- A JetPack 6.x installer (L4T 36.4 is the newest 6.x build Stereolabs lists) is still listed and
-  installs on R36.5. 5.6.0 lists it as "Legacy".
-- https://www.stereolabs.com/developers/drivers lists a driver for the ZED Box Mini on L4T 36.x that loads on R36.5 and
+- A JetPack 6.1/6.2 (L4T 36.4) installer is still listed. 5.6.0 lists it as "Legacy".
+- https://www.stereolabs.com/developers/drivers lists a driver for the ZED Box Mini on L4T 36.4 that
   supports 5.6.1 (1.5.0 or newer), with an RT-kernel build if the box needs one.
 - No 5.6.1 note reopens one of the items under "What 5.6 should fix" below.
 
 If any of the three fails, stay on 5.2.3 and record why here.
 
-## Why JetPack 6.2.3, not 7.2
+## Why JetPack 6.2.1, not 7.2
 
-- 5.6 ships an installer for L4T 36.4 and the Stereolabs driver tracks L4T 36.x, so the SDK moves without a further reflash. Confirm the installer and driver run on R36.5 as part of the trigger check below; the 5.2.3 installer is already used on R36.5 by `install/install_zed_sdk.sh`.
+- 5.6 ships for L4T 36.4, so the SDK moves without a reflash.
 - The Box Mini's JetPack 7.2 path needs a micro-USB reflash from an Ubuntu 20.04/22.04 host, and the
   drivers page lists no RT-kernel build for the Mini on L4T 39.2.
-- The workarounds below are SDK bugs; 7.2 fixes none of them that 5.6 on 6.2.3 does not.
+- The workarounds below are SDK bugs; 7.2 fixes none of them that 5.6 on 6.2.1 does not.
 
 ## What 5.6 should fix
 
@@ -54,7 +52,7 @@ From the 5.5 and 5.6.0 release notes as read on 2026-11-20. Recheck each against
 
 ## Upgrade
 
-1. Install the new driver `.deb` for L4T 36.x (R36.5) and reboot. `zed_x_daemon` runs and `sl_zedx` loads.
+1. Install the new driver `.deb` for L4T 36.4 and reboot. `zed_x_daemon` runs and `sl_zedx` loads.
 2. Bump `ZED_SDK_VERSION`, `ZED_SDK_L4T` and `ZED_SDK_SHA256` in `install/install_zed_sdk.sh` and run
    it. Keep the Box Mini row in `docs/setup/zed_box_mini.md` in step.
 3. Rebuild with `./scripts/build.sh` on the box. TensorRT engines do not depend on the ZED SDK and
