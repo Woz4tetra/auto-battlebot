@@ -58,7 +58,7 @@ There are three machines and one rule for each link:
    a fresh directory:
    1. Check out the sha.
    2. `ci/link_data.sh`: symlink `~ci/ci-data/svo` and `~ci/ci-data/models` into `data/` and
-      `~ci/venv` to `venv/`.
+      `~ci/venv` to `venv/`, then point the venv's editable install at this checkout.
    3. `python -m auto_battlebot.verify.ci_clips check`: sha256 of every clip against the
       committed manifest. A missing or changed clip fails the job with "run clip sync".
    4. `ci/build_engines.sh`: look up each engine in `~ci/ci-data/engines/` under the key
@@ -349,6 +349,13 @@ jobs:
 - A fresh checkout has no `venv/`, and building one per job costs minutes, so `ci` keeps one
   venv at `~ci/venv` that `ci/link_data.sh` links in. Rebuild it with
   `scripts/setup_python.sh` when `pyproject.toml` changes; a stale venv fails the job at import.
+- The venv installs the project with `pip install -e`, so `auto_battlebot` imports from the tree
+  the venv was last pointed at. Without a re-point, every job tests the Python of whichever
+  checkout built `~ci/venv`. After linking, `ci/link_data.sh` runs
+  `venv/bin/pip install -e . --no-deps` in the job's checkout, which takes a few seconds and
+  installs no dependencies. `capacity: 1` keeps two jobs from re-pointing the shared venv at once.
+  The first job step after it checks the import:
+  `venv/bin/python -c "import auto_battlebot, sys; sys.exit(not auto_battlebot.__file__.startswith('$PWD'))"`.
 - A fresh checkout also lacks the other untracked inputs `scripts/verify` reads:
   `third_party/foxglove` and `web/node_modules`. `ci/link_data.sh` links
   `~ci/ci-data/third_party/foxglove` and runs `npm ci --prefix web --cache ~ci/ci-data/npm`.
