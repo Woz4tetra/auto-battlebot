@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <thread>
@@ -30,10 +31,9 @@ std::vector<std::byte> numbered_frame(uint32_t number) {
 class RelayAppLinkTest : public ::testing::Test {
    protected:
     void SetUp() override {
-        dir_ = std::filesystem::temp_directory_path() /
-               ("relay_app_link_" + std::to_string(::getpid()) + "_" +
-                std::to_string(reinterpret_cast<uintptr_t>(this)));
-        std::filesystem::create_directories(dir_);
+        char dir_template[] = "/tmp/relay_link_XXXXXX";
+        ASSERT_NE(::mkdtemp(dir_template), nullptr);
+        dir_ = dir_template;
         path_ = (dir_ / "relay.sock").string();
     }
 
