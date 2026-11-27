@@ -79,14 +79,13 @@ There are three machines and one rule for each link:
    4. `ci/build_engines.sh`: look up each engine in `~ci/ci-data/engines/` under the key
       `<onnx sha256>_trt<version>`. On a miss, build it with this box's TensorRT 10.3 and store it.
    5. `scripts/verify --fast`
-   6. `scripts/verify --playback`, which is skipped if step 5 failed.
 5. The runner streams each step's log to Forgejo while it prints, then reports the result.
    Forgejo sets the commit status to success or failure with a link to the run page.
 6. The UI, `scripts/deploy_to_jetson.sh` and the agent read that status.
 
-Nightly runs `nightly.yml` from `main` with the same setup steps, then `scripts/verify --realtime`
-and, once nav plan WP-14 lands, `--sim`. Forgejo only runs `schedule` workflows from the default
-branch, so a nightly change needs to be merged to `main` before it runs.
+Nightly runs `nightly.yml` from `main` with the same setup steps, then `scripts/verify --playback
+--realtime` and, once nav plan WP-14 lands, `--sim`. Forgejo only runs `schedule` workflows from
+the default branch, so a nightly change needs to be merged to `main` before it runs.
 
 ## What the UI looks like
 
@@ -211,7 +210,8 @@ Only the run history is lost, so Forgejo gets no backup job.
 
 ## WP-V13: CI Jetson and runner
 
-Done when a push runs `--fast` and `--playback` on the Jetson and the commit turns green.
+Done when a push runs `--fast` on the Jetson and the commit turns green, and nightly runs
+`--playback` there.
 
 ### Box setup
 
@@ -357,7 +357,7 @@ jobs:
     uses: ./.forgejo/workflows/verify.yml
     with:
       runs-on: jetson
-      args: --fast --playback --target jetson
+      args: --fast --target jetson
   x86:
     uses: ./.forgejo/workflows/verify.yml
     with:
@@ -397,7 +397,7 @@ jobs:
     uses: ./.forgejo/workflows/verify.yml
     with:
       runs-on: jetson
-      args: --nightly --target jetson
+      args: --nightly --playback --target jetson
   x86:
     needs: changed
     if: needs.changed.outputs.run == 'true'
@@ -453,7 +453,7 @@ Forgejo runner only runs what I push to Forgejo.
 | Suite | Jetson (`jetson`) | megamind (`x86`) | Dev box / Stop hook |
 |---|---|---|---|
 | gtest, debug build | push | | yes |
-| `--playback` lockstep | push | | yes |
+| `--playback` lockstep | nightly | | yes |
 | `--realtime` | nightly | | yes |
 | pytest marked `jetson` | push | push | yes |
 | every other pytest | | push | yes |

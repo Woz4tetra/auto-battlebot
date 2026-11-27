@@ -27,7 +27,7 @@ jobs:
     uses: ./.forgejo/workflows/verify.yml
     with:
       runs-on: jetson
-      args: --nightly --target jetson
+      args: --nightly --playback --target jetson
       jetson-data: true
   x86:
     needs: changed

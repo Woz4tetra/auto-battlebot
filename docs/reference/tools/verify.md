@@ -61,9 +61,9 @@ hook's pytest set for a filter-and-RL change dropped from about 250 s to 17 s.
 CI runs `verify` with `--target`; the dev box and the Stop hook never pass it and run every suite.
 
 ```bash
-scripts/verify --fast --playback --target jetson   # Forgejo push job on the CI Jetson
+scripts/verify --fast --target jetson              # Forgejo push job on the CI Jetson
 scripts/verify --fast --target x86                 # Forgejo push job on megamind
-scripts/verify --nightly --target jetson           # adds slow tests, real time, release and ASan builds
+scripts/verify --nightly --playback --target jetson # Forgejo nightly job: adds slow tests, lockstep, real time, release and ASan builds
 scripts/verify --nightly --target x86              # adds slow tests, and gpu tests when the GPU is idle
 ```
 

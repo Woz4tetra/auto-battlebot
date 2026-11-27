@@ -31,7 +31,6 @@ digraph ForgejoCiPushRun {
     engines [label="4. engine cache lookup\nkey = ONNX sha256 + TensorRT version"];
     build_engine [label="miss: trtexec build\non this box's TensorRT 10.3"];
     fast [label="5. scripts/verify --fast\nlint --quick, gtest, pytest, synthetic,\nfirmware, web"];
-    playback [label="6. scripts/verify --playback\nlockstep clips vs baseline hashes"];
     logs [label="step logs streamed\nto Forgejo as they print" shape=note fillcolor="#FEF9C3" color="#FACC15"];
   }
 
@@ -45,11 +44,8 @@ digraph ForgejoCiPushRun {
   engines -> build_engine [label="miss"];
   build_engine -> fast;
   engines -> fast [label="hit"];
-  fast -> playback [label="pass"];
-  fast -> status [label="fail" color="#DC2626" fontcolor="#DC2626"];
-  playback -> status [label="pass or fail"];
+  fast -> status [label="pass or fail"];
   manifest_bad -> status [color="#DC2626"];
   fast -> logs [style=dotted arrowhead=none];
-  playback -> logs [style=dotted arrowhead=none];
   status -> consumers;
 }
