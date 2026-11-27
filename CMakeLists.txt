@@ -505,6 +505,7 @@ if(BUILD_TESTING)
     list(GET EIGEN3_VERSION_PARTS 1 EIGEN3_MAJOR)
     list(GET EIGEN3_VERSION_PARTS 2 EIGEN3_MINOR)
     target_link_libraries(auto_battlebot_test rtneural)
+    add_dependencies(auto_battlebot_test link_config_files)
     target_compile_definitions(auto_battlebot_test PRIVATE
         SYSTEM_EIGEN_WORLD_VERSION=${EIGEN3_WORLD}
         SYSTEM_EIGEN_MAJOR_VERSION=${EIGEN3_MAJOR}
