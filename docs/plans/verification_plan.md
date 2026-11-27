@@ -449,7 +449,8 @@ unrelated and left alone.
 - No cameras attached; the ZED SDK decodes SVOs without one
 - `forgejo-runner` in host mode as a dedicated unprivileged `ci` user: fresh checkout per job, no
   sudo, no secrets, no route to the dashboard cable network (10.42.42.0/24)
-- No x86 runner
+- A second runner on megamind (`x86:host`) takes every suite that does not need the Jetson
+  (Q53, `docs/plans/forgejo_ci_plan.md` "CI split")
 
 **Data.** CI clips are stored on the Jetson's disk, synced once from the dev box, and checked
 against a content-hashed `ci_clips` manifest at job start. Engines are built on the Jetson's own
@@ -551,6 +552,7 @@ The script never sends autonomous drive commands; the user drives. HIL runs on d
 | Q49 | Stale tests fixed with a citation; real bugs fail first; unclear ones go to the user |
 | Q50 | Every playground file promoted or deleted, then the directory removed |
 | Q51 | One-off analyses run from the scratchpad, results in `docs/experiments/` |
+| Q53 | CI split: Jetson runs C++ and robot-side Python, megamind runs the rest; nightly runs only when `main` moved (2026-11-27) |
 | F1, F8 | Lint discovers reach points from eight sources and fails on unclaimed; firmware pages and other boards excluded for now |
 | F2 | Per-run results store in `data/verify/runs/`, pruned to 500 runs |
 | F3 | Hand `code` stays; coverage adds derived `touches` |

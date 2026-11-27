@@ -5,7 +5,8 @@ genericservername, a runner on the spare Orin NX, and status checks that the dep
 agent read. It covers WP-V12, WP-V13 and WP-V14. The decisions behind it are Q8, Q15, Q22, Q23,
 Q28 to Q31 and Q38 to Q43 in the verification plan's decision log. This plan does not revisit them.
 
-GitHub stays the public source of truth and gets no runner. Each `git push` also goes to Forgejo.
+GitHub stays the public source of truth and gets no runner. Each `git push` also goes to Forgejo,
+which runs C++ and robot-side Python on the Jetson and everything else on megamind ("CI split").
 Forgejo runs `.forgejo/workflows/*.yml` on the Jetson and stores a pass or fail status on the
 commit.
 
@@ -326,31 +327,28 @@ Run the runner as a systemd system unit with `User=ci`, `Restart=always`,
 
 ### Workflows
 
+The workflows share one reusable workflow, `.forgejo/workflows/verify.yml` (`on: workflow_call`),
+which takes `runs-on` and the `scripts/verify` arguments as inputs and runs checkout,
+`ci/link_data.sh` and `scripts/verify`. The Jetson job adds `ci_clips check` and
+`ci/build_engines.sh` before `verify`. Forgejo reads a called workflow from the server, so it
+works before anything is checked out; a local composite action would not.
+
 `.forgejo/workflows/push.yml`:
 
 ```yaml
 name: push
 on: push
 jobs:
-  verify:
-    runs-on: jetson
-    steps:
-      - name: checkout
-        env:
-          TOKEN: ${{ github.token }}
-          SERVER: ${{ github.server_url }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
-        run: |
-          git -c init.defaultBranch=main init -q .
-          git -c http.extraHeader="Authorization: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)" \
-            fetch -q --depth=1 "$SERVER/$REPO.git" "$SHA"
-          git checkout -q --detach FETCH_HEAD
-      - run: ci/link_data.sh
-      - run: venv/bin/python -m auto_battlebot.verify.ci_clips check
-      - run: ci/build_engines.sh
-      - run: scripts/verify --fast
-      - run: scripts/verify --playback
+  jetson:
+    uses: ./.forgejo/workflows/verify.yml
+    with:
+      runs-on: jetson
+      args: --fast --playback --target jetson
+  x86:
+    uses: ./.forgejo/workflows/verify.yml
+    with:
+      runs-on: x86
+      args: --fast --target x86
 ```
 
 `.forgejo/workflows/nightly.yml`:
@@ -362,25 +360,54 @@ on:
     - cron: "0 3 * * *"
   workflow_dispatch:
 jobs:
-  realtime:
+  changed:
+    runs-on: jetson
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        env:
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          last=$(cat ~/ci-data/nightly_last_sha 2>/dev/null || true)
+          if [ "$EVENT" = workflow_dispatch ] || [ "$SHA" != "$last" ]; then
+            echo "run=true" >> "$FORGEJO_OUTPUT"
+          else
+            echo "main unchanged since nightly of $last; skipping"
+            echo "run=false" >> "$FORGEJO_OUTPUT"
+          fi
+  jetson:
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
+    uses: ./.forgejo/workflows/verify.yml
+    with:
+      runs-on: jetson
+      args: --nightly --target jetson
+  x86:
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
+    uses: ./.forgejo/workflows/verify.yml
+    with:
+      runs-on: x86
+      args: --nightly --target x86
+  record:
+    needs: [changed, jetson, x86]
+    if: always() && needs.changed.outputs.run == 'true'
     runs-on: jetson
     steps:
-      - name: checkout
-        env:
-          TOKEN: ${{ github.token }}
-          SERVER: ${{ github.server_url }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
-        run: |
-          git -c init.defaultBranch=main init -q .
-          git -c http.extraHeader="Authorization: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)" \
-            fetch -q --depth=1 "$SERVER/$REPO.git" "$SHA"
-          git checkout -q --detach FETCH_HEAD
-      - run: ci/link_data.sh
-      - run: venv/bin/python -m auto_battlebot.verify.ci_clips check
-      - run: ci/build_engines.sh
-      - run: scripts/verify --realtime
+      - run: echo "${{ github.sha }}" > ~/ci-data/nightly_last_sha
 ```
+
+- Nightly runs only when `main` moved since the last nightly. `schedule` runs on the default
+  branch's head, so `github.sha` is current `main`. The `changed` job compares it with
+  `~ci/ci-data/nightly_last_sha` on the Jetson and skips every other job when they match.
+  `workflow_dispatch` always runs.
+- `record` writes the sha after both jobs finish, pass or fail, so a red nightly is not rerun on
+  the same commit. GPU tests deferred by a busy queue (see "CI split") wait for the next nightly
+  that runs, or a `workflow_dispatch`.
+- Check on the first run that Forgejo 17 honours job `outputs`, `needs` and `if` on a job that
+  calls a reusable workflow. If not, the gate moves into `verify.yml` as its first step.
 
 - The checkout step is plain `git`, not `actions/checkout`. `actions/checkout@v4` builds its
   clone URL from the host alone and drops the `/forgejo/` sub-path, so it fetched
@@ -401,6 +428,87 @@ jobs:
   `third_party/foxglove` and `web/node_modules`. `ci/link_data.sh` links
   `~ci/ci-data/third_party/foxglove` and runs `npm ci --prefix web --cache ~ci/ci-data/npm`.
 - 03:00 is server time (UTC unless set). No DST transition falls at 03:00 UTC.
+
+### CI split: Jetson and megamind
+
+Only C++ and the Python that runs on the robot needs the Jetson. Everything else runs on
+megamind, which has an NVIDIA GPU, x86 TensorRT 10.14, `mujoco`, the datasets and the tailnet.
+GitHub gets no runner: a GitHub self-hosted runner on a public repo runs fork PRs' code, and a
+Forgejo runner only runs what I push to Forgejo.
+
+| Suite | Jetson (`jetson`) | megamind (`x86`) | Dev box / Stop hook |
+|---|---|---|---|
+| gtest, debug build | push | | yes |
+| `--playback` lockstep | push | | yes |
+| `--realtime` | nightly | | yes |
+| pytest marked `jetson` | push | push | yes |
+| every other pytest | | push | yes |
+| pytest marked `slow` | nightly | nightly | full runs |
+| pytest marked `gpu` | nightly | nightly, GPU queue idle | full runs |
+| pytest synthetic (Python 3.11) | | push | yes |
+| firmware native | | push | yes |
+| web check and vitest | | push | yes |
+| lint formatters, ruff, taplo, prettier, comment budget | | push, `--dry-run` | yes, apply |
+| lint `protocol.ts` | push, `--dry-run` | | yes, apply |
+| release build of every target | nightly | | |
+| clean build (`build-test/` removed, FetchContent rerun) | nightly | | |
+| gtest under ASan (`AUTO_BATTLEBOT_SANITIZER=address`) | nightly | | |
+
+Push covers what a commit breaks and answers the same way every run. Nightly takes what is slow,
+noisy or GPU-heavy: `--realtime` compares against A/A bounds that box load moves, the `slow`
+tests take over 5 s each, an engine build takes minutes of GPU, and clean, release and ASan
+builds catch what the cached debug build hides. A nightly failure that can have a push-time test
+gets one.
+
+**`scripts/verify --target jetson|x86`.** Picks the suites in the table and adds the pytest
+`-m` expression. With no `--target`, `verify` runs everything, as now. `--nightly` adds the
+nightly rows for the target. In CI, lint runs `--dry-run`: a job checks the commit as pushed
+and never reformats its own checkout. `protocol.ts` needs `build/remote_protocol_dump`, so the
+Jetson job builds that one target into `build/` before lint.
+
+**Markers**, registered in `pyproject.toml` beside `slow`:
+
+- `jetson`: also run on the Jetson. megamind runs it too, so the module is covered on aarch64
+  and x86. Push expression on the Jetson: `-m "jetson and not slow and not gpu"`; on megamind:
+  `-m "not slow and not gpu"`.
+- `gpu`: needs a CUDA device for more than a smoke check. Nightly only.
+
+`jetson` candidates, from what runs on the box:
+
+- `auto_battlebot/tensorrt_build.py`
+- `training/yolo/convert_to_tensorrt.py`, `training/deeplab/convert_to_tensorrt.py`, also `gpu`
+  for the real engine build
+- `auto_battlebot/perception/` modules that load TensorRT engines
+- `service/dashboard_kiosk.py`, which the kiosk unit runs with the system `/usr/bin/python3 -I`
+- `auto_battlebot/verify/` playback tests
+- Every Python entry point named by `service/*.service`, `scripts/deploy_to_jetson.sh` and the
+  `install/*.sh` scripts. A grep over those lists the rest before the markers go in.
+
+**megamind runner.** Same setup as compute-1 (box setup steps 3 to 5, runner, systemd unit)
+with label `x86:host`, with these differences:
+
+- No `tag:ci`: megamind is my workstation and shared out, and the tag would drop my own access.
+  The `ci` nftables egress table still keeps jobs off the LAN and the tailnet.
+- The unit runs in a slice that caps it beside training: `CPUQuota=400%`, `MemoryMax=16G`,
+  `IOWeight=10`. A YOLO run's speed depends on the `.npy` cache staying in page cache, and the
+  memory cap limits how much of it a CI job can evict.
+- `gpu` tests run only when `training/gpu_queue.py status --json` shows no running job. When it
+  does, the step prints "gpu tests deferred: queue busy" and passes.
+- Its own `~ci/venv` from `scripts/setup_python.sh`, x86 torch and TensorRT included, and its own
+  ccache.
+
+**Merge gate.** The relay posts one GitHub status per job, `forgejo/push/jetson` and
+`forgejo/push/x86`, and the `main` ruleset requires both.
+
+**Failures this split resolves**, from push run 3 on compute-1 (2026-11-27):
+
+- `mujoco` is x86 only (`pyproject.toml:46`); its importing tests move to megamind.
+- `training/synthetic/` imports `tomllib` and needs 3.11; it moves to megamind.
+- Lint applied fixes in the job's checkout and failed on a missing `remote_protocol_dump`.
+
+Still Jetson work: add `ci` to the `zed` group (`/usr/local/zed` is `ben:zed 0770`, so the probe
+built `BUILD_WITH_ZED=OFF`), `ffmpeg` in `install/jetson_packages.txt`, and the unused
+`mcap_recorder` parameter in `src/rgbd_camera/config.cpp:61` that fails `-Werror` without ZED.
 
 ## WP-V14: deploy warning and report-back
 
@@ -497,7 +605,9 @@ reopens the task. The agent still pushes only when asked.
 ## Next steps
 
 1. WP-V12: add the Forgejo tile to `caddy/site/index.html` and the row to the home-apps README.
-2. WP-V13: run the runner under systemd, write `ci_clips.py`,
-   `ci/link_data.sh`, `ci/build_engines.sh` and the two workflows, record Jetson baselines.
-3. WP-V14: write `auto_battlebot/ci/status.py`, the deploy warning, `ci-status-relay`, the GitHub
+2. WP-V13: fix the push run 3 failures (`zed` group, `ffmpeg`, `config.cpp:61`), write
+   `verify --target`/`--nightly`, the `jetson` and `gpu` markers, `ci_clips.py`,
+   `ci/build_engines.sh` and `nightly.yml`, record Jetson baselines.
+3. WP-V13: set up the megamind runner (`x86:host`, capped slice, GPU queue gate).
+4. WP-V14: write `auto_battlebot/ci/status.py`, the deploy warning, `ci-status-relay`, the GitHub
    ruleset and the CLAUDE.md report-back line.
