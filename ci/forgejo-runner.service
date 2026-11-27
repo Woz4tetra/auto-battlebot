@@ -1,0 +1,14 @@
+[Unit]
+Description=Forgejo Actions runner
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+User=ci
+WorkingDirectory=/home/ci/runner
+ExecStart=/home/ci/bin/forgejo-runner daemon --config /home/ci/runner/config.yml
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
