@@ -9,9 +9,13 @@ GitHub stays the public source of truth and gets no runner. Each `git push` also
 Forgejo runs `.forgejo/workflows/*.yml` on the Jetson and stores a pass or fail status on the
 commit.
 
-## Status (2026-11-26)
+## Status (2026-11-27)
 
-Nothing is built yet. Facts this plan depends on, checked on 2026-11-26:
+WP-V12 is up except the landing tile and README row: Forgejo 17.0.2 serves `/forgejo/`, SSH on
+2222 takes pushes, and `origin` pushes to GitHub and Forgejo. compute-1 is on the tailnet and
+runs JetPack 6.2.1, the supported JetPack 6. All of WP-V13 and WP-V14 is still to do.
+
+Facts this plan depends on, checked on 2026-11-26:
 
 - home-apps runs as compose project `home-apps` from `~/home-app` on genericservername. Caddy
   (`home-apps-caddy`, host port 23100) is the only `tailscale serve` target. Apps mount at
@@ -196,19 +200,49 @@ Done when a push runs `--fast` and `--playback` on the Jetson and the commit tur
 
 ### Box setup
 
-1. Reflash the spare Orin NX to JetPack 6.2.3 / L4T R36.5 to match the ZED Box Mini. A JP6.2.3
-   flash from pathfinder failed once when the board dropped out of recovery mode, so check `lsusb`
-   for the NVIDIA recovery device right before starting.
+1. Flash the spare Orin NX to JetPack 6.2.1 / L4T R36.4, the JetPack 6 release the install
+   scripts accept and the one the ZED Box Mini runs. Done: `auto-battlebot-compute-1` runs
+   R36.4.4, CUDA 12.6, TensorRT 10.3, ZED SDK 5.2.3.
 2. Install Tailscale and join the tailnet.
 3. Sync the repo with `scripts/deploy_to_jetson.sh <host> --sync-only`, then run
-   `scripts/install_jetson_ci.sh` on the box. Add `ccache` to `install/jetson_packages.txt` if it
-   is missing.
+   `scripts/install_jetson_ci.sh` on the box. `ccache` is in `install/jetson_packages.txt` since
+   c857b071. A tool still missing after the install is a bug in the install scripts, so fix them
+   there and not on the box.
 4. Create the `ci` user: no sudo, no SSH keys, no tokens in its home.
-5. Block the robot network for `ci`:
-   ```bash
-   nft add rule inet filter output meta skuid ci ip daddr 10.42.42.0/24 reject
+5. Confine `ci`'s egress. Jobs run any code pushed to Forgejo, so `ci` reaches Forgejo and the
+   public internet (FetchContent, pip, npm, `data.forgejo.org`) and nothing else: no home LAN, no
+   robot network (10.42.42.0/24), no other tailnet device. Put a table of its own in
+   `/etc/nftables.d/ci_egress.nft` and include it from `/etc/nftables.conf`. Load it with
+   `nft -f` on that file, never by restarting `nftables.service`, whose `flush ruleset` also
+   drops the rules tailscaled added. Create the `ci` user first, because nft resolves `skuid`
+   names at load:
    ```
-   Persist it in `/etc/nftables.conf`.
+   table inet ci_egress {
+     chain output {
+       type filter hook output priority 0; policy accept;
+       meta skuid != "ci" accept
+       oifname "lo" accept
+       ip daddr 100.97.149.90 tcp dport 443 accept
+       ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10 } reject
+       ip6 daddr { fc00::/7, fe80::/10 } reject
+     }
+   }
+   ```
+   DNS still works: `ci` asks systemd-resolved on 127.0.0.53, and resolved forwards to MagicDNS as
+   its own user.
+6. Tag the box `tag:ci` in Tailscale so a job with root on the box still reaches only Forgejo. In
+   the tailnet policy, replace a `"src": ["*"]` allow-all rule with `autogroup:member`, which
+   excludes tagged devices, then add:
+   ```json
+   "tagOwners": { "tag:ci": ["autogroup:admin"] },
+   "hosts": { "genericservername": "100.97.149.90" },
+   "acls": [
+     { "action": "accept", "src": ["autogroup:member"], "dst": ["*:*"] },
+     { "action": "accept", "src": ["tag:ci"], "dst": ["genericservername:443"] }
+   ]
+   ```
+   Then add `tag:ci` to the box under Machines, Edit ACL tags, in the admin console. Members can
+   still SSH in.
 
 ### Runner
 
@@ -315,6 +349,9 @@ jobs:
 - A fresh checkout has no `venv/`, and building one per job costs minutes, so `ci` keeps one
   venv at `~ci/venv` that `ci/link_data.sh` links in. Rebuild it with
   `scripts/setup_python.sh` when `pyproject.toml` changes; a stale venv fails the job at import.
+- A fresh checkout also lacks the other untracked inputs `scripts/verify` reads:
+  `third_party/foxglove` and `web/node_modules`. `ci/link_data.sh` links
+  `~ci/ci-data/third_party/foxglove` and runs `npm ci --prefix web --cache ~ci/ci-data/npm`.
 - 03:00 is server time (UTC unless set). No DST transition falls at 03:00 UTC.
 
 ## WP-V14: deploy warning and report-back
@@ -350,6 +387,38 @@ python -m auto_battlebot.ci.status --wait HEAD     # polls every 30 s, stops at 
 anything other than success it prints one `WARNING:` line saying why (red, pending, dirty tree,
 HEAD not pushed, Forgejo unreachable) and continues. It never refuses (Q42).
 
+### GitHub merge gate
+
+GitHub blocks merges to `main` until the Forgejo run on the PR head passes.
+
+- **Relay.** A home-apps service, `ci-status-relay`, on genericservername polls Forgejo's runs
+  every 30 s and posts each result to GitHub as a commit status with context `forgejo/push`
+  (pending, success, failure, error). It sets no `target_url`, since the repo is public and the
+  URL would show the tailnet hostname. Its token is a fine-grained GitHub PAT with only Commit
+  statuses read and write on `Woz4tetra/auto-battlebot`, in an env file of its own and not the
+  shared home-apps `.env`. It only reads Forgejo and only writes statuses, so it never starts a
+  run.
+- **Ruleset.** On `main`: require a pull request, require status check `forgejo/push`, admin may
+  bypass.
+- **Merging.** Merge locally with a fast-forward, so the sha that passed is the sha on `main` and
+  the dual-push `origin` updates both forges in one push. GitHub marks the PR merged on its own.
+  ```bash
+  git checkout main
+  git merge --ff-only <branch>
+  git push origin main
+  ```
+  The push uses the admin bypass. A merge in GitHub's web UI makes a new sha that Forgejo never
+  sees: nightly then tests a stale `main` and the deploy warning fires on every merge commit.
+- **Fork PRs.** Forgejo never fetches from GitHub, so a fork PR waits on `forgejo/push` until I
+  push it to Forgejo. Read the whole diff first, mainly `.forgejo/workflows/`, `scripts/`,
+  `install/`, CMake files, `conftest.py` and test fixtures, since `scripts/verify` runs all of
+  them. Then:
+  ```bash
+  git fetch origin pull/<N>/head:pr-<N>
+  git push forgejo:beb/auto-battlebot.git pr-<N>
+  ```
+  The head sha matches on both forges, so the relay's status lands on the PR.
+
 ### Agent report-back
 
 Add to the root `CLAUDE.md` under Validation: after a push the user asked for, run
@@ -362,6 +431,8 @@ reopens the task. The agent still pushes only when asked.
 | --- | --- | --- |
 | Dev box off the tailnet | Forgejo push fails after GitHub took it | Push again on the tailnet. CI for that sha runs late |
 | Jetson offline | Runs stay queued, statuses stay pending | Runner admin page shows offline. Deploy warns "pending" |
+| Fork PR code runs on the box | A pushed PR runs its own scripts as `ci` | Read the diff before pushing. `ci` egress and `tag:ci` keep it off the LAN and tailnet |
+| Merged in GitHub's UI | Forgejo `main` goes stale, the merge sha never gets a status | Merge locally with `--ff-only` |
 | Cold C++ build on the Orin NX | Push runs are slow | ccache in `ci-data`. Measure both builds in WP-V13 |
 | Clip drift | `--playback` compares against the wrong frames | Manifest check fails the job before any test runs |
 | Engine built on the wrong TensorRT | Engine load fails | Cache key includes the TensorRT version |
@@ -377,10 +448,8 @@ reopens the task. The agent still pushes only when asked.
 
 ## Next steps
 
-1. WP-V12: add the compose service, the Caddy block and the tile on genericservername, create the
-   account and repo, add the second push URL, push.
-2. WP-V13: reflash the spare Orin NX (needs the board in recovery mode), run
-   `install_jetson_ci.sh`, register the runner, write `ci_clips.py`, `ci/link_data.sh`,
-   `ci/build_engines.sh` and the two workflows, record Jetson baselines.
-3. WP-V14: write `auto_battlebot/ci/status.py`, the deploy warning and the CLAUDE.md
-   report-back line.
+1. WP-V12: add the Forgejo tile to `caddy/site/index.html` and the row to the home-apps README.
+2. WP-V13: finish box setup steps 3 to 6 on compute-1, register the runner, write `ci_clips.py`,
+   `ci/link_data.sh`, `ci/build_engines.sh` and the two workflows, record Jetson baselines.
+3. WP-V14: write `auto_battlebot/ci/status.py`, the deploy warning, `ci-status-relay`, the GitHub
+   ruleset and the CLAUDE.md report-back line.
