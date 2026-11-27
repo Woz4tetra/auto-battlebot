@@ -1,4 +1,5 @@
 #ifdef BUILD_WITH_ZED
+#include <dlfcn.h>
 #include <gtest/gtest.h>
 
 #include <atomic>
@@ -169,6 +170,19 @@ TEST(ZedSvoPlaybackFakeDeviceTest, CloseWaitsForAPendingOpenAndSkipsCloseWhenItL
         const std::vector<std::string> expected = {"await"};
         EXPECT_EQ(log.snapshot(), expected);
     }
+}
+
+TEST(ZedDevicePinTest, APinnedLibraryStaysLoadedAfterItsLastHandleCloses) {
+    const std::string path = "/usr/local/zed/lib/libsl_ai.so";
+    ASSERT_TRUE(pin_shared_library(path));
+    void *handle = dlopen(path.c_str(), RTLD_NOW);
+    ASSERT_NE(handle, nullptr);
+    ASSERT_EQ(dlclose(handle), 0);
+    EXPECT_NE(dlopen(path.c_str(), RTLD_NOW | RTLD_NOLOAD), nullptr);
+}
+
+TEST(ZedDevicePinTest, AMissingLibraryIsReportedNotThrown) {
+    EXPECT_FALSE(pin_shared_library("/nonexistent/libsl_ai.so"));
 }
 
 TEST(ZedDeviceOpenTimeoutTest, AWedgedOpenIsLeakedAndDestroyingTheDeviceDoesNotBlock) {

@@ -1,5 +1,6 @@
 #include "rgbd_camera/zed_device.hpp"
 
+#include <dlfcn.h>
 #include <spdlog/spdlog.h>
 
 #include <Eigen/Dense>
@@ -24,6 +25,16 @@ void warn_if_slow(const std::chrono::steady_clock::time_point &start, const char
     if (ms > warn_ms) {
         spdlog::warn("validation: {} slow elapsed_ms={:.2f}", label, ms);
     }
+}
+
+void pin_zed_ai_library_once(const std::string &path) {
+    static std::once_flag pinned;
+    std::call_once(pinned, [&path] {
+        if (!pin_shared_library(path)) {
+            spdlog::warn("ZedDevice: could not pin {} ({}); reopening a camera may crash", path,
+                         dlerror());
+        }
+    });
 }
 
 std::vector<std::future<sl::ERROR_CODE>> *g_leaked_open_futures =
@@ -61,7 +72,12 @@ bool ZedDevice::await_or_leak_open(const char *context, const char *validation_l
     return true;
 }
 
+bool pin_shared_library(const std::string &path) {
+    return dlopen(path.c_str(), RTLD_NOW | RTLD_NODELETE) != nullptr;
+}
+
 ZedDevice::OpenResult ZedDevice::open(const std::atomic<bool> &cancel) {
+    pin_zed_ai_library_once(options_.ai_library);
     pending_open_ = std::async(
         std::launch::async, [camera = camera_, params = params_, open_call = options_.open_call]() {
             return open_call(*camera, params);

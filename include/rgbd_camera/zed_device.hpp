@@ -58,6 +58,8 @@ inline sl::DEPTH_MODE get_zed_depth_mode(DepthMode depth_mode) {
     throw std::invalid_argument("Unknown DepthMode value");
 }
 
+bool pin_shared_library(const std::string &path);
+
 class ZedDevice {
    public:
     enum class GrabStatus { Ok, TransientError, EndOfFile, Fatal };
@@ -66,6 +68,7 @@ class ZedDevice {
 
     struct Options {
         std::chrono::milliseconds open_hard_timeout{30000};
+        std::string ai_library = "/usr/local/zed/lib/libsl_ai.so";
         std::function<sl::ERROR_CODE(sl::Camera &, const sl::InitParameters &)> open_call =
             [](sl::Camera &camera, const sl::InitParameters &params) {
                 return camera.open(params);
