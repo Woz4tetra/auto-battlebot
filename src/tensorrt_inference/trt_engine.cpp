@@ -5,8 +5,10 @@
 #include <cuda_runtime.h>
 #include <spdlog/spdlog.h>
 
+#include <array>
 #include <chrono>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <new>
 
@@ -107,10 +109,32 @@ TrtEngine::ScopedQuietLogging::ScopedQuietLogging() { ++t_quiet_depth; }
 
 TrtEngine::ScopedQuietLogging::~ScopedQuietLogging() { --t_quiet_depth; }
 
+constexpr std::array<char, 4> kEngineMagic{'f', 't', 'r', 't'};
+constexpr std::streamoff kEngineSizeOffset = 16;
+
+bool engine_header_matches_file(const std::string& engine_path) {
+    std::ifstream file(engine_path, std::ios::binary);
+    std::array<char, 4> magic{};
+    uint64_t declared_size = 0;
+    if (!file.read(magic.data(), magic.size()) || magic != kEngineMagic) return false;
+    if (!file.seekg(kEngineSizeOffset) ||
+        !file.read(reinterpret_cast<char*>(&declared_size), sizeof(declared_size))) {
+        return false;
+    }
+    std::error_code error;
+    const auto actual_size = std::filesystem::file_size(engine_path, error);
+    return !error && declared_size == actual_size;
+}
+
 bool TrtEngine::load(const std::string& engine_path) {
     FileStreamReader reader(engine_path);
     if (!reader.is_open()) {
         log_load_failure(fmt::format("TrtEngine: cannot open file: {}", engine_path));
+        return false;
+    }
+    if (!engine_header_matches_file(engine_path)) {
+        log_load_failure(fmt::format(
+            "TrtEngine: {} is not a whole TensorRT engine (bad magic or truncated)", engine_path));
         return false;
     }
 

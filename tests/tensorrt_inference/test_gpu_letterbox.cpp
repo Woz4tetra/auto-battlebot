@@ -37,10 +37,9 @@ std::vector<float> legacy_yolo_cpu_preprocess(const cv::Mat &image) {
     const LetterboxGeometry g =
         compute_letterbox_geometry(bgr.cols, bgr.rows, kTensorWidth, kTensorHeight, kPadding);
     cv::Mat resized;
-    if (g.resized_width == bgr.cols && g.resized_height == bgr.rows) {
-        resized = bgr.clone();
-    } else {
-        cv::resize(bgr, resized, cv::Size(g.resized_width, g.resized_height), 0, 0,
+    bgr.convertTo(resized, CV_32F);
+    if (g.resized_width != bgr.cols || g.resized_height != bgr.rows) {
+        cv::resize(resized, resized, cv::Size(g.resized_width, g.resized_height), 0, 0,
                    cv::INTER_LINEAR);
     }
     cv::copyMakeBorder(resized, resized, g.top, kTensorHeight - g.top - g.resized_height, g.left,

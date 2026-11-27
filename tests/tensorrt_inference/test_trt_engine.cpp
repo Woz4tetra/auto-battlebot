@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -55,6 +56,41 @@ size_t count_error_lines_during_garbage_load(bool quiet) {
         if (message.level >= spdlog::level::err) ++errors;
     }
     return errors;
+}
+
+std::filesystem::path write_engine_header(const std::string &name, uint64_t declared_size,
+                                          size_t actual_size) {
+    const std::filesystem::path path = std::filesystem::temp_directory_path() / name;
+    std::string bytes(actual_size, '\0');
+    std::memcpy(bytes.data(), "ftrt", 4);
+    std::memcpy(bytes.data() + 16, &declared_size, sizeof(declared_size));
+    std::ofstream(path, std::ios::binary) << bytes;
+    return path;
+}
+
+TEST(TrtEngineTest, HeaderCheckRejectsGarbageAndTruncatedFiles) {
+    const std::filesystem::path garbage = write_garbage_engine();
+    const auto whole = write_engine_header("auto_battlebot_whole.engine", 4096, 4096);
+    const auto truncated = write_engine_header("auto_battlebot_truncated.engine", 8192, 4096);
+    EXPECT_FALSE(engine_header_matches_file(garbage.string()));
+    EXPECT_TRUE(engine_header_matches_file(whole.string()));
+    EXPECT_FALSE(engine_header_matches_file(truncated.string()));
+    EXPECT_FALSE(engine_header_matches_file("/nonexistent/auto_battlebot.engine"));
+    for (const auto &path : {garbage, whole, truncated}) std::filesystem::remove(path);
+}
+
+TEST(TrtEngineTest, EveryEngineUnderDataModelsPassesTheHeaderCheck) {
+    const std::filesystem::path models =
+        std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() / "data" /
+        "models";
+    if (!std::filesystem::exists(models)) GTEST_SKIP() << "no data/models";
+    int checked = 0;
+    for (const auto &entry : std::filesystem::directory_iterator(models)) {
+        if (entry.path().extension() != ".engine") continue;
+        EXPECT_TRUE(engine_header_matches_file(entry.path().string())) << entry.path();
+        ++checked;
+    }
+    if (checked == 0) GTEST_SKIP() << "no engines under data/models";
 }
 
 TEST(TrtEngineTest, ProbeRejectionIsNotLoggedAsError) {

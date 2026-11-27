@@ -130,3 +130,13 @@ def test_jetson_skips_pytest_when_no_changed_test_is_marked(tmp_path: Path) -> N
     assert names(suites.plan(tmp_path, Selection(scopes), target="jetson")) == []
     scopes["pytest"] = Scope(run=True, items={"auto_battlebot/tests/test_trt.py"})
     assert names(suites.plan(tmp_path, Selection(scopes), target="jetson")) == ["pytest"]
+
+
+def test_gtest_runs_with_a_private_tmpdir_inside_its_build(tmp_path: Path) -> None:
+    run = next(
+        step
+        for step in suites.gtest_group(tmp_path, everything()).steps
+        if step.name == "gtest run"
+    )
+    assert run.env["TMPDIR"] == str(tmp_path / "build-test" / "tmp")
+    assert (tmp_path / "build-test" / "tmp").is_dir()

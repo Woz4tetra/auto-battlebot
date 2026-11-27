@@ -155,7 +155,9 @@ def gtest_group(
     scope = selection.scopes["gtest"]
     if not scope.everything:
         command.append(f"--gtest_filter={gtest_filter(scope.items)}")
-    steps.append(Step(f"{label} run", command, build))
+    scratch = build / "tmp"
+    scratch.mkdir(parents=True, exist_ok=True)
+    steps.append(Step(f"{label} run", command, build, {"TMPDIR": str(scratch)}))
     if protocol_check:
         steps.append(make_step("protocol dump build", build, PROTOCOL_DUMP_TARGET, root))
         steps.append(

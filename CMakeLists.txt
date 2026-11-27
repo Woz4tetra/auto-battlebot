@@ -165,6 +165,7 @@ pkg_check_modules(GST IMPORTED_TARGET gstreamer-1.0 gstreamer-app-1.0)
 
 include(cmake/ZedProbe.cmake)
 message(STATUS "BUILD_WITH_ZED: ${BUILD_WITH_ZED}")
+set(CUDA_USE_STATIC_CUDA_RUNTIME ON CACHE BOOL "Link the static CUDA runtime" FORCE)
 find_package(CUDA REQUIRED)
 find_package(TensorRT REQUIRED)
 

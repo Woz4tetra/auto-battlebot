@@ -11,6 +11,9 @@
 #include "tensorrt_inference/cuda_handles.hpp"
 
 namespace auto_battlebot {
+
+bool engine_header_matches_file(const std::string& engine_path);
+
 class TrtEngine {
    public:
     struct OutputTensorInfo {
