@@ -1,7 +1,14 @@
 name: push
 on: push
 jobs:
-  verify:
+  jetson:
     uses: ./.forgejo/workflows/verify.yml
     with:
-      args: --fast
+      runs-on: jetson
+      args: --fast --playback --target jetson
+      jetson-data: true
+  x86:
+    uses: ./.forgejo/workflows/verify.yml
+    with:
+      runs-on: x86
+      args: --fast --target x86

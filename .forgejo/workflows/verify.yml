@@ -2,12 +2,18 @@ name: verify
 on:
   workflow_call:
     inputs:
+      runs-on:
+        type: string
+        required: true
       args:
         type: string
         required: true
+      jetson-data:
+        type: boolean
+        default: false
 jobs:
   verify:
-    runs-on: jetson
+    runs-on: ${{ inputs.runs-on }}
     steps:
       - name: checkout
         env:
@@ -22,5 +28,11 @@ jobs:
           git checkout -q --detach FETCH_HEAD
       - name: link data
         run: ci/link_data.sh
+      - name: check clips
+        if: ${{ inputs.jetson-data }}
+        run: venv/bin/python -m auto_battlebot.verify.ci_clips check
+      - name: build engines
+        if: ${{ inputs.jetson-data }}
+        run: ci/build_engines.sh
       - name: verify ${{ inputs.args }}
         run: scripts/verify ${{ inputs.args }}

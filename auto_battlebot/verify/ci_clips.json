@@ -1,0 +1,26 @@
+{
+  "data/models/field_deeplabv3p_r50_2026-07-29.pth": {
+    "bytes": 107072139,
+    "sha256": "fc5532ad8e6002c3ca90b236fead4f5938741c9ccc57c3a6863c41f33b79a74b"
+  },
+  "data/models/field_deeplabv3p_r50_2026-07-29.toml": {
+    "bytes": 91,
+    "sha256": "89af4bd50f70056a9a6f21f64d84760270fe0bc0a7d51b0e06f92c3f94dca66e"
+  },
+  "data/models/yolo26l-pose_all_keypoints_2026-09-25_rect416x640.onnx": {
+    "bytes": 102781760,
+    "sha256": "25e27a510fbf1279a36326cc45a9297c0670117d7d338e2cb4663f8b91664e7f"
+  },
+  "data/svo/NHRL_2026-05-02/2026-05-02T10-06-06.svo2": {
+    "bytes": 800604005,
+    "sha256": "22087bca1bcbe48e89ccceff7b078dbd51767f54243714a5a370bf432b30b933"
+  },
+  "data/svo/NHRL_2026-05-02/2026-05-02T11-45-08.svo2": {
+    "bytes": 1004552227,
+    "sha256": "d58e7cca26f6777541d3e7d57fdee6830e8bdcc59f446ff9e6991bc49febc900"
+  },
+  "data/svo/NHRL_2026-05-02/2026-05-02T14-12-27.svo2": {
+    "bytes": 631933601,
+    "sha256": "e90ddd723450a1cf04fb2b5761262de393b98ccbb67b37b5ac5d558ee0c37f0e"
+  }
+}

@@ -7,6 +7,7 @@ type = "DeepLabMaskModel"
 candidates = [
   "data/models/field_deeplabv3p_r50_2026-07-29_x86_64_sm89.engine",
   "data/models/field_deeplabv3p_r50_2026-07-29_x86_64_sm86.engine",
+  "data/models/field_deeplabv3p_r50_2026-07-29_aarch64_sm87.engine",
 ]
 
 [keypoint_model]
@@ -18,6 +19,7 @@ threshold = 0.4
 candidates = [
   "data/models/yolo26l-pose_all_keypoints_2026-09-25_rect416x640_x86_64_sm89.engine",
   "data/models/yolo26l-pose_all_keypoints_2026-09-25_rect416x640_x86_64_sm86.engine",
+  "data/models/yolo26l-pose_all_keypoints_2026-09-25_rect416x640_aarch64_sm87.engine",
 ]
 
 [mcap]

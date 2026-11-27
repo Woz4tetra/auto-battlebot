@@ -16,6 +16,7 @@ from auto_battlebot.recording.mcap_io import iter_video_frames
 ENGINE_CANDIDATES = [
     "data/models/yolo26l-pose_all_keypoints_2026-09-25_rect416x640_x86_64_sm89.engine",
     "data/models/yolo26l-pose_all_keypoints_2026-09-25_rect416x640_x86_64_sm86.engine",
+    "data/models/yolo26l-pose_all_keypoints_2026-09-25_rect416x640_aarch64_sm87.engine",
 ]
 LABELS = ["MR_STABS_MK2", "MRS_BUFF_MK3", "OPPONENT", "HOUSE_BOT"]
 OUR_ROBOT = LABELS.index("MR_STABS_MK2")

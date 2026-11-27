@@ -1,0 +1,46 @@
+name: nightly
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+jobs:
+  changed:
+    runs-on: jetson
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        env:
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          last=$(cat ~/ci-data/nightly_last_sha 2>/dev/null || true)
+          if [ "$EVENT" = workflow_dispatch ] || [ "$SHA" != "$last" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "main unchanged since the nightly of $last; skipping"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+  jetson:
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
+    uses: ./.forgejo/workflows/verify.yml
+    with:
+      runs-on: jetson
+      args: --nightly --target jetson
+      jetson-data: true
+  x86:
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
+    uses: ./.forgejo/workflows/verify.yml
+    with:
+      runs-on: x86
+      args: --nightly --target x86
+  record:
+    needs: [changed, jetson, x86]
+    if: always() && needs.changed.outputs.run == 'true'
+    runs-on: jetson
+    steps:
+      - env:
+          SHA: ${{ github.sha }}
+        run: echo "$SHA" > ~/ci-data/nightly_last_sha
