@@ -13,8 +13,22 @@ commit.
 ## Status (2026-11-27)
 
 WP-V12 is up except the landing tile and README row: Forgejo 17.0.2 serves `/forgejo/`, SSH on
-2222 takes pushes, and `origin` pushes to GitHub and Forgejo. compute-1 is on the tailnet and
-runs JetPack 6.2.1, the supported JetPack 6. All of WP-V13 and WP-V14 is still to do.
+2222 takes pushes, and `origin` pushes to GitHub and Forgejo. compute-1 runs the `jetson` runner
+(`auto-battlebot-compute-1`) under systemd, `ci` egress-limited and tagged `tag:ci`.
+
+Code written: `verify --target`/`--nightly`, the `jetson` and `gpu` markers, `scripts/lint
+--strict/--only/--skip/--protocol-dump`, `verify.ci_clips`, `verify.ci_engines` with
+`ci/build_engines.sh`, `push.yml`, `nightly.yml`, `auto_battlebot/ci/status.py`, the deploy
+warning, and `auto_battlebot/ci/relay.py`. The playback profiles list the `aarch64_sm87` engines
+beside the x86 ones. Still on boxes and accounts: the megamind runner, Jetson playback baselines,
+the relay container and its GitHub token, the `main` ruleset, the landing tile.
+
+- The status client reads the forge URL and repo from `~/.config/auto-battlebot/forgejo.toml`, so
+  the tailnet hostname stays out of the code.
+- The relay is one stdlib file with no `auto_battlebot` imports, so the home-apps container runs
+  it with a stock Python image and the file mounted.
+- `ci/forgejo-runner.service` is the runner unit for both boxes; megamind adds
+  `ci/forgejo-runner-x86-limits.conf` as a drop-in.
 
 Facts this plan depends on, checked on 2026-11-26:
 
