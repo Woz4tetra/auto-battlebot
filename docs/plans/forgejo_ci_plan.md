@@ -56,7 +56,7 @@ There are three machines and one rule for each link:
 3. Forgejo queues one job with `runs-on: jetson` and sets the commit status to pending.
 4. The runner is idle at capacity 1, gets the job on its next poll, and runs the steps as `ci` in
    a fresh directory:
-   1. Check out the sha.
+   1. Check out the sha with `git fetch --depth=1`.
    2. `ci/link_data.sh`: symlink `~ci/ci-data/svo` and `~ci/ci-data/models` into `data/` and
       `~ci/venv` to `venv/`, then point the venv's editable install at this checkout.
    3. `python -m auto_battlebot.verify.ci_clips check`: sha256 of every clip against the
@@ -210,7 +210,7 @@ Done when a push runs `--fast` and `--playback` on the Jetson and the commit tur
    there and not on the box.
 4. Create the `ci` user: no sudo, no SSH keys, no tokens in its home.
 5. Confine `ci`'s egress. Jobs run any code pushed to Forgejo, so `ci` reaches Forgejo and the
-   public internet (FetchContent, pip, npm, `data.forgejo.org`) and nothing else: no home LAN, no
+   public internet (FetchContent, pip, npm) and nothing else: no home LAN, no
    robot network (10.42.42.0/24), no other tailnet device. Put a table of its own in
    `/etc/nftables.d/ci_egress.nft` and include it from `/etc/nftables.conf`. Load it with
    `nft -f` on that file, never by restarting `nftables.service`, whose `flush ruleset` also
@@ -335,7 +335,17 @@ jobs:
   verify:
     runs-on: jetson
     steps:
-      - uses: actions/checkout@v4
+      - name: checkout
+        env:
+          TOKEN: ${{ github.token }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          git -c init.defaultBranch=main init -q .
+          git -c http.extraHeader="Authorization: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)" \
+            fetch -q --depth=1 "$SERVER/$REPO.git" "$SHA"
+          git checkout -q --detach FETCH_HEAD
       - run: ci/link_data.sh
       - run: venv/bin/python -m auto_battlebot.verify.ci_clips check
       - run: ci/build_engines.sh
@@ -355,15 +365,28 @@ jobs:
   realtime:
     runs-on: jetson
     steps:
-      - uses: actions/checkout@v4
+      - name: checkout
+        env:
+          TOKEN: ${{ github.token }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          git -c init.defaultBranch=main init -q .
+          git -c http.extraHeader="Authorization: basic $(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)" \
+            fetch -q --depth=1 "$SERVER/$REPO.git" "$SHA"
+          git checkout -q --detach FETCH_HEAD
       - run: ci/link_data.sh
       - run: venv/bin/python -m auto_battlebot.verify.ci_clips check
       - run: ci/build_engines.sh
       - run: scripts/verify --realtime
 ```
 
-- `actions/checkout@v4` resolves from `data.forgejo.org` and runs on the Node that
-  `install_jetson_ci.sh` installs.
+- The checkout step is plain `git`, not `actions/checkout`. `actions/checkout@v4` builds its
+  clone URL from the host alone and drops the `/forgejo/` sub-path, so it fetched
+  `https://genericservername.tail291fd.ts.net/beb/auto-battlebot/` and got "repository not found"
+  (smoke run 1, 2026-11-27). The `git` step passed in `.forgejo/workflows/smoke.yml` (600dd449).
+  `github.token` is the per-job token Forgejo issues, masked in the log.
 - A fresh checkout has no `venv/`, and building one per job costs minutes, so `ci` keeps one
   venv at `~ci/venv` that `ci/link_data.sh` links in. Rebuild it with
   `scripts/setup_python.sh` when `pyproject.toml` changes; a stale venv fails the job at import.
