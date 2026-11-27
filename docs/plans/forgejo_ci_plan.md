@@ -223,11 +223,14 @@ Done when a push runs `--fast` and `--playback` on the Jetson and the commit tur
        meta skuid != "ci" accept
        oifname "lo" accept
        ip daddr 100.97.149.90 tcp dport 443 accept
-       ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10 } reject
-       ip6 daddr { fc00::/7, fe80::/10 } reject
+       ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10 } drop
+       ip6 daddr { fc00::/7, fe80::/10 } drop
      }
    }
    ```
+   The rules `drop` because the L4T 5.15 kernel is built without `CONFIG_NFT_REJECT`, so nft
+   refuses `reject` with "No such file or directory". A blocked connection times out instead of
+   failing at once; `curl -m 5` exits 28.
    DNS still works: `ci` asks systemd-resolved on 127.0.0.53, and resolved forwards to MagicDNS as
    its own user.
 6. Tag the box `tag:ci` in Tailscale so a job with root on the box still reaches only Forgejo. In
