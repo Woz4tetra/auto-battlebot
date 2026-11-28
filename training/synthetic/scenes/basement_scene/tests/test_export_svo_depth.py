@@ -19,7 +19,7 @@ def export_svo_depth():
         except ImportError:
             pyzed = ModuleType("pyzed")
             sl = ModuleType("pyzed.sl")
-            sl.ERROR_CODE = SimpleNamespace(SUCCESS=0)
+            sl.ERROR_CODE = SimpleNamespace(SUCCESS=0, FAILURE=1)
             pyzed.sl = sl
             sys.modules["pyzed"] = pyzed
             sys.modules["pyzed.sl"] = sl

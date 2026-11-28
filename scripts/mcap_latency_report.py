@@ -298,7 +298,7 @@ def plot_stage_distributions(ax_box: Any, samples: LatencySamples, stats: list[S
         bp = ax_box.boxplot(
             data,
             vert=False,
-            labels=[s.stage for s in box_stats],
+            tick_labels=[s.stage for s in box_stats],
             showfliers=False,
             patch_artist=True,
             medianprops={"color": "#1f3a5f", "linewidth": 1.4},
