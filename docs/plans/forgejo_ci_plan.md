@@ -503,9 +503,11 @@ with label `x86:host`, with these differences:
 
 - No `tag:ci`: megamind is my workstation and shared out, and the tag would drop my own access.
   The `ci` nftables egress table still keeps jobs off the LAN and the tailnet.
-- The unit runs in a slice that caps it beside training: `CPUQuota=400%`, `MemoryMax=16G`,
+- The unit runs in a slice that caps it beside training: `CPUQuota=1600%`, `MemoryMax=32G`,
   `IOWeight=10`. A YOLO run's speed depends on the `.npy` cache staying in page cache, and the
-  memory cap limits how much of it a CI job can evict.
+  memory cap limits how much of it a CI job can evict. At `CPUQuota=400%` the x86 push job was
+  throttled in 40% of scheduling periods (4,015 of 9,943) and `lint --quick` took 257 s, against
+  7 s on the dev box (2026-11-27, tasks 21 and 24).
 - `gpu` tests run only when `training/gpu_queue.py status --json` shows no running job. When it
   does, the step prints "gpu tests deferred: queue busy" and passes.
 - Its own `~ci/venv` from `scripts/setup_python.sh`, x86 torch and TensorRT included, and its own
