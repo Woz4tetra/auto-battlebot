@@ -26,6 +26,7 @@ def test_warp_kernel_modules_keep_annotations_as_live_types(relative: str) -> No
     assert "annotations" not in futures
 
 
+@pytest.mark.gpu
 @needs_cuda
 def test_mj_quat_reads_mujoco_wxyz_order_for_yaw() -> None:
     import warp as wp
@@ -45,6 +46,7 @@ def test_mj_quat_reads_mujoco_wxyz_order_for_yaw() -> None:
     assert float(out.numpy()[0]) == pytest.approx(yaw, abs=1e-5)
 
 
+@pytest.mark.gpu
 @needs_cuda
 def test_truth_snapshot_survives_the_next_step() -> None:
     from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
@@ -60,6 +62,7 @@ def test_truth_snapshot_survives_the_next_step() -> None:
 
 
 @pytest.mark.slow
+@pytest.mark.gpu
 @needs_cuda
 def test_env_stays_finite_with_zero_floor_friction() -> None:
     from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
@@ -73,6 +76,7 @@ def test_env_stays_finite_with_zero_floor_friction() -> None:
         assert torch.isfinite(env.qpos).all()
 
 
+@pytest.mark.gpu
 @needs_cuda
 def test_cpu_weapon_sweep_matches_the_warp_kernel() -> None:
     import json

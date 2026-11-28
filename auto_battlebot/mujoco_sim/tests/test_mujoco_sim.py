@@ -323,6 +323,7 @@ def _has_cuda() -> bool:
     return bool(wp.get_cuda_device_count())
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not _has_cuda(), reason="needs mujoco_warp and a CUDA device")
 def test_warp_rollout_matches_cpu_on_a_straight_drive(
     mp: mass_properties.MassProperties, collision: CollisionSet

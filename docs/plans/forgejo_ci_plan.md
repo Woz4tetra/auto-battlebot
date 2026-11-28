@@ -510,6 +510,16 @@ with label `x86:host`, with these differences:
   does, the step prints "gpu tests deferred: queue busy" and passes.
 - Its own `~ci/venv` from `scripts/setup_python.sh`, x86 torch and TensorRT included, and its own
   ccache.
+- `nftables.service` stays disabled: its `flush ruleset` drops the rules Docker added.
+  `ci-egress.service`, a oneshot unit ordered before `forgejo-runner.service`, loads
+  `/etc/nftables.d/ci_egress.nft` with `nft -f`.
+- megamind runs Tailscale without MagicDNS, so `/etc/hosts` maps
+  `genericservername.tail291fd.ts.net` to `100.97.149.90`.
+- Build `~ci/venv` with `PATH`, `CUDA_ROOT` and `CPATH` pointing at `/usr/local/cuda`. Without
+  them the pycuda wheel build fails on `cuda.h`.
+- Tests that run Warp on CUDA carry the `gpu` marker. On the first run with an empty Warp kernel
+  cache, two `mujoco_warp` collision kernels were still compiling after 60 minutes under
+  `CPUQuota=400%` (2026-11-27, task 21).
 
 **Merge gate.** The relay posts one GitHub status per job, `forgejo/push/verify-jetson` and
 `forgejo/push/verify-x86`, and the `main` ruleset requires both. Forgejo expands each reusable

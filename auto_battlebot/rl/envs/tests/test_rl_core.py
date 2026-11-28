@@ -339,6 +339,7 @@ def test_opponent_does_not_push_through_us() -> None:
     assert v[1, 0] == pytest.approx(1.0, abs=1e-9)
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
 def test_warp_env_broadphase_bounds_follow_resized_geoms() -> None:
     """geom_rbound and geom_aabb match what MuJoCo compiles for the resized geoms."""
@@ -363,6 +364,7 @@ def test_warp_env_broadphase_bounds_follow_resized_geoms() -> None:
             np.testing.assert_allclose(aabb[world, g].ravel(), model.geom_aabb[0], atol=1e-6)
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
 def test_standing_still_costs_reward_and_driving_does_not() -> None:
     """A parked robot pays still_per_s every second it is out of contact; a driving one does not."""
@@ -451,6 +453,7 @@ def test_pursuit_turns_proportionally_without_chatter() -> None:
     assert abs(math.atan2(0.8 - pose[1], 0.8 - pose[0]) - pose[2]) < 0.1
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
 def test_pinned_in_the_arc_keeps_costing_hits() -> None:
     from auto_battlebot.rl.envs.warp_nav import OPP_MOCAP, WarpNavConfig, WarpNavEnv
@@ -766,6 +769,7 @@ def test_opponent_params_reject_bad_columns() -> None:
         build(corner=torch.tensor([0, 4]))
 
 
+@pytest.mark.gpu
 def test_policy_opponent_input_is_perspective_swapped() -> None:
     from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
 
@@ -789,6 +793,7 @@ def test_policy_opponent_input_is_perspective_swapped() -> None:
     assert torch.equal(inp.opp_yaw, tr["yaw"])
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
 def test_warp_command_chain_signs_match_the_app() -> None:
     from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
@@ -924,6 +929,7 @@ def test_bundle_spec_rejects_mismatched_selftest_arrays() -> None:
         BundleSpec("r", 1, 3, 3, {}, good, good.astype(np.float64))
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
 def test_privileged_layout_stable_for_mr_stabs() -> None:
     from auto_battlebot.rl.envs.warp_nav import PRIVILEGED_NAMES, WarpNavConfig, WarpNavEnv
@@ -932,6 +938,7 @@ def test_privileged_layout_stable_for_mr_stabs() -> None:
     assert stabs.privileged_names == PRIVILEGED_NAMES
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
 def test_set_stage_enabling_sensing_initializes_all_worlds() -> None:
     from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
@@ -950,6 +957,7 @@ def _episode(done: int, **cols: float) -> dict[str, torch.Tensor]:
     return {k: torch.full((done,), cols.get(k, 0.0), device="cuda") for k in keys}
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
 def test_curriculum_counts_only_current_stage_episodes() -> None:
     from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
@@ -961,6 +969,7 @@ def test_curriculum_counts_only_current_stage_episodes() -> None:
     assert env.success_window == [1.0, 1.0]
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
 def test_pursuit_window_counts_only_current_level() -> None:
     from auto_battlebot.rl.envs.opponents import PURSUIT
@@ -975,6 +984,7 @@ def test_pursuit_window_counts_only_current_level() -> None:
     assert env.pursuit_attack_success_window == [1.0, 1.0]
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
 def test_replay_episode_scene_clears_track_start() -> None:
     from auto_battlebot.rl.envs.opponents import BEHAVIOURS, REPLAY
@@ -995,6 +1005,7 @@ def test_replay_episode_scene_clears_track_start() -> None:
         assert torch.allclose(placed[replaying], xy[replaying], atol=1e-5)
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
 def test_export_scenarios_after_steps_refused() -> None:
     from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
@@ -1007,6 +1018,7 @@ def test_export_scenarios_after_steps_refused() -> None:
         env.export_scenarios()
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
 def test_diverged_world_ends_without_reward() -> None:
     from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv
@@ -1020,6 +1032,7 @@ def test_diverged_world_ends_without_reward() -> None:
     assert bool(torch.isfinite(step.reward).all())
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="WarpNavEnv runs on CUDA")
 def test_warp_sensing_ekf_leaves_gaps() -> None:
     from auto_battlebot.rl.envs.warp_nav import WarpNavConfig, WarpNavEnv

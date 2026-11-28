@@ -110,6 +110,7 @@ def test_one2one_scores_do_not_reach_the_neck_but_cv3_maps_do() -> None:
     assert reached
 
 
+@pytest.mark.gpu
 @pytest.mark.skipif(not __import__("torch").cuda.is_available(), reason="needs a CUDA device")
 def test_gradcam_returns_a_normalised_map_through_the_cv3_hooks(interpret) -> None:
     import numpy as np
